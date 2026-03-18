@@ -1,0 +1,286 @@
+﻿<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Skysites | Anfragen</title>
+  <meta
+    name="description"
+    content="Anfrage an Skysites senden: unverbindliche Testwebsite, klare Ersteinschätzung und strukturierter Projektstart."
+  >
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Onest:wght@300;400;500;600;700;800&display=swap"
+    rel="stylesheet"
+  >
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-page="anfragen">
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+  <div class="site-frame">
+    <header class="site-header">
+      <a class="brand" href="index.html" aria-label="Skysites Startseite">
+        <span class="brand-symbol"></span>
+        <span class="brand-wordmark">Skysites</span>
+      </a>
+
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+        <span></span>
+        <span></span>
+      </button>
+
+      <nav class="site-nav" id="site-nav" aria-label="Hauptnavigation">
+        <a href="index.html" data-nav="home">Homepage</a>
+        <a href="leistungen.html" data-nav="leistungen">Leistungen</a>
+        <a href="preise.html" data-nav="preise">Preise</a>
+        <a href="prozess.html" data-nav="prozess">Prozess</a>
+        <a class="nav-button" href="anfragen.html" data-nav="anfragen">Unverbindliche Vorschau</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="page-hero section">
+        <div class="section-head narrow" data-reveal>
+          <p class="eyebrow">Anfragen</p>
+          <h1>Fordert unverbindlich eure Vorschau an.</h1>
+          <p>
+            Ihr gebt die wichtigsten Infos an. Danach erstellen wir eine klare Einschätzung und auf
+            Wunsch eine erste Testwebsite als Vorschau.
+          </p>
+        </div>
+      </section>
+
+      <section class="section detail-layout">
+        <div class="detail-grid">
+          <article class="detail-card" data-reveal>
+            <h3>Unverbindlicher Start</h3>
+            <p>Ihr müsst nicht sofort zusagen. Erst sehen, dann entscheiden.</p>
+          </article>
+          <article class="detail-card" data-reveal>
+            <h3>Klare Einordnung</h3>
+            <p>Wir schauen, welches Monatspaket, welcher Aufbau und welche Richtung zu eurem Unternehmen passt.</p>
+          </article>
+          <article class="detail-card" data-reveal>
+            <h3>Schneller Überblick</h3>
+            <p>Statt langem Hin und Her bekommt ihr direkt eine saubere erste Einschätzung.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section contact-section" id="kontakt">
+        <div class="section-head" data-reveal>
+          <p class="eyebrow">Anfrageformular</p>
+          <h2>Kurze Anfrage statt unnötigem Hin und Her.</h2>
+          <p>Je genauer die Angaben, desto besser können wir die Testwebsite und das erste Angebot vorbereiten.</p>
+        </div>
+
+        <div class="contact-grid contact-grid-single">
+          <form class="contact-form" id="lead-form" data-reveal>
+            <div class="form-intro">
+              <p>Unverbindliche Vorschau</p>
+              <strong>Ihr könnt direkt starten oder euch zuerst eine Testwebsite als Vorschau bauen lassen.</strong>
+            </div>
+
+            <div class="form-grid">
+              <label>
+                <span>Name</span>
+                <input type="text" name="name" placeholder="Max Mustermann">
+              </label>
+
+              <label>
+                <span>Unternehmen</span>
+                <input type="text" name="company" placeholder="Musterbetrieb GmbH">
+              </label>
+
+              <label>
+                <span>Branche</span>
+                <select name="industry">
+                  <option value="Unternehmen">Unternehmen</option>
+                  <option value="Handwerk">Handwerk</option>
+                  <option value="Praxis oder Gesundheit">Praxis oder Gesundheit</option>
+                  <option value="Beauty oder Studio">Beauty oder Studio</option>
+                  <option value="Dienstleistung">Dienstleistung</option>
+                </select>
+              </label>
+
+              <label>
+                <span>Monatspaket</span>
+                <select name="plan">
+                  <option value="Noch offen">Noch offen / erstmal keins</option>
+                  <option value="Starter">Starter</option>
+                  <option value="Plus">Plus</option>
+                  <option value="Pro">Pro</option>
+                </select>
+                
+              </label>
+
+              <fieldset class="field-wide choice-field">
+                <legend>Projektwunsch</legend>
+                <div class="choice-grid choice-grid-double">
+                  <label class="choice-option">
+                    <input type="radio" name="project_type" value="Ich will direkt eine Website" checked>
+                    <span>Ich will direkt eine Website</span>
+                  </label>
+                  <label class="choice-option">
+                    <input type="radio" name="project_type" value="Ich möchte zuerst eine Testwebsite">
+                    <span>Ich möchte zuerst eine Testwebsite</span>
+                  </label>
+                </div>
+              </fieldset>
+
+              <div class="field-wide">
+                <label>
+                  <span>Ziel der Website</span>
+                  <textarea name="goal" rows="5" placeholder="Was soll die Website erreichen und wie soll sie wirken?" data-goal-field></textarea>
+                </label>
+
+                <div class="estimate-drawer" data-estimate-drawer>
+                  <button class="estimate-toggle" type="button" data-estimate-toggle aria-expanded="false">
+                    <span>Website-Preis grob einordnen</span>
+                    <strong>Diese Checkliste wird mit eurer unverbindlichen Anfrage direkt mitgeschickt.</strong>
+                  </button>
+
+                  <div class="estimate-panel" data-estimate-panel hidden>
+                    <p class="estimate-copy">Ergänzt auf Wunsch direkt Umfang, Design und Funktionen. So können wir euer Angebot viel klarer einordnen.</p>
+
+                    <div class="form-grid estimate-grid">
+                      <label>
+                        <span>Seitenumfang</span>
+                        <select name="estimate_pages" data-estimate-field>
+                          <option value="small">1 bis 3 Seiten</option>
+                          <option value="medium">4 bis 6 Seiten</option>
+                          <option value="large">7 bis 10 Seiten</option>
+                          <option value="xlarge">Mehr als 10 Seiten</option>
+                        </select>
+                      </label>
+
+                      <label>
+                        <span>Inhalte</span>
+                        <select name="estimate_content" data-estimate-field>
+                          <option value="ready">Texte und Inhalte sind weitgehend bereit</option>
+                          <option value="partial">Teile sind vorhanden</option>
+                          <option value="new">Es soll inhaltlich neu aufgebaut werden</option>
+                        </select>
+                      </label>
+
+                      <label class="field-wide">
+                        <span>Designanspruch</span>
+                        <select name="estimate_design" data-estimate-field>
+                          <option value="clean">Klar und fokussiert</option>
+                          <option value="premium">Hochwertig und modern</option>
+                          <option value="individual">Auffälliger und individueller</option>
+                        </select>
+                      </label>
+
+                      <fieldset class="field-wide choice-field">
+                        <legend>Zusatzfunktionen</legend>
+                        <div class="choice-grid">
+                          <label class="choice-option">
+                            <input type="checkbox" name="estimate_features" value="contact" data-estimate-field>
+                            <span>Kontaktformular</span>
+                          </label>
+                          <label class="choice-option">
+                            <input type="checkbox" name="estimate_features" value="booking" data-estimate-field>
+                            <span>Terminbuchung</span>
+                          </label>
+                          <label class="choice-option">
+                            <input type="checkbox" name="estimate_features" value="calendar" data-estimate-field>
+                            <span>Kalender-Anbindung</span>
+                          </label>
+                          <label class="choice-option">
+                            <input type="checkbox" name="estimate_features" value="faq" data-estimate-field>
+                            <span>FAQ-Bereich</span>
+                          </label>
+                          <label class="choice-option">
+                            <input type="checkbox" name="estimate_features" value="gallery" data-estimate-field>
+                            <span>Google-Bewertungen</span>
+                          </label>
+                          <label class="choice-option">
+                            <input type="checkbox" name="estimate_features" value="blog" data-estimate-field>
+                            <span>Blog oder News</span>
+                          </label>
+                          <label class="choice-option">
+                            <input type="checkbox" name="estimate_features" value="multilingual" data-estimate-field>
+                            <span>Mehrsprachig</span>
+                          </label>
+                          <label class="choice-option">
+                            <input type="checkbox" name="estimate_features" value="whatsapp" data-estimate-field>
+                            <span>WhatsApp oder Schnellkontakt</span>
+                          </label>
+                          <label class="choice-option">
+                            <input type="checkbox" name="estimate_features" value="workflow" data-estimate-field>
+                            <span>Anfrage-Workflow oder Rechner</span>
+                          </label>
+                          <label class="choice-option">
+                            <input type="checkbox" name="estimate_features" value="ai" data-estimate-field>
+                            <span>KI-Funktion (nur mit Pro)</span>
+                          </label>
+                        </div>
+                      </fieldset>
+                    </div>
+
+                    <div class="estimate-inline">
+                      <span>Aktuelle Einordnung</span>
+                      <strong data-inline-price-range>ca. 500 - 749 &euro;</strong>
+                      <small data-inline-price-note>Schlanker Einstieg</small>
+                      <p data-inline-price-summary>Perfekt für eine kompakte Website mit klarem Aufbau.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <fieldset class="field-wide choice-field">
+                <legend>Zeitraum</legend>
+                <div class="choice-grid">
+                  <label class="choice-option">
+                    <input type="radio" name="timeline" value="so schnell wie möglich">
+                    <span>So schnell wie möglich</span>
+                  </label>
+                  <label class="choice-option">
+                    <input type="radio" name="timeline" value="in 2 bis 4 Wochen" checked>
+                    <span>In 2 bis 4 Wochen</span>
+                  </label>
+                  <label class="choice-option">
+                    <input type="radio" name="timeline" value="im nächsten Monat">
+                    <span>Im nächsten Monat</span>
+                  </label>
+                  <label class="choice-option">
+                    <input type="radio" name="timeline" value="erst einmal nur informieren">
+                    <span>Erst einmal informieren</span>
+                  </label>
+                </div>
+              </fieldset>
+
+              <label>
+                <span>E-Mail</span>
+                <input type="email" name="email" placeholder="kontakt@unternehmen.de">
+              </label>
+            </div>
+
+            <button class="button button-primary" type="submit">Unverbindliche Anfrage senden</button>
+            <p class="form-note">Wir melden uns mit einer klaren Einschätzung und dem passenden nächsten Schritt.</p>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>Skysites</p>
+      <div>
+        <a href="anfragen.html">Anfragen</a>
+        <a href="impressum.html">Impressum</a>
+        <a href="datenschutz.html">Datenschutz</a>
+      </div>
+    </footer>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
+
+
+
+
+
