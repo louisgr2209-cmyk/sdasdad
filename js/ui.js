@@ -8,7 +8,7 @@ const UI = (() => {
   let chartMetric = 'approval';
   let autoTimer = null;
   let prev = null;              // Werte vor dem letzten Monat (für Trends)
-  let setupSel = 'DE', setupFilter = 'Alle';
+  let setupSel = 'DE', setupFilter = 'Alle', setupSearch = '';
   let dipTab = 'konflikte';
   let govFilter = 'alle';
   let selConflict = null;
@@ -90,7 +90,7 @@ const UI = (() => {
   }
 
   // ─────────────────────────── Spielvorbereitung ───────────────────────────
-  const REGION_FILTER = ['Alle', 'Europa', 'Amerika', 'Asien', 'Nahost & Afrika', 'Ozeanien', 'Leicht'];
+  const REGION_FILTER = ['Alle', 'Europa', 'Amerika', 'Asien', 'Nahost & Afrika', 'Ozeanien', 'Leicht', 'Extrem'];
   function stars(n) {
     if (n >= 4) return '<span class="stars" title="Schwierigkeit" style="color:var(--bad)">★★★★</span>';
     return `<span class="stars" title="Schwierigkeit">${'★'.repeat(n)}<span class="off">${'★'.repeat(3 - n)}</span></span>`;
@@ -98,8 +98,9 @@ const UI = (() => {
   function diffName(n) { return ['', 'Leicht', 'Mittel', 'Schwer', 'Extrem'][n]; }
 
   function showSetup() {
-    $('#setup-filter').innerHTML = REGION_FILTER.map(f => `<button class="btn btn-sm ${f === setupFilter ? 'active' : ''}" data-action="setup-filter" data-f="${f}">${f}</button>`).join('');
-    const list = COUNTRIES.filter(c => setupFilter === 'Alle' || (setupFilter === 'Leicht' ? c.difficulty === 1 :
+    $('#setup-filter').innerHTML = `<input type="text" id="inp-search" placeholder="🔍 Land suchen …" value="${esc(setupSearch)}" style="padding:6px 10px;width:170px">` + REGION_FILTER.map(f => `<button class="btn btn-sm ${f === setupFilter ? 'active' : ''}" data-action="setup-filter" data-f="${f}">${f}</button>`).join('');
+    const q = (setupSearch || '').toLowerCase();
+    const list = COUNTRIES.filter(c => !q || c.name.toLowerCase().includes(q)).filter(c => setupFilter === 'Alle' || (setupFilter === 'Leicht' ? c.difficulty === 1 : setupFilter === 'Extrem' ? c.difficulty >= 4 :
       setupFilter === 'Nahost & Afrika' ? ['Nahost', 'Afrika'].includes(c.region) : setupFilter === 'Asien' ? ['Asien', 'Eurasien'].includes(c.region) : c.region === setupFilter));
     $('#country-grid').innerHTML = list.map(c => `
       <div class="country-card ${c.id === setupSel ? 'selected' : ''}" data-action="setup-select" data-id="${c.id}">
@@ -340,6 +341,8 @@ const UI = (() => {
     if (eff.oil) { const exp = S.country.oil > 2; out.push(chip(`🛢️ Ölpreis ${FS(eff.oil * 100, 0)} %`, (eff.oil > 0) === exp ? 'good' : 'bad')); }
     if (eff.campaign) out.push(signedChip('📣 Wahlkampf', eff.campaign, false, 0));
     if (eff.terror) out.push(signedChip('💣 Terrorgefahr', eff.terror, true, 0));
+    if (eff.annex && L) out.push(chip(`🗺️ ${L.name} wird Teil deines Landes · Ansehen −20 · Unruhen`, 'neutral'));
+    if (eff.puppet && L) out.push(chip(`⛓️ Tribut ${FM(L.gdp * 0.02)}/Jahr · Bündnis & Handel`, 'good'));
     if (eff.warEnd) out.push(chip({ sieg: '🏆 Sieg', frieden: '🕊️ Waffenstillstand', niederlage: '🏳️ Kapitulation' }[eff.warEnd], eff.warEnd === 'niederlage' ? 'bad' : 'good'));
     if (eff.nukeDamage) out.push(chip('☢️ Nuklearer Schaden', 'bad'));
     if (eff.doom) out.push(chip('💀 Atomkrieg – Spielende', 'bad'));
@@ -554,10 +557,13 @@ const UI = (() => {
   function warPanel() {
     const my = Engine.militaryPower(S);
     const c = S.country;
-    const rows = Object.keys(S.relations).sort((a, b) => S.relations[a] - S.relations[b]).slice(0, 4).map(id => {
-      const o = Engine.byId(id), p = Engine.enemyPower(id), odds = my / (my + p);
+    const ids = Object.keys(S.relations);
+    const threats = ids.slice().sort((a, b) => S.relations[a] - S.relations[b]).slice(0, 3);
+    const targets = ids.filter(id => !S.alliance[id] && !threats.includes(id)).sort((a, b) => Engine.warOdds(S, b) - Engine.warOdds(S, a)).slice(0, 3);
+    const rows = [...threats, ...targets].map(id => {
+      const o = Engine.byId(id), p = Engine.enemyPower(id, null, S), odds = Engine.warOdds(S, id);
       return `<div class="bs-line" data-tip="Kräfteverhältnis: Unter 40 % ist ein Krieg aussichtslos, über 60 % gut gewinnbar."><span>${flag(id)} ${esc(o.name)} <span class="muted">(Beziehung ${F(S.relations[id], 0)})</span></span>
-        <span class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}">${F(p, 0)}${Engine.hasNukes(S, o.id) ? ' ☢️' : ''} · ${F(odds * 100, 0)} %</span></div>`;
+        <span class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}">${F(p, 0)}${Engine.hasNukes(S, o.id) ? ' ☢️' : ''} · ${F(odds * 100, 0)} %</span> <button class="btn btn-sm" data-action="goto-country" data-id="${id}">→</button></div>`;
     }).join('');
 
     // ── Aktiver Krieg ──
@@ -614,8 +620,8 @@ const UI = (() => {
         <div class="dip-actions" style="margin-top:10px">${ops}</div></div>`;
 
     return `${war}<div class="grid g2" style="margin-top:14px">${forces}${sf}</div>
-      <div class="panel" style="margin-top:14px"><div class="panel-title">🎯 Mögliche Gegner <span class="right muted">Kampfkraft · unser Kräfteverhältnis</span></div>${rows}
-        <p class="muted" style="font-size:12px;margin:8px 0 0">Krieg erklären kannst du in der Diplomatie (nur bei Beziehung ≤ −40). Bereite dich vor: Verteidigungsbudget erhöhen, mobilisieren, Verbündete gewinnen – das dauert Monate bis Jahre.</p></div>`;
+      <div class="panel" style="margin-top:14px"><div class="panel-title">🎯 Bedrohungen & mögliche Ziele <span class="right muted">Kampfkraft · unser Kräfteverhältnis</span></div>${rows}
+        <p class="muted" style="font-size:12px;margin:8px 0 0">Ultimatum oder Krieg: über „→“ beim jeweiligen Land. Bereite dich vor: Verteidigungsbudget erhöhen, mobilisieren – und nach dem Sieg diktierst du die Bedingungen (Annexion, Marionette, Reparationen).</p></div>`;
   }
 
   function actionCard(a) {
@@ -711,7 +717,7 @@ const UI = (() => {
   function treatyBadges(id) {
     const p = S.pacts[id] || {};
     return (S.trade[id] ? '📜' : '') + (S.alliance[id] ? '🛡️' : '') + (p.nichtangriff ? '🤞' : '') + (p.forschung ? '🔬' : '') + (p.energie ? '⚡' : '') + (p.ruestung ? '🕊️' : '')
-      + (S.sanctions[id] ? '🚫' : '') + (Engine.atWarWith(S, id) ? '⚔️' : '') + (Engine.hasNukes(S, id) ? '☢️' : '');
+      + (S.sanctions[id] ? '🚫' : '') + (Engine.atWarWith(S, id) ? '⚔️' : '') + (Engine.hasNukes(S, id) ? '☢️' : '') + (S.puppets && S.puppets[id] !== undefined ? '⛓️' : '');
   }
 
   function viewCountries() {
@@ -735,7 +741,7 @@ const UI = (() => {
     const odds = Engine.warOdds(S, id);
     const nuc = Engine.hasNukes(S, id);
     const opts = Engine.dipOptions(S, id).map(a => `
-      <div class="dip-act"><span style="font-size:20px">${a.icon}</span><div class="t"><b>${a.name}</b><small>${esc(a.desc)}${a.money ? ' · Kosten ' + moneyText(a.money) : ''}${a.key === 'krieg' ? ` · Kräfteverhältnis <b class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}">${F(odds * 100, 0)} %</b>${nuc ? ' · <b class="bad">Atommacht!</b>' : ''}${S.pacts[id]?.nichtangriff ? ' · <b class="bad">Bricht den Nichtangriffspakt!</b>' : ''}` : ''}</small>${!a.ok ? `<small class="bad"> · ${esc(a.why)}</small>` : ''}</div>
+      <div class="dip-act"><span style="font-size:20px">${a.icon}</span><div class="t"><b>${a.name}</b><small>${esc(a.desc)}${a.money ? ' · Kosten ' + moneyText(a.money) : ''}${a.key === 'krieg' || a.key === 'ultimatum' ? ` · Kräfteverhältnis <b class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}">${F(odds * 100, 0)} %</b>` : ''}${a.key === 'krieg' ? warConsequences(id) : ''}</small>${!a.ok ? `<small class="bad"> · ${esc(a.why)}</small>` : ''}</div>
         <button class="btn btn-sm ${a.key === 'krieg' ? 'btn-danger' : 'btn-primary'}" data-action="dip-act" data-id="${id}" data-key="${a.key}" ${a.ok ? '' : 'disabled'}>${a.money ? FM(a.money * S.econ.gdp / 100) : 'Los'}</button></div>`).join('');
     const active = Object.keys(Engine.TREATIES).filter(t => Engine.hasTreaty(S, id, t));
     const tr = active.map(t => `<span class="treaty">${Engine.TREATIES[t].icon} ${Engine.TREATIES[t].name} <a class="x" data-action="treaty-cancel" data-id="${id}" data-t="${t}" data-tip="Vertrag kündigen (verschlechtert die Beziehung)">✕</a></span>`);
@@ -755,6 +761,17 @@ const UI = (() => {
       ${Engine.atWarWith(S, id) ? '' : `<button class="btn btn-primary" style="width:100%;margin-bottom:12px" data-action="neg-open" data-id="${id}">📝 Vertrag aushandeln</button>`}
       <div class="panel-title">Aktionen</div>
       <div class="dip-actions">${opts}</div>`;
+  }
+
+  function warConsequences(id) {
+    const o = Engine.byId(id);
+    const cb = (S.casusBelli?.[id] || 0) > S.month;
+    const parts = [cb ? '<b class="good">✓ Kriegsgrund vorhanden</b>: Ansehen −5' : S.relations[id] > 0 ? '<b class="bad">Angriff auf ein befreundetes Land</b>: Ansehen −25, Zustimmung sinkt' : 'Ohne Kriegsgrund: Ansehen −15'];
+    if (Engine.hasNukes(S, id)) parts.push('<b class="bad">Atommacht!</b>');
+    if (Engine.defenderHelp(S, id) > 0) parts.push(`<b class="warn">${o.blocs.includes('NATO') ? 'Die NATO' : 'Die EU'} unterstützt ${esc(o.name)}</b>`);
+    if (Engine.projection(S, id) < 0.8) parts.push(`Weit entfernt: nur ${Math.round(Engine.projection(S, id) * 100)} % unserer Kampfkraft kommen an`);
+    if (S.pacts[id]?.nichtangriff) parts.push('<b class="bad">Bricht den Nichtangriffspakt!</b>');
+    return '<br>' + parts.join(' · ');
   }
 
   // ── Verhandlungsfenster ──
@@ -923,7 +940,8 @@ const UI = (() => {
       let col = 'rgba(110,130,180,0.22)', r = rad;
       if (id) {
         if (opts.start) col = id === setupSel ? '#f5b942' : 'rgba(120,160,240,0.55)';
-        else if (id === S.countryId) col = '#f5b942';
+        else if (id === S.countryId || (S.annexed && S.annexed[id] !== undefined)) col = '#f5b942';
+        else if (S.puppets && S.puppets[id] !== undefined) col = 'rgba(245,185,66,.55)';
         else if (Engine.atWarWith(S, id)) col = '#ff2040';
         else if (mapMode === 'beziehungen') col = relColor(S.relations[id]);
         else if (mapMode === 'buendnisse') col = blocColor(id);
@@ -1157,6 +1175,7 @@ const UI = (() => {
       ['Staatskonto 🏦', 'Was im Haushalt übrig bleibt, landet auf deinem Konto. Damit bezahlst du Gesetze, Maßnahmen und Sonderprojekte – oder tilgst Schulden. Ist das Konto leer, macht der Staat automatisch neue Schulden.'],
       ['Minister-Autopilot 🤖', 'Deine Minister kümmern sich auf Wunsch selbst um Finanzen, Wirtschaft, Soziales, Militär, Diplomatie und kleine Ereignisse. Du greifst ein, wann du willst. Einstellbar unter <b>Regierung</b>.'],
       ['Entscheiden', 'Unter <b>Regierung</b> beschließt du Gesetze und Sofortmaßnahmen – ohne Wartezeit. Wiederholst du dieselbe Maßnahme schnell, wirkt sie schwächer. Grüne Chips sind gute, rote schlechte Folgen.'],
+      ['Aggressiv spielen', 'Stelle Ultimaten oder erkläre Kriege. Nach einem Sieg diktierst du die Bedingungen: <b>Annexion</b>, <b>Marionettenregierung</b> oder <b>Reparationen</b>. Aber Vorsicht: Entfernung, Bündnisse des Gegners, Atommächte und weltweite Sanktionen machen Eroberungen schwer.'],
       ['Die Welt', 'Die Karte zeigt Kriege ⚔️, Bürgerkriege 🔥 und Krisenherde ⚠️. Klicke darauf, um zu vermitteln, zu helfen, Friedenstruppen zu schicken oder einzugreifen.'],
       ['Militär & Kriege', 'Kriege brauchen <b>Vorbereitung</b>: Verteidigungsbudget, Kriegsbereitschaft (steigt nur langsam) und Verbündete. Achte auf das <b>Kräfteverhältnis</b> – Offensiven wirken nur, wenn du stärker bist. Deine <b>Spezialeinheit</b> bekämpft Terror. Atommächte lassen sich nicht einfach besiegen.'],
       ['Starke und schwache Staaten', 'Die <b>Staatskapazität</b> bestimmt, wie gut Reformen wirken. Ein Land wie Sudan kann sich nicht in wenigen Jahren in eine Schweiz verwandeln – Fortschritt braucht dort Jahrzehnte.'],
@@ -1248,7 +1267,7 @@ const UI = (() => {
         const id = mapHit(canvas, ev);
         if (id) {
           const o = Engine.byId(id);
-          html = id === S.countryId ? `<b>${esc(o.name)}</b><br>Dein Land` :
+          html = id === S.countryId ? `<b>${esc(o.name)}</b><br>Dein Land` : S.relations[id] === undefined ? `<b>${esc(o.name)}</b><br>🗺️ Von uns annektiert` :
             `<b>${esc(o.name)}</b><br>Beziehung: ${relWord(S.relations[id])} (${FS(S.relations[id], 0)})${S.trade[id] ? '<br>📜 Handelsabkommen' : ''}${S.alliance[id] ? '<br>🛡️ Bündnis' : ''}${S.pacts[id]?.nichtangriff ? '<br>🤞 Nichtangriffspakt' : ''}${Engine.hasNukes(S, id) ? '<br>☢️ Atommacht' : ''}${S.sanctions[id] ? '<br>🚫 Sanktionen' : ''}${Engine.atWarWith(S, id) ? '<br>⚔️ Krieg!' : ''}`;
         }
       }
@@ -1312,6 +1331,7 @@ const UI = (() => {
         if (r.ok && r.msg) toast(esc(r.msg), r.msg.startsWith('❌') ? 'bad' : 'good', 4000);
         result({ ok: r.ok, why: r.why }); break;
       }
+      case 'goto-country': selCountry = id; dipTab = 'laender'; view = 'welt'; renderSidebar(); renderView(); break;
       case 'dip-select': selCountry = id; dipTab = 'laender'; renderView(); break;
       case 'dip-act': {
         if (el.dataset.key === 'krieg' && !confirm(`Willst du ${Engine.byId(id).name} wirklich den Krieg erklären?`)) return;
@@ -1375,11 +1395,12 @@ const UI = (() => {
         const k = conflictHit(c, ev);
         if (k) { selConflict = k.id; dipTab = 'konflikte'; view = 'welt'; renderSidebar(); renderView(); return; }
         const id = mapHit(c, ev);
-        if (id && id !== S.countryId) { selCountry = id; dipTab = 'laender'; view = 'welt'; renderSidebar(); renderView(); }
+        if (id && id !== S.countryId && S.relations[id] !== undefined) { selCountry = id; dipTab = 'laender'; view = 'welt'; renderSidebar(); renderView(); }
       }
     });
     document.addEventListener('input', ev => {
       const t = ev.target;
+      if (t.id === 'inp-search') { setupSearch = t.value; const pos = t.selectionStart; showSetup(); const n = $('#inp-search'); n.focus(); n.setSelectionRange(pos, pos); return; }
       if (t.dataset && t.dataset.budget && S) {
         const [kind, k] = t.dataset.budget.split(':');
         if (kind === 'tax') S.taxes[k] = +t.value; else if (kind === 'disc') S.discretionary = +t.value; else S.spending[k] = +t.value;

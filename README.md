@@ -1,6 +1,6 @@
 # 🏛️ PRÄSIDENT – Der Staatssimulator
 
-Ein Präsidentensimulator für den PC: Übernimm eines von **27 echten Ländern** – von der Schweiz bis zum Sudan, triff Entscheidungen in Wirtschaft, Sozialpolitik, Militär, Politik und Diplomatie – und überlebe Krisen, Skandale, Kriege und Wahlen.
+Ein Präsidentensimulator für den PC: Übernimm eines von **61 echten Ländern** – von der Schweiz bis zum Sudan, von den USA bis Nordkorea, triff Entscheidungen in Wirtschaft, Sozialpolitik, Militär, Politik und Diplomatie – und überlebe Krisen, Skandale, Kriege und Wahlen.
 
 Man muss kein Politik-Profi sein: **Berater** erklären jede Lage, zeigen die Folgen jeder Option als farbige Chips (grün = gut, rot = schlecht) und markieren ihre Empfehlung mit ⭐.
 
@@ -28,6 +28,7 @@ npm run build:win      # erzeugt eine portable .exe im Ordner dist/
 | 📊 **Chronik** | Verlaufsdiagramme und Nachrichtenarchiv |
 
 - **Realistische Unterschiede:** Die *Staatskapazität* bestimmt, wie gut Reformen wirken – ein schwacher Staat wie Sudan entwickelt sich nur langsam. Kriege brauchen Vorbereitung: Ohne Mobilisierung und Verbündete hat auch Deutschland gegen eine Großmacht keine Chance. Atommächte lassen sich nicht einfach besiegen.
+- **Aggressiv spielen:** Ultimaten stellen, Kriege gegen jedes Nicht-Bündnisland erklären und nach dem Sieg die Bedingungen diktieren – **Annexion**, **Marionettenregierung** oder **Reparationen**. Entfernung (Machtprojektion), Bündnisse des Gegners (z. B. NATO), Atommächte und weltweite Sanktionen machen Eroberungen aber schwer.
 - **Spezialeinheiten** jedes Landes für Terrorabwehr, Geiselbefreiung und Kommandoeinsätze – der Erfolg hängt von ihrer Ausbildung ab.
 - **Atomwaffen** als letzte, katastrophale Eskalationsstufe: nukleare Drohung oder Atomschlag mit weltweiter Ächtung. Gegen Atommächte folgt eine **nukleare Krise**, die sich mit Deeskalation, UN-Vermittlung oder Kapitulation noch entschärfen lässt – nur bei totaler Eskalation endet das Spiel.
 - **Atomwaffenfreie Welt:** Überzeuge jede Atommacht einzeln, gehe selbst mit gutem Beispiel voran – dann werden alle Arsenale abgebaut (Friedensnobelpreis inklusive).
@@ -64,6 +65,7 @@ js/data/worldmap.js   Punktraster-Weltkarte (aus Natural Earth, Public Domain)
 assets/flags/         Flaggen (flag-icons, MIT-Lizenz)
 electron/main.js      Desktop-App-Hülle
 tools/sim-test.js     Balance-Test ohne Oberfläche
+tools/aggro-test.js   Test für aggressives Spiel (Eroberer-Bot)
 ```
 
 ## 🧪 Balance testen
