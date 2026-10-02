@@ -454,3 +454,22 @@ table.forces td.num { font-family: var(--mono); }
 table.forces td.acts { text-align: right; white-space: nowrap; }
 table.forces .u-ico { display: inline-block; width: 26px; font-size: 17px; }
 .modal.country .seg button { font-size: 13px; padding: 8px; }
+
+/* Kriegslagezentrum */
+.war-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 18px; }
+.weapons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.weapon { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--border2); color: var(--text); cursor: pointer; font-family: inherit; font-size: 13px; text-align: left; }
+.weapon .w-ico { font-size: 18px; }
+.weapon small { margin-left: auto; }
+.weapon.active { border-color: var(--gold); background: rgba(245,185,66,.12); color: var(--gold); }
+.weapon.nuke { border-color: rgba(255,93,108,.5); }
+.weapon.nuke.active { background: rgba(255,93,108,.18); color: #ffb3bb; border-color: var(--bad); }
+.targets { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.target { text-align: left; padding: 9px 10px; border-radius: 10px; background: var(--panel2); border: 1px solid var(--border2); color: var(--text); cursor: crosshair; font-family: inherit; display: flex; flex-direction: column; gap: 6px; transition: all .12s; }
+.target:hover:not(:disabled) { border-color: var(--bad); background: rgba(255,93,108,.1); transform: translateY(-1px); }
+.target.nuke:hover:not(:disabled) { box-shadow: 0 0 18px rgba(255,93,108,.5); }
+.target.off { opacity: .45; cursor: not-allowed; }
+.target .t-top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.target .t-ico { font-size: 18px; }
+.target small { color: var(--muted); font-size: 11.5px; }
+@media (max-width: 1280px) { .war-cols { grid-template-columns: 1fr; } }

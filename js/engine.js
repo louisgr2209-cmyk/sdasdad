@@ -516,7 +516,7 @@ const Engine = (() => {
     if (atWarWith(s, id)) return 'Wir befinden uns bereits im Krieg mit diesem Land.';
     if (!forced && s.wars.length) return 'Wir führen bereits einen Krieg – ein zweiter wäre Wahnsinn.';
     const o = byId(id);
-    s.wars.push({ enemy: id, progress: 0, months: 0, forced: !!forced, attrition: 0 });
+    s.wars.push(newWar(id, forced));
     s.relations[id] = -100;
     s.trade[id] = false; s.alliance[id] = false;
     if (forced) {
@@ -542,15 +542,20 @@ const Engine = (() => {
   function tickWars(s) {
     for (const w of [...s.wars]) {
       const o = byId(w.enemy);
-      const my = militaryPowerVs(s, w.enemy), en = enemyPower(w.enemy, w, s) * rand(0.9, 1.1);
-      let delta = (my / (my + en) - 0.5) * 30 + rand(-6, 6) + (w.boost || 0);
+      ensureWarData(w);
+      const strat = STRATEGIES[w.strategy || 'ausgewogen'];
+      const my = militaryPowerVs(s, w.enemy), en = enemyPower(w.enemy, w, s) * targetFactor(w) * rand(0.9, 1.1);
+      let delta = ((my / (my + en) - 0.5) * 30 + rand(-6, 6)) * strat.progress + (w.boost || 0) + (100 - w.targets.kommando) / 100 * 3;
       w.boost = (w.boost || 0) * 0.5;
+      w.used = {};
       if (hasNukes(s, w.enemy) && delta > 0 && w.progress > 40) delta *= 0.3;
       if (s.nukes > 0 && delta < 0 && w.progress < -40) delta *= 0.3;
       w.progress = clamp(w.progress + delta, -100, 100);
       w.months++;
       s.stats.military = clamp(s.stats.military - 0.2, 0, 100);
-      loseUnits(s, ['infanterie', 'panzer', 'artillerie', 'kampfjets', 'drohnen'], 0.006);
+      loseUnits(s, ['infanterie', 'panzer', 'artillerie', 'kampfjets', 'drohnen'], 0.006 * strat.losses);
+      // Ohne Rüstungsindustrie kann der Gegner Verluste kaum ersetzen
+      w.attrition = Math.min(0.6, (w.attrition || 0) + (100 - w.targets.ruestung) / 100 * 0.01);
       if (w.months > 6) s.approvalMood -= 0.6;
       // Eine in die Enge getriebene Atommacht kann eskalieren
       if (hasNukes(s, w.enemy) && w.progress > 75 && !w.nukeWarned) {
@@ -558,7 +563,7 @@ const Engine = (() => {
         s.pendingEvents.push(infoEvent('☢️', 'Nukleare Drohung', `${o.name} ist militärisch am Ende und droht offen mit dem Einsatz von Atomwaffen. Deine Berater raten dringend, Frieden anzubieten, statt weiter vorzurücken.`));
       }
       // In die Enge getrieben, kann eine Atommacht eine Atomwaffe einsetzen – das Spiel geht aber weiter
-      const pNuke = (s.nukes > 0 ? 0.04 : 0.1) * (s.pacts[w.enemy]?.ruestung ? 0.5 : 1);
+      const pNuke = (s.nukes > 0 ? 0.04 : 0.1) * (s.pacts[w.enemy]?.ruestung ? 0.5 : 1) * (0.3 + 0.7 * w.targets.raketen / 100);
       if (hasNukes(s, w.enemy) && w.progress > 85 && (w.enemyNukeCd || 0) <= w.months && Math.random() < pNuke) {
         w.enemyNukeCd = w.months + 6;
         w.progress -= 25;
@@ -1046,6 +1051,115 @@ const Engine = (() => {
     return { ok: true, msg };
   }
 
+  // ─────────────────────────── Kriegslagezentrum ───────────────────────────
+  const WAR_TARGETS = {
+    front:      { name: 'Frontverbände', icon: '🪖', desc: 'Feindliche Truppen an der Front. Schäden schieben die Front zu unseren Gunsten.' },
+    luftwaffe:  { name: 'Luftwaffenstützpunkte', icon: '🛫', desc: 'Schwächt die feindliche Luftwaffe – seine Kampfkraft sinkt.' },
+    flugabwehr: { name: 'Flugabwehrstellungen', icon: '📡', desc: 'Je mehr zerstört, desto weniger Flugzeuge und Drohnen verlieren wir.' },
+    marine:     { name: 'Marinehäfen', icon: '⚓', desc: 'Schwächt die feindliche Flotte und den Nachschub über See.' },
+    kommando:   { name: 'Kommandozentralen', icon: '🏢', desc: 'Stört die feindliche Führung – die Front verschiebt sich jeden Monat zu unseren Gunsten.' },
+    ruestung:   { name: 'Rüstungsindustrie', icon: '🏭', desc: 'Der Gegner kann seine Verluste nicht mehr ersetzen.' },
+    raketen:    { name: 'Raketenstellungen', icon: '🎯', desc: 'Senkt das Risiko feindlicher Gegenschläge – auch nuklearer.' },
+    energie:    { name: 'Energie & Verkehr', icon: '⚡', desc: 'Lähmt Nachschub und Wirtschaft. Trifft auch die Bevölkerung: Ansehen sinkt.' },
+  };
+  const WEAPONS = {
+    boden:      { name: 'Bodenoffensive', icon: '🛞', money: 0.3, targets: ['front'], desc: 'Infanterie, Panzer und Artillerie greifen an. Größter Frontgewinn, aber Verluste.' },
+    jets:       { name: 'Luftschlag', icon: '✈️', money: 0.08, desc: 'Kampfjets bombardieren das Ziel. Verluste hängen von der feindlichen Flugabwehr ab.' },
+    drohnen:    { name: 'Drohnenangriff', icon: '🛸', money: 0.02, desc: 'Günstig und präzise, aber schwächer. Kaum Risiko für Piloten.' },
+    raketen:    { name: 'Marschflugkörper', icon: '🚀', money: 0.15, desc: 'Teuer, aber keine eigenen Verluste.' },
+    artillerie: { name: 'Artilleriebeschuss', icon: '💥', money: 0.03, targets: ['front', 'flugabwehr'], desc: 'Nur gegen Frontverbände und frontnahe Flugabwehr.' },
+    kommando:   { name: 'Kommandoeinsatz', icon: '🥷', money: 0.02, desc: 'Die Spezialeinheit sabotiert das Ziel. Erfolg hängt von ihrer Ausbildung ab.' },
+    atom:       { name: 'Atomschlag', icon: '☢️', money: 0, targets: ['front', 'luftwaffe', 'marine', 'raketen', 'kommando'], desc: 'Nur militärische Ziele. Zerstört das Ziel vollständig – mit katastrophalen Folgen für dein Land.' },
+  };
+  const STRATEGIES = {
+    offensiv:   { name: 'Offensiv', icon: '⚔️', progress: 1.35, losses: 1.7, desc: 'Schneller Vormarsch, hohe Verluste' },
+    ausgewogen: { name: 'Ausgewogen', icon: '⚖️', progress: 1, losses: 1, desc: 'Normaler Kriegsverlauf' },
+    defensiv:   { name: 'Defensiv', icon: '🛡️', progress: 0.6, losses: 0.45, desc: 'Stellungen halten, wenig Verluste' },
+  };
+  function newWar(id, forced) {
+    const t = {}; for (const k in WAR_TARGETS) t[k] = 100;
+    return { enemy: id, progress: 0, months: 0, forced: !!forced, attrition: 0, targets: t, strategy: 'ausgewogen', used: {} };
+  }
+  function ensureWarData(w) {
+    if (!w.targets) { w.targets = {}; for (const k in WAR_TARGETS) w.targets[k] = 100; }
+    if (!w.strategy) w.strategy = 'ausgewogen';
+    if (!w.used) w.used = {};
+  }
+  // Zerstörte Ziele schwächen den Gegner
+  function targetFactor(w) {
+    const d = k => (100 - (w.targets?.[k] ?? 100)) / 100;
+    return clamp(1 - 0.15 * d('front') - 0.12 * d('luftwaffe') - 0.06 * d('marine') - 0.06 * d('energie') - 0.04 * d('kommando'), 0.45, 1);
+  }
+  function setStrategy(s, key) {
+    const w = s.wars[0];
+    if (!w || !STRATEGIES[key]) return { ok: false, why: 'Kein Krieg' };
+    ensureWarData(w); w.strategy = key;
+    return { ok: true, msg: `Strategie: ${STRATEGIES[key].name}.` };
+  }
+  function weaponStatus(s, key, target) {
+    const w = s.wars[0], f = s.forces || {}, a = WEAPONS[key];
+    if (!w) return 'Kein Krieg';
+    ensureWarData(w);
+    if (a.targets && target && !a.targets.includes(target)) return 'Nicht gegen dieses Ziel';
+    if (w.used[key]) return 'Diesen Monat bereits eingesetzt';
+    if (target && w.targets[target] <= 0) return 'Ziel bereits zerstört';
+    if (key === 'boden' && (f.infanterie || 0) + (f.panzer || 0) < 10) return 'Zu wenig Bodentruppen';
+    if (key === 'jets' && (f.kampfjets || 0) < 5) return 'Mindestens 5 Kampfjets nötig';
+    if (key === 'drohnen' && (f.drohnen || 0) < 10) return 'Mindestens 10 Drohnen nötig';
+    if (key === 'artillerie' && (f.artillerie || 0) < 20) return 'Mindestens 20 Artilleriesysteme nötig';
+    if (key === 'atom' && !(s.nukes > 0)) return 'Keine Atomwaffen';
+    return null;
+  }
+  function warStrike(s, key, target) {
+    const why = weaponStatus(s, key, target);
+    if (why) return { ok: false, why };
+    if (!WAR_TARGETS[target]) return { ok: false, why: 'Unbekanntes Ziel' };
+    const w = s.wars[0], o = byId(w.enemy), a = WEAPONS[key], t = WAR_TARGETS[target];
+    if (key === 'atom') return nuclearStrike(s, target);
+    w.used[key] = true;
+    if (a.money) pay(s, a.money * s.econ.gdp / 100);
+    const odds = warOdds(s, w.enemy);
+    const strength = clamp(Math.pow(odds * 2, 1.2), 0.25, 1.6);
+    const aa = w.targets.flugabwehr / 100;
+    let dmg = 0, msg = '';
+    if (key === 'boden') {
+      s.approvalMood -= 1;
+      const success = Math.random() < 0.2 + odds;
+      dmg = success ? 30 * strength * landShare(s) : 6;
+      w.boost = (w.boost || 0) + (success ? 12 * strength * landShare(s) : -5);
+      loseUnits(s, ['infanterie', 'panzer', 'artillerie'], success ? 0.015 : 0.04);
+      msg = success ? 'Die Bodenoffensive durchbricht die feindlichen Linien!' : 'Die Bodenoffensive bleibt stecken – schwere Verluste.';
+    } else if (key === 'jets') {
+      dmg = 26 * strength * airShare(s);
+      loseUnits(s, ['kampfjets'], 0.004 + 0.02 * aa);
+      msg = `Luftschlag auf ${t.name}.`;
+    } else if (key === 'drohnen') {
+      dmg = 13 * strength;
+      loseUnits(s, ['drohnen'], 0.02 + 0.05 * aa);
+      msg = `Drohnenangriff auf ${t.name}.`;
+    } else if (key === 'raketen') {
+      dmg = 22 * clamp(strength, 0.6, 1.2);
+      msg = `Marschflugkörper treffen ${t.name}.`;
+    } else if (key === 'artillerie') {
+      dmg = 18 * strength;
+      loseUnits(s, ['artillerie'], 0.005);
+      msg = `Artilleriebeschuss auf ${t.name}.`;
+    } else if (key === 'kommando') {
+      const ok = Math.random() < sfChance(s, 0.25);
+      dmg = ok ? 32 : 0;
+      if (!ok) s.sf.quality = clamp(s.sf.quality - 4, 0, 100);
+      msg = ok ? `Kommandoeinsatz (${s.country.sf.name}): ${t.name} sabotiert.` : `Der Kommandoeinsatz (${s.country.sf.name}) scheitert.`;
+    }
+    dmg = Math.round(dmg * rand(0.8, 1.2));
+    w.targets[target] = clamp(w.targets[target] - dmg, 0, 100);
+    if (target !== 'front') w.boost = (w.boost || 0) + dmg * 0.1;
+    if (target === 'front' && key !== 'boden') w.boost = (w.boost || 0) + dmg * 0.3;
+    if (target === 'energie' && dmg > 0) { s.stats.reputation = clamp(s.stats.reputation - 3, 0, 100); s.groupMood.youth -= 2; }
+    if (dmg > 0 && w.targets[target] === 0) msg += ` ${t.name} sind vollständig zerstört!`;
+    s.budget = computeBudget(s);
+    return { ok: true, msg: msg + (dmg > 0 ? ` (Schaden ${dmg})` : '') };
+  }
+
   // ─────────────────────────── Mobilisierung ───────────────────────────
   const READINESS_LEVELS = [
     { value: 25, name: 'Friedensbetrieb', desc: 'Normale Bereitschaft, keine Zusatzkosten' },
@@ -1298,19 +1412,31 @@ const Engine = (() => {
       choices };
   }
 
-  function nuclearStrike(s) {
+  function nuclearStrike(s, target = 'front') {
     const w = s.wars[0];
     if (!w) return { ok: false, why: 'Kein Krieg' };
     if (!(s.nukes > 0)) return { ok: false, why: 'Wir besitzen keine Atomwaffen' };
     const o = byId(w.enemy);
+    ensureWarData(w);
+    const firstUse = !s.nukeUsed;
     s.nukeUsed = true;
     s.nukes = Math.max(0, s.nukes - 1);
-    ostracize(s);
+    w.targets[target] = 0;
+    w.used.atom = true;
+    if (firstUse) ostracize(s); else { s.stats.reputation = 0; s.approvalMood -= 10; for (const id in s.relations) s.relations[id] = clamp(s.relations[id] - 15, -100, 100); }
     if (hasNukes(s, w.enemy)) {
       addNews(s, `☢️ Atomschlag gegen ${o.name}. ${o.name} droht mit Vergeltung – die Welt steht am Abgrund.`, 'bad');
       s.pendingEvents.push(nuclearCrisisEvent(s, w, 'own'));
       s.budget = computeBudget(s);
       return { ok: true, msg: 'Nukleare Krise!' };
+    }
+    // Gegen einen Gegner ohne Atomwaffen: Ziel zerstört, Front bricht ein – meist folgt die Kapitulation
+    w.progress = clamp(w.progress + (target === 'front' ? 60 : 35), -100, 100);
+    if (w.progress < 100 && Math.random() < 0.5) {
+      addNews(s, `☢️ Atomschlag auf ${WAR_TARGETS[target].name} in ${o.name}. Die Welt ist entsetzt.`, 'bad');
+      s.pendingEvents.push(infoEvent('☢️', 'Die Welt steht unter Schock', `Der Atomschlag hat ${WAR_TARGETS[target].name} in ${o.name} zerstört. ${o.name} kämpft vorerst weiter. Weltweit wird dein Land geächtet: Sanktionen, zerbrochene Bündnisse, Massenproteste.`));
+      s.budget = computeBudget(s);
+      return { ok: true, msg: `Atomschlag auf ${WAR_TARGETS[target].name}.` };
     }
     s.wars = s.wars.filter(x => x !== w);
     s.relations[w.enemy] = -100; s.baseRelations[w.enemy] = -100;
@@ -1724,7 +1850,7 @@ const Engine = (() => {
       if (s.wars.length) {
         if (s.readinessTarget < 75) { s.readinessTarget = 75; s.autoReadiness = true; log('militaer', 'Krieg: Teilmobilisierung angeordnet.'); }
         const w = s.wars[0];
-        if (warOdds(s, w.enemy) > 0.5 && !recentUses(s, 'war:bodenoffensive', 2)) { const r = warAction(s, 'bodenoffensive'); if (r.ok) log('militaer', r.msg); }
+        if (warOdds(s, w.enemy) > 0.5) { const r = warStrike(s, 'boden', 'front'); if (r.ok) log('militaer', r.msg); }
       } else if (s.autoReadiness && s.readinessTarget > 25) { s.readinessTarget = 25; s.autoReadiness = false; log('militaer', 'Kein Krieg mehr: Armee zurück im Friedensbetrieb.'); }
       s.budget = b = computeBudget(s);
     }
@@ -2027,6 +2153,7 @@ const Engine = (() => {
     if (!s.auto) s.auto = { finanzen: true, wirtschaft: true, soziales: true, militaer: true, diplomatie: true, politik: true, ereignisse: true };
     if (!s.cabinet) s.cabinet = [];
     if (!s.conflicts) initConflicts(s);
+    for (const w of s.wars || []) ensureWarData(w);
     if (!s.forces) { s.forces = initForces(c); s.forcesBase = unitPower(s.forces); s.orders = []; }
     if (!s.annexed) { s.annexed = {}; s.puppets = {}; s.casusBelli = {}; s.popExtra = 0; }
     s.budget = computeBudget(s);
@@ -2059,6 +2186,7 @@ const Engine = (() => {
     hasNukes, TREATIES, MONEY_OFFERS, hasTreaty, treatyBlocked, negotiationChance, negotiate, cancelTreaty,
     BLOCS, blocMembers, blocStatus, joinBloc, leaveBloc, foundBloc, dissolveBloc,
     nuclearHolders, disarmChance, startDisarm, persuadeDisarm, pledgeDisarm,
+    WAR_TARGETS, WEAPONS, STRATEGIES, warStrike, weaponStatus, setStrategy, targetFactor,
     READINESS_LEVELS, setReadiness, SF_OPS, sfOp, sfChance, sfTarget, chanceP, nuclearThreat, nuclearStrike,
     tips, legacy, serialize, deserialize, addNews,
     fmt, fmtSigned, fmtMoney, dateStr, creditRating, byId, policyById, actionById, clamp,

@@ -25,7 +25,7 @@ npm run build:win      # erzeugt eine portable .exe im Ordner dist/
 | 💰 **Finanzen** | **Staatskonto** mit Verfügungsfonds und Überschüssen, Schulden tilgen, Kredite, Staatsfonds, **Sonderprojekte**, Steuern & Ausgaben |
 | 🗺️ **Länderfenster** | Klick auf ein Land auf der Karte: Übersicht, Diplomatie & Handel (Verträge, Waffenverkauf, Sanktionen), Militär (Streitkräfte im Vergleich, Ultimatum, Krieg) |
 | 🌍 **Welt** | **Konflikte & Krisenherde** (vermitteln, helfen, Friedenstruppen, eingreifen), Vertragsverhandlungen, Bündnisse (EU, NATO, BRICS …, eigenes Bündnis), atomwaffenfreie Welt |
-| 🛡️ **Militär** | **8 Truppengattungen** (Infanterie, Panzer, Artillerie, Jets, Drohnen, Flugabwehr, Schiffe, U-Boote) kaufen & ausmustern, Mobilisierung, Offensiven, Spezialeinheiten (KSK, Navy SEALs …), Terrorabwehr, Atomwaffen |
+| 🛡️ **Militär** | **8 Truppengattungen** (Infanterie, Panzer, Artillerie, Jets, Drohnen, Flugabwehr, Schiffe, U-Boote) kaufen & ausmustern, Mobilisierung, **Kriegslagezentrum** (Waffe wählen → Ziel anklicken: Frontverbände, Luftwaffe, Flugabwehr, Marine, Kommandozentralen, Rüstung, Raketen, Energie; Strategie offensiv/ausgewogen/defensiv; Atomschlag nur auf militärische Ziele), Spezialeinheiten (KSK, Navy SEALs …), Terrorabwehr |
 | 📊 **Chronik** | Verlaufsdiagramme und Nachrichtenarchiv |
 
 - **Realistische Unterschiede:** Die *Staatskapazität* bestimmt, wie gut Reformen wirken – ein schwacher Staat wie Sudan entwickelt sich nur langsam. Kriege brauchen Vorbereitung: Ohne Mobilisierung und Verbündete hat auch Deutschland gegen eine Großmacht keine Chance. Atommächte lassen sich nicht einfach besiegen.

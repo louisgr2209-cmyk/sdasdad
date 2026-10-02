@@ -15,6 +15,7 @@ const UI = (() => {
   let mapMode = 'konflikte';
   const projAmt = {};
   let mapAnim = null;
+  let warWeapon = 'jets';
   let neg = null; // laufende Vertragsverhandlung
   let setupOpts = { name: '', title: 'Präsident', difficulty: 'normal', mode: 'klassisch', autopilot: 'aus' };
   let countryModal = null; // { id, tab }
@@ -588,31 +589,43 @@ const UI = (() => {
         <span class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}">${F(p, 0)}${Engine.hasNukes(S, o.id) ? ' ☢️' : ''} · ${F(odds * 100, 0)} %</span> <button class="btn btn-sm" data-action="goto-country" data-id="${id}">→</button></div>`;
     }).join('');
 
-    // ── Aktiver Krieg ──
+    // ── Aktiver Krieg: Kriegslagezentrum ──
     let war = '';
     if (S.wars.length) {
-      const w = S.wars[0], o = Engine.byId(w.enemy), p = Engine.enemyPower(w.enemy, w), odds = Engine.warOdds(S, w.enemy);
+      const w = S.wars[0], o = Engine.byId(w.enemy), p = Engine.enemyPower(w.enemy, w, S) * Engine.targetFactor(w), odds = Engine.warOdds(S, w.enemy);
       const pos = (w.progress + 100) / 2;
-      const acts = Object.entries(Engine.WAR_ACTIONS).map(([k, a]) => {
-        const dis = !!(a.minSize && c.milSize < a.minSize);
-        return `<button class="btn btn-sm" data-action="war-act" data-key="${k}" ${dis ? 'disabled' : ''} data-tip="${esc(a.desc)}${a.money ? ' · Kosten ' + moneyText(a.money) : ''}">${a.icon} ${a.name}${a.money ? ' · ' + FM(a.money * S.econ.gdp / 100) : ''}</button>`;
+      const nuc = Engine.hasNukes(S, o.id);
+      if (!Engine.WEAPONS[warWeapon] || (warWeapon === 'atom' && !(S.nukes > 0))) warWeapon = 'jets';
+      const weapons = Object.entries(Engine.WEAPONS).filter(([k]) => k !== 'atom' || S.nukes > 0).map(([k, a]) => {
+        const why = Engine.weaponStatus(S, k);
+        return `<button class="weapon ${warWeapon === k ? 'active' : ''} ${k === 'atom' ? 'nuke' : ''}" data-action="war-weapon" data-k="${k}" data-tip="<b>${a.name}</b><br>${esc(a.desc)}${a.money ? '<br>Kosten: ' + esc(FM(a.money * S.econ.gdp / 100)) : ''}${why ? '<br><span class=bad>' + esc(why) + '</span>' : ''}">
+          <span class="w-ico">${a.icon}</span><span>${a.name}</span>${why ? '<small class="bad">✕</small>' : ''}</button>`;
       }).join('');
-      const nuke = S.nukes > 0 ? `<div class="panel" style="margin-top:12px;border-color:rgba(255,93,108,.6);background:rgba(255,93,108,.06)">
-          <div class="panel-title" style="color:var(--bad)">☢️ Atomare Optionen <span class="right muted">Arsenal: ~${F(S.nukes, 0)} Sprengköpfe</span></div>
-          <p class="muted" style="font-size:12.5px;margin:0 0 10px">${Engine.hasNukes(S, o.id) ? `<b class="bad">${esc(o.name)} ist selbst Atommacht.</b> Ein Atomschlag löst eine nukleare Krise aus – nur mit kühlem Kopf (Deeskalation, UN-Vermittlung) lässt sich ein Atomkrieg noch verhindern.` : 'Ein Atomschlag beendet den Krieg sofort – aber dein Land wird weltweit geächtet: Sanktionen, zerbrochene Bündnisse, Wirtschaftseinbruch und Massenproteste.'}</p>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-sm" data-action="nuke-threat" data-tip="Drohung mit Atomwaffen: Der Gegner lenkt vielleicht ein. Ansehen −12, alle Beziehungen −8.">⚠️ Nukleare Drohung</button>
-            <button class="btn btn-sm btn-danger" data-action="nuke-strike">☢️ Atomschlag befehlen</button>
-          </div></div>` : '';
-      war = `<div class="panel war-panel" style="margin-top:14px"><div class="panel-title">⚔️ Krieg gegen ${flag(o.id)} ${esc(o.name)} <span class="right">${w.months} Monate</span></div>
-        <div class="power-cmp"><div><div class="muted">Wir</div><div class="p good">${F(my, 0)}</div></div><div><div class="muted">Kräfteverhältnis</div><div class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}" style="font-size:18px;font-weight:800">${F(odds * 100, 0)} %</div></div><div><div class="muted">${esc(o.name)}</div><div class="p bad">${F(p, 0)}${Engine.hasNukes(S, o.id) ? ' ☢️' : ''}</div></div></div>
+      const targets = Object.entries(Engine.WAR_TARGETS).map(([k, t]) => {
+        const hp = w.targets ? w.targets[k] : 100;
+        const why = Engine.weaponStatus(S, warWeapon, k);
+        const col = hp > 66 ? 'var(--bad)' : hp > 33 ? 'var(--warn)' : 'var(--good)';
+        return `<button class="target ${why ? 'off' : ''} ${warWeapon === 'atom' && !why ? 'nuke' : ''}" data-action="war-strike" data-k="${k}" ${why ? 'disabled' : ''} data-tip="<b>${t.name}</b><br>${esc(t.desc)}${why ? '<br><span class=bad>' + esc(why) + '</span>' : ''}">
+          <div class="t-top"><span class="t-ico">${t.icon}</span><b>${t.name}</b></div>
+          <div class="bar"><i style="width:${hp}%;background:${col}"></i></div>
+          <small>${hp <= 0 ? '💥 zerstört' : 'Zustand ' + F(hp, 0) + ' %'}</small></button>`;
+      }).join('');
+      const strat = Object.entries(Engine.STRATEGIES).map(([k, st]) => `<button class="${(w.strategy || 'ausgewogen') === k ? 'active' : ''}" data-action="war-strategy" data-k="${k}" data-tip="${esc(st.desc)}">${st.icon} ${st.name}</button>`).join('');
+      war = `<div class="panel war-panel" style="margin-top:14px"><div class="panel-title">⚔️ Kriegslagezentrum: ${flag(o.id)} ${esc(o.name)} <span class="right">${w.months} Monate</span></div>
+        <div class="power-cmp"><div><div class="muted">Wir</div><div class="p good">${F(Engine.militaryPowerVs(S, o.id), 0)}</div></div><div><div class="muted">Kräfteverhältnis</div><div class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}" style="font-size:18px;font-weight:800">${F(odds * 100, 0)} %</div></div><div><div class="muted">${esc(o.name)}</div><div class="p bad">${F(p, 0)}${nuc ? ' ☢️' : ''}</div></div></div>
         <div class="war-track"><i style="left:0;width:${pos}%;background:linear-gradient(90deg,#1d6b4a,var(--good))"></i><i style="left:${pos}%;right:0;background:linear-gradient(90deg,var(--bad),#6b1d26)"></i></div>
         <div style="display:flex;justify-content:space-between" class="muted"><span>◀ Niederlage</span><b class="${w.progress >= 0 ? 'good' : 'bad'}">Frontverlauf ${FS(w.progress, 0)}</b><span>Sieg ▶</span></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">${acts}
-          <button class="btn btn-sm btn-good" data-action="dip-act" data-id="${o.id}" data-key="frieden">🕊️ Frieden anbieten</button></div>
-        ${w.attrition ? `<p class="muted" style="font-size:12px;margin:8px 0 0">Feind geschwächt durch Blockade/Sabotage: −${F(w.attrition * 100, 0)} % Kampfkraft</p>` : ''}
-        <p class="muted" style="font-size:12px;margin:8px 0 0">Bei +100 gewinnst du, bei −100 musst du kapitulieren. Der Gegner mobilisiert jeden Monat weiter. Offensiven wirken nur bei gutem Kräfteverhältnis.</p>
-        ${nuke}</div>`;
+        <div class="war-cols">
+          <div><div class="panel-title" style="margin:14px 0 8px">1. Waffe wählen <span class="right muted">je einmal pro Monat</span></div><div class="weapons">${weapons}</div>
+            <div class="panel-title" style="margin:14px 0 8px">Strategie an der Front</div><div class="seg">${strat}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+              <button class="btn btn-sm" data-action="war-act" data-key="hilfe_bitte">📞 Verbündete um Hilfe bitten</button>
+              ${S.nukes > 0 ? '<button class="btn btn-sm" data-action="nuke-threat">⚠️ Nukleare Drohung</button>' : ''}
+              <button class="btn btn-sm btn-good" data-action="dip-act" data-id="${o.id}" data-key="frieden">🕊️ Frieden anbieten</button></div></div>
+          <div><div class="panel-title" style="margin:14px 0 8px">2. Ziel anklicken <span class="right muted">${Engine.WEAPONS[warWeapon].icon} ${Engine.WEAPONS[warWeapon].name}</span></div><div class="targets">${targets}</div></div>
+        </div>
+        ${warWeapon === 'atom' ? `<p class="bad" style="font-size:12.5px;margin:10px 0 0">☢️ ${nuc ? `${esc(o.name)} ist selbst Atommacht: Ein Atomschlag löst eine nukleare Krise aus.` : 'Ein Atomschlag ächtet dein Land weltweit: Sanktionen, Bündnisbruch, Massenproteste.'} Nur militärische Ziele wählbar.</p>` : ''}
+        <p class="muted" style="font-size:12px;margin:8px 0 0">Bei +100 gewinnst du, bei −100 musst du kapitulieren. Jeder Treffer schwächt den Gegner gezielt – fahre mit der Maus über ein Ziel, um seine Wirkung zu sehen.</p></div>`;
     }
 
     // ── Streitkräfte & Mobilisierung ──
@@ -1412,6 +1425,19 @@ const UI = (() => {
         if (r.ok) sfx(el.dataset.key === 'krieg' ? 'war' : 'good');
         if (r.ok) { toast(esc(r.msg), el.dataset.key === 'krieg' ? 'bad' : 'good'); save(); renderAll(); if (countryModal && $('#modal-root .modal.country') && S.relations[id] !== undefined) showCountry(id); processQueue(); } else { toast(esc(r.why), 'bad'); }
         break;
+      }
+      case 'war-weapon': warWeapon = el.dataset.k; renderView(); break;
+      case 'war-strategy': { const r = Engine.setStrategy(S, el.dataset.k); result(r); break; }
+      case 'war-strike': {
+        if (warWeapon === 'atom') {
+          const o = Engine.byId(S.wars[0].enemy);
+          if (!confirm(`ATOMSCHLAG auf ${Engine.WAR_TARGETS[el.dataset.k].name} in ${o.name}?\n\n${Engine.hasNukes(S, o.id) ? 'Es droht eine nukleare Krise mit Gegenschlag.' : 'Dein Land wird weltweit geächtet.'}`)) return;
+          if (!confirm('Letzte Bestätigung: Diese Entscheidung kann nicht rückgängig gemacht werden.')) return;
+          sfx('war');
+        }
+        const r = Engine.warStrike(S, warWeapon, el.dataset.k);
+        if (r.ok) toast(esc(r.msg), 'info', 3500);
+        result({ ok: r.ok, why: r.why }); break;
       }
       case 'war-act': { const r = Engine.warAction(S, el.dataset.key); result(r); if (r.ok) toast(esc(r.msg), 'info'); break; }
       case 'readiness': { const r = Engine.setReadiness(S, +el.dataset.v); result(r); if (r.ok) toast(esc(r.msg), 'info', 4000); break; }

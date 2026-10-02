@@ -25,7 +25,7 @@ for (const id of ids) {
           if (s.casusBelli[t] && !s.wars.length) { Engine.dipAction(s, t, 'krieg'); wars++; }
         }
       } else {
-        for (const k of ['bodenoffensive', 'luftschlaege']) Engine.warAction(s, k);
+        Engine.warStrike(s, 'boden', 'front'); Engine.warStrike(s, 'jets', 'luftwaffe'); Engine.warStrike(s, 'drohnen', 'flugabwehr');
       }
       while (s.pendingEvents.length) {
         const ev = s.pendingEvents[0];
