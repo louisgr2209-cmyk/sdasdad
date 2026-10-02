@@ -19,17 +19,18 @@ for (const c of COUNTRIES) {
         Engine.tick(s);
         if (strat === 'smart') {
           const rec = Engine.recommendedPolicies(s, null, 1);
-          if (rec.length && s.capital >= 35) Engine.enactPolicy(s, rec[0]);
-          if (s.approval < 50) for (const a of ['rede', 'buergerdialog', 'pressekonferenz']) if (Engine.canDoAction(s, a).ok && s.capital > 25) Engine.doAction(s, a);
+          if (rec.length && s.month % 4 === 0) Engine.enactPolicy(s, rec[0]);
+          if (s.approval < 50 && s.month % 6 === 0) Engine.doAction(s, 'rede');
           if (s.groups.military < 30 && Engine.canEnact(s, 'veteranen').ok) Engine.enactPolicy(s, 'veteranen');
           if (s.budget.balance < s.country.deficit - 1.5) {
             const t = { ...s.taxes, vat: Math.min(30, s.taxes.vat + 1) };
-            if (Engine.budgetChangeCost(s, t, s.spending) <= s.capital) Engine.applyBudget(s, t, s.spending);
+            Engine.applyBudget(s, t, s.spending);
           }
           while (s.pendingEvents.length) Engine.resolveEvent(s, Engine.recommend(s, s.pendingEvents[0]).best);
         }
         while (s.pendingEvents.length) {
           const ev = s.pendingEvents[0];
+          if (strat === 'none') s.auto = {};
           const idx = strat !== 'random' ? Engine.recommend(s, ev).best : Math.floor(Math.random() * ev.choices.length);
           Engine.resolveEvent(s, idx);
         }

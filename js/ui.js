@@ -5,12 +5,16 @@ const UI = (() => {
   let S = null;                 // aktueller Spielzustand
   let view = 'overview';
   let selCountry = null;        // ausgewähltes Land in der Diplomatie
-  let draft = null;             // Haushaltsentwurf
   let chartMetric = 'approval';
   let autoTimer = null;
   let prev = null;              // Werte vor dem letzten Monat (für Trends)
   let setupSel = 'DE', setupFilter = 'Alle';
-  let dipTab = 'laender';
+  let dipTab = 'konflikte';
+  let govFilter = 'alle';
+  let selConflict = null;
+  let mapMode = 'konflikte';
+  const projAmt = {};
+  let mapAnim = null;
   let neg = null; // laufende Vertragsverhandlung
   let setupOpts = { name: '', title: 'Präsident', difficulty: 'normal', mode: 'klassisch' };
   let startAnim = null;
@@ -23,16 +27,14 @@ const UI = (() => {
   const SAVE_KEY = 'praesident.save.v1';
 
   const NAV = [
-    { id: 'overview', icon: '🧭', name: 'Lagezentrum' },
-    { id: 'budget', icon: '💰', name: 'Haushalt' },
-    { id: 'wirtschaft', icon: '📈', name: 'Wirtschaft' },
-    { id: 'soziales', icon: '🤝', name: 'Soziales' },
+    { id: 'overview', icon: '🧭', name: 'Übersicht' },
+    { id: 'regierung', icon: '🏛️', name: 'Regierung' },
+    { id: 'finanzen', icon: '💰', name: 'Finanzen' },
+    { id: 'welt', icon: '🌍', name: 'Welt' },
     { id: 'militaer', icon: '🛡️', name: 'Militär' },
-    { id: 'politik', icon: '🏛️', name: 'Politik' },
-    { id: 'diplomatie', icon: '🌍', name: 'Diplomatie' },
-    { id: 'stats', icon: '📊', name: 'Statistiken' },
-    { id: 'news', icon: '📰', name: 'Nachrichten' },
+    { id: 'chronik', icon: '📊', name: 'Chronik' },
   ];
+  const NAV_OF_AREA = { wirtschaft: 'regierung', soziales: 'regierung', politik: 'regierung', militaer: 'militaer', diplomatie: 'welt' };
   const TITLES = ['Präsident', 'Präsidentin', 'Kanzler', 'Kanzlerin', 'Premierminister', 'Premierministerin', 'Staatsoberhaupt'];
   const LABELS = {
     approval: 'Zustimmung', stability: 'Stabilität', growth: 'Wachstum', unemployment: 'Arbeitslosigkeit', inflation: 'Inflation',
@@ -147,20 +149,21 @@ const UI = (() => {
     setupOpts.name = ($('#inp-name')?.value || '').trim() || 'Alex Muster';
     setupOpts.title = $('#inp-title')?.value || 'Präsident';
     S = Engine.newGame(setupSel, setupOpts);
-    view = 'overview'; draft = null; selCountry = null; prev = null;
+    view = 'overview'; selCountry = null; prev = null;
     enterGame();
     save();
     if (!prefs.tutorialSeen) { prefs.tutorialSeen = true; savePrefs(); showHelp(true); }
   }
   function enterGame() {
     showScreen('game');
+    startGameMapLoop();
     renderAll();
     processQueue();
   }
   function hasSave() { try { return !!localStorage.getItem(SAVE_KEY); } catch { return false; } }
   function save() { try { if (S && !S.gameOver) localStorage.setItem(SAVE_KEY, Engine.serialize(S)); } catch { } }
   function continueGame() {
-    try { S = Engine.deserialize(localStorage.getItem(SAVE_KEY)); view = 'overview'; draft = null; enterGame(); }
+    try { S = Engine.deserialize(localStorage.getItem(SAVE_KEY)); view = 'overview'; enterGame(); }
     catch (e) { toast('Spielstand konnte nicht geladen werden.', 'bad'); }
   }
   function exportSave() {
@@ -175,7 +178,7 @@ const UI = (() => {
   function importSave(file) {
     const r = new FileReader();
     r.onload = () => {
-      try { S = Engine.deserialize(r.result); view = 'overview'; draft = null; closeModal(); enterGame(); save(); toast('Spielstand geladen.', 'good'); }
+      try { S = Engine.deserialize(r.result); view = 'overview'; closeModal(); enterGame(); save(); toast('Spielstand geladen.', 'good'); }
       catch { toast('Ungültige Spielstand-Datei.', 'bad'); }
     };
     r.readAsText(file);
@@ -188,7 +191,6 @@ const UI = (() => {
     if (!S || S.gameOver || modalOpen()) return;
     prev = { groups: { ...S.groups }, stats: { ...S.stats }, approval: S.approval };
     Engine.tick(S);
-    draft = null;
     save();
     sfx('tick');
     renderAll();
@@ -214,14 +216,13 @@ const UI = (() => {
   function monthToast() {
     const r = S.lastReport;
     if (!r) return;
-    const line = (l, v, d, inv, unit = '') => {
-      const cls = Math.abs(v) < 0.05 ? 'muted' : (v > 0) !== !!inv ? 'good' : 'bad';
-      return `<span>${l}</span><span class="${cls}">${FS(v, d)}${unit}</span>`;
-    };
+    const cls = (v, inv) => Math.abs(v) < 0.05 ? 'muted' : (v > 0) !== !!inv ? 'good' : 'bad';
+    const cab = (S.cabinet || []).slice(0, 3).map(c => `<div class="cab-line">${Engine.AUTO_AREAS[c.area]?.icon || '🧑‍💼'} ${esc(c.text)}</div>`).join('');
+    const more = (S.cabinet || []).length > 3 ? `<div class="muted" style="font-size:12px">… und ${(S.cabinet.length - 3)} weitere Entscheidungen (Übersicht)</div>` : '';
     toast(`<div class="t-title">📅 ${Engine.dateStr(S)}</div><div class="month-sum">
-      ${line('Zustimmung', r.approval, 1, false, ' %')}${line('Stabilität', r.stability, 1)}
-      ${line('Wachstum', r.growth, 2, false, ' %')}${line('Schulden', r.debt, 1, true, ' %')}
-      ${line('Polit. Kapital', r.capital, 0, false, ' ⚡')}</div>`, 'info', 2200, 'month');
+      <span>Zustimmung</span><span class="${cls(r.approval)}">${FS(r.approval, 1)} %</span>
+      <span>Staatskonto</span><span class="${cls(r.treasury)}">${r.treasury >= 0 ? '+' : '−'}${FM(Math.abs(r.treasury))}</span></div>
+      ${cab ? `<div class="cab-box">${cab}${more}</div>` : ''}`, 'info', cab ? 4200 : 2200, 'month');
   }
 
   // ─────────────────────────── Rendering ───────────────────────────
@@ -238,7 +239,8 @@ const UI = (() => {
     const toE = S.nextElection - S.month;
     const finalTerm = S.mode === 'klassisch' && S.terms >= 3;
     const elText = finalTerm ? `Amtsende in ${toE} Mon.` : demo ? `Wahl in ${toE} Mon.` : `Machtprobe in ${toE} Mon.`;
-    const stat = (cls, l, v, tip) => `<div class="tb-stat ${cls}" data-tip="${esc(tip)}"><div class="l">${l}</div><div class="v">${v}</div></div>`;
+    const flow = (b.discretionary + Math.max(0, b.balance)) * S.econ.gdp / 1200;
+    const stat = (cls, l, v, tip, nav) => `<div class="tb-stat ${cls}" data-tip="${esc(tip)}" ${nav ? `data-action="nav" data-view="${nav}"` : ''}><div class="l">${l}</div><div class="v">${v}</div></div>`;
     const apCls = S.approval >= 50 ? 'good' : S.approval >= 40 ? 'warn' : 'bad';
     const stCls = S.stats.stability >= 50 ? 'good' : S.stats.stability >= 30 ? 'warn' : 'bad';
     $('#topbar').innerHTML = `
@@ -246,28 +248,28 @@ const UI = (() => {
       <div class="tb-date"><div class="d">${Engine.dateStr(S)}</div><div class="e ${toE <= 6 ? 'warn' : ''}">${elText}</div></div>
       <div class="tb-stats">
         ${stat('', '👍 Zustimmung', `<span class="${apCls}">${F(S.approval, 1)}<small>%</small></span>`, STAT_INFO.approval.desc)}
-        ${stat('', '🏛️ Stabilität', `<span class="${stCls}">${F(S.stats.stability, 0)}</span>`, STAT_INFO.stability.desc)}
+        ${stat('capital', '🏦 Staatskonto', `${FM(S.treasury)}`, `Dein frei verfügbares Geld. Pro Monat fließen ${FM(flow)} aus dem Verfügungsfonds und Überschüssen hinzu.`, 'finanzen')}
         ${stat('', '📈 Wachstum', `<span class="${S.econ.growth >= 1 ? 'good' : S.econ.growth >= 0 ? 'warn' : 'bad'}">${F(S.econ.growth, 1)}<small>%</small></span>`, STAT_INFO.growth.desc)}
-        ${stat('', '💰 Haushalt', `<span class="${b.balance >= -1 ? 'good' : b.balance >= -4 ? 'warn' : 'bad'}">${FS(b.balance, 1)}<small>%</small></span>`, 'Haushaltssaldo in % des BIP pro Jahr. Negativ = Defizit (neue Schulden).')}
-        ${stat('', '🧾 Schulden', `${F(S.econ.debt, 0)}<small>%</small>`, STAT_INFO.debt.desc + ' Kreditrating: ' + Engine.creditRating(S))}
-        ${stat('capital', '⚡ Kapital', `${F(S.capital, 0)}`, 'Politisches Kapital: Damit setzt du Gesetze, Maßnahmen und Haushaltsänderungen durch. Steigt jeden Monat – schneller bei hoher Zustimmung.')}
+        ${stat('', '🏛️ Stabilität', `<span class="${stCls}">${F(S.stats.stability, 0)}</span>`, STAT_INFO.stability.desc)}
       </div>
       <div class="tb-actions">
-        <button class="btn btn-icon btn-auto ${autoTimer ? 'on' : ''}" data-action="auto" data-tip="Automatisch Monate ablaufen lassen. Pausiert bei Ereignissen.">${autoTimer ? '⏸' : '⏩'}</button>
+        <button class="btn btn-icon btn-auto ${autoTimer ? 'on' : ''}" data-action="auto" data-tip="Zeit automatisch laufen lassen. Pausiert bei wichtigen Ereignissen. <kbd>A</kbd>">${autoTimer ? '⏸' : '⏩'}</button>
         <button class="btn btn-primary btn-next" data-action="next" data-tip="Nächster Monat <kbd>Leertaste</kbd>">Nächster Monat ▶</button>
       </div>`;
   }
 
   function renderSidebar() {
     const tips = Engine.tips(S);
-    const danger = new Set(tips.filter(t => t.level === 'danger').map(t => t.area));
+    const danger = new Set(tips.filter(t => t.level === 'danger').map(t => NAV_OF_AREA[t.area]));
+    if (S.wars.length) danger.add('militaer');
+    const autoOn = Object.values(S.auto || {}).filter(Boolean).length, autoAll = Object.keys(Engine.AUTO_AREAS).length;
     $('#sidebar').innerHTML = NAV.map((n, i) => `
       <div class="nav-item ${view === n.id ? 'active' : ''}" data-action="nav" data-view="${n.id}">
         <span class="ico">${n.icon}</span><span class="lbl">${n.name}</span><span class="key">${i + 1}</span>
         ${danger.has(n.id) ? '<span class="alert pulse"></span>' : ''}
-        ${n.id === 'militaer' && S.wars.length ? '<span class="alert pulse"></span>' : ''}
       </div>`).join('') + `
       <div class="side-foot">
+        <div class="auto-badge" data-action="nav" data-view="regierung" data-tip="Deine Minister kümmern sich automatisch um ihre Bereiche. Einstellbar unter Regierung.">🤖 <span class="lbl">Autopilot ${autoOn}/${autoAll}</span></div>
         <button class="btn btn-sm" data-action="menu">☰ <span class="lbl">Menü</span></button>
       </div>`;
   }
@@ -282,7 +284,7 @@ const UI = (() => {
     const v = $('#view');
     const scroll = v.dataset.view === view ? v.scrollTop : 0;
     v.dataset.view = view;
-    const fn = { overview: viewOverview, budget: viewBudget, diplomatie: viewDiplomacy, stats: viewStats, news: viewNews }[view] || (() => viewArea(view));
+    const fn = { overview: viewOverview, regierung: viewGovernment, finanzen: viewFinance, welt: viewWorld, militaer: viewMilitary, chronik: viewChronik }[view] || viewOverview;
     v.innerHTML = fn();
     v.scrollTop = scroll;
     afterRender();
@@ -311,6 +313,7 @@ const UI = (() => {
       <span class="num">${F(v, 0)}${trendArrow(v, opts.before, opts.inv)}</span></div>`;
   }
 
+  function shortMoney(mrd) { return mrd >= 1000 ? F(mrd / 1000, 1) + ' Bio' : mrd >= 10 ? F(mrd, 0) + ' Mrd' : mrd >= 1 ? F(mrd, 1) + ' Mrd' : F(mrd * 1000, 0) + ' Mio'; }
   function moneyText(pct) { return `${F(Math.abs(pct), 2)} % BIP ≈ ${FM(Math.abs(pct) * S.econ.gdp / 100)}`; }
   function chip(text, cls = 'neutral') { return `<span class="chip ${cls}">${text}</span>`; }
   function signedChip(label, v, inv, d = 1, suffix = '') {
@@ -324,8 +327,8 @@ const UI = (() => {
     if (!eff) return '';
     const out = [];
     const L = land ? Engine.byId(land) : null;
-    if (eff.money) out.push(chip((eff.money > 0 ? '💸 Kosten ' : '💰 Einnahmen ') + moneyText(eff.money), eff.money > 0 ? 'bad' : 'good'));
-    if (eff.capital) out.push(signedChip('⚡ Kapital', eff.capital, false, 0));
+    if (eff.money) out.push(chip((eff.money > 0 ? '💸 ' : '💰 +') + FM(Math.abs(eff.money) * S.econ.gdp / 100), eff.money > 0 ? 'bad' : 'good'));
+    if (eff.capital) out.push(chip('💸 ' + FM(-eff.capital * 0.01 * S.econ.gdp / 100), 'bad'));
     if (eff.stats) for (const k in eff.stats) out.push(signedChip(LABELS[k] || k, eff.stats[k], INVERT[k], 0));
     if (eff.econ) for (const k in eff.econ) out.push(signedChip(LABELS[k], eff.econ[k], INVERT[k], 1, ' %'));
     if (eff.groups) for (const g in eff.groups) out.push(signedChip(GROUPS[g].icon + ' ' + GROUPS[g].name, eff.groups[g], false, 0));
@@ -355,7 +358,7 @@ const UI = (() => {
 
   function policyChips(p) {
     const out = [];
-    if (p.upkeep) out.push(chip((p.upkeep > 0 ? '💸 ' : '💰 ') + `${F(Math.abs(p.upkeep), 1)} % BIP/Jahr ≈ ${FM(Math.abs(p.upkeep) * S.econ.gdp / 100)}`, p.upkeep > 0 ? 'bad' : 'good'));
+    if (p.upkeep) out.push(chip((p.upkeep > 0 ? '💸 ' : '💰 +') + `${FM(Math.abs(p.upkeep) * S.econ.gdp / 100)}/Jahr`, p.upkeep > 0 ? 'bad' : 'good'));
     for (const k in p.effects) out.push(signedChip(LABELS[k] || k, p.effects[k], INVERT[k], ['growth', 'unemployment', 'inflation', 'interest', 'capitalGain'].includes(k) ? 2 : 0));
     for (const g in p.groups) out.push(signedChip(GROUPS[g].icon + ' ' + GROUPS[g].name, p.groups[g], false, 0));
     return `<div class="chips">${out.join('')}</div>`;
@@ -380,151 +383,127 @@ const UI = (() => {
       ${t.area && view === 'overview' ? `<button class="btn btn-sm go" data-action="nav" data-view="${t.area}">${AREAS[t.area].icon}</button>` : ''}</div>`).join('');
   }
 
+  function mood(v) { return v >= 65 ? '😄' : v >= 50 ? '🙂' : v >= 35 ? '😐' : v >= 20 ? '🙁' : '😠'; }
+
   function viewOverview() {
-    const e = S.econ, b = S.budget, c = S.country;
-    const tips = Engine.tips(S);
-    const kpis = `<div class="kpis">
-      ${kpi('👍 Zustimmung', F(S.approval, 1) + ' %', deltaTxt('approval'), 'approval', '#f5b942', STAT_INFO.approval.desc)}
-      ${kpi('🏛️ Stabilität', F(S.stats.stability, 0), deltaTxt('stability'), 'stability', '#4da3ff', STAT_INFO.stability.desc)}
-      ${kpi('📈 Wachstum', F(e.growth, 1) + ' %', deltaTxt('growth', 2), 'growth', '#3ecf8e', STAT_INFO.growth.desc)}
-      ${kpi('👷 Arbeitslosigkeit', F(e.unemployment, 1) + ' %', deltaTxt('unemployment', 1, true), 'unemployment', '#ff8a5c', STAT_INFO.unemployment.desc)}
-      ${kpi('🏷️ Inflation', F(e.inflation, 1) + ' %', deltaTxt('inflation', 1, true), 'inflation', '#c58cff', STAT_INFO.inflation.desc)}
-      ${kpi('🧾 Schulden', F(e.debt, 0) + ' %', `Rating <b>${Engine.creditRating(S)}</b>`, 'debt', '#ff5d6c', STAT_INFO.debt.desc)}
-      ${kpi('🏭 BIP', FM(e.gdp), `${F(e.gdp * 1e9 / (c.pop * 1e6), 0)} $ pro Kopf`, 'gdp', '#6cb8ff', 'Bruttoinlandsprodukt – die gesamte Wirtschaftsleistung pro Jahr.')}
-    </div>`;
-    const groups = Object.keys(GROUPS).map(g => barRow(`${GROUPS[g].icon} ${GROUPS[g].name}`, S.groups[g],
-      { before: prev?.groups[g], tip: `<b>${GROUPS[g].name}</b> (${Math.round(GROUPS[g].weight * 100)} % der Wähler)<br>Wichtig: ${GROUPS[g].likes}` })).join('');
-    const qual = ['education', 'health', 'security', 'environment', 'welfare', 'military', 'reputation', 'corruption'].map(k =>
-      barRow(`${STAT_INFO[k].icon} ${STAT_INFO[k].name}`, S.stats[k], { inv: STAT_INFO[k].invert, mark: c.stats[k], before: prev?.stats[k], tip: `<b>${STAT_INFO[k].name}</b><br>${STAT_INFO[k].desc}<br><i>Strich = Startwert</i>` })).join('')
-      + barRow(`${STAT_INFO.capacity.icon} ${STAT_INFO.capacity.name}`, S.capacity, { mark: c.capacity, tip: `<b>${STAT_INFO.capacity.name}</b><br>${STAT_INFO.capacity.desc}` })
-      + barRow(`${STAT_INFO.terror.icon} ${STAT_INFO.terror.name}`, S.terror, { inv: true, tip: `<b>${STAT_INFO.terror.name}</b><br>${STAT_INFO.terror.desc}` });
-    const mods = S.mods.slice(0, 6).map(m => `<div class="bs-line"><span>⏳ ${LABELS[m.key] || m.key} ${FS(m.value, 1)}</span><span class="muted">${m.months} Mon.</span></div>`).join('');
-    const war = S.wars.map(w => { const o = Engine.byId(w.enemy); return `<div class="tip danger"><span class="ti">⚔️</span><span>Krieg gegen ${flag(o.id)} <b>${esc(o.name)}</b> – Frontverlauf ${FS(w.progress, 0)}</span><button class="btn btn-sm go" data-action="nav" data-view="militaer">→</button></div>`; }).join('');
-    const pols = Object.keys(S.policies).length;
-    const news = S.news.slice(0, 6).map(n => `<div class="news-item ${n.type}"><span class="when">${Engine.dateStr(S, n.month)}</span><span class="txt">${esc(n.text)}</span></div>`).join('');
+    const e = S.econ, b = S.budget, c = S.country, st = S.stats;
+    const toE = S.nextElection - S.month, demo = c.gov === 'demokratie';
+    const est = Engine.clamp(S.approval * 0.85 + 9 + S.campaign, 0, 100);
+    const lvl = (good, warn) => good ? 'good' : warn ? 'warn' : 'bad';
+    const war = S.wars[0];
+    const lights = [
+      ['📈', 'Wirtschaft', lvl(e.growth >= c.potential - 0.3 && e.unemployment <= c.unemployment + 1, e.growth >= 0), `Wachstum ${F(e.growth, 1)} % · Arbeitslose ${F(e.unemployment, 1)} %`, 'regierung'],
+      ['💰', 'Finanzen', lvl(b.balance >= -2, b.balance >= -5), `Konto ${FM(S.treasury)} · ${b.balance >= 0 ? 'Überschuss' : 'Defizit'} ${F(Math.abs(b.balance), 1)} %`, 'finanzen'],
+      ['👥', 'Gesellschaft', lvl(S.approval >= 50 && st.stability >= 50, S.approval >= 38 && st.stability >= 30), `Zustimmung ${F(S.approval, 0)} % · Stabilität ${F(st.stability, 0)}`, 'regierung'],
+      ['🛡️', 'Sicherheit', war ? 'bad' : lvl(S.terror < 40 && st.security >= 50, S.terror < 65), war ? `Krieg gegen ${Engine.byId(war.enemy).name} (Front ${FS(war.progress, 0)})` : `Terrorgefahr ${F(S.terror, 0)} · Sicherheit ${F(st.security, 0)}`, 'militaer'],
+      ['🌍', 'Ausland', lvl(st.reputation >= 55, st.reputation >= 35), `Ansehen ${F(st.reputation, 0)} · ${S.conflicts.length} Krisenherde weltweit`, 'welt'],
+      ['🗳️', demo ? 'Nächste Wahl' : 'Machtprobe', S.mode === 'klassisch' && S.terms >= 3 ? 'good' : demo ? lvl(est >= 53, est >= 48) : lvl(st.stability >= 45 && S.groups.military >= 40, st.stability >= 30 && S.groups.military >= 30),
+        `in ${toE} Monaten · ${demo ? `Prognose ${F(est, 0)} %` : `Militär ${F(S.groups.military, 0)} %`}`, 'regierung'],
+    ].map(([ic, name, l, txt, nav]) => `<div class="light ${l}" data-action="nav" data-view="${nav}"><span class="dot"></span><span class="li-ico">${ic}</span><div><b>${name}</b><small>${esc(txt)}</small></div></div>`).join('');
+    const cab = (S.cabinet || []).length ? S.cabinet.map(x => `<div class="cab-line">${Engine.AUTO_AREAS[x.area]?.icon || '🧑‍💼'} ${esc(x.text)}</div>`).join('')
+      : '<div class="muted" style="font-size:13px">Diesen Monat keine Entscheidungen. Schalte unter „Regierung“ den Autopiloten deiner Minister ein oder aus.</div>';
+    const tips = Engine.tips(S).filter(t => t.level === 'danger' || t.level === 'warn').slice(0, 3);
+    const important = tips.length ? adviceList(tips, 3) : '<div class="tip good"><span class="ti">✅</span><span>Keine akuten Probleme.</span></div>';
+    const groups = Object.keys(GROUPS).map(g => `<div class="gpill" data-tip="<b>${GROUPS[g].name}</b> (${Math.round(GROUPS[g].weight * 100)} % der Wähler)<br>Wichtig: ${GROUPS[g].likes}">
+      <span class="gi">${GROUPS[g].icon}</span><span class="gn">${GROUPS[g].name}</span><span class="gm">${mood(S.groups[g])}</span><span class="gv ${S.groups[g] >= 50 ? 'good' : S.groups[g] >= 35 ? 'warn' : 'bad'}">${F(S.groups[g], 0)}</span></div>`).join('');
+    const confl = S.conflicts.slice().sort((a, b) => b.intensity - a.intensity).slice(0, 5).map(k => `<div class="conf-chip" data-action="conflict-open" data-id="${k.id}">
+      <span>${k.type === 'war' ? '⚔️' : k.type === 'civil' ? '🔥' : '⚠️'}</span><span class="cn">${esc(k.name)}</span><span class="ci" style="--w:${k.intensity}%"></span></div>`).join('');
     return `
-      <div class="view-head"><h2>🧭 Lagezentrum</h2><span class="sub">Willkommen, ${esc(S.leader.title)} ${esc(S.leader.name)}. Hier ist die Lage der Nation.</span></div>
-      ${kpis}
+      <div class="view-head"><h2>🧭 Übersicht</h2><span class="sub">${esc(S.leader.title)} ${esc(S.leader.name)} · ${Engine.dateStr(S)}</span></div>
       <div class="grid g-main">
-        <div class="panel"><div class="panel-title">🌍 Weltlage <span class="right muted">Klicke auf ein Land für Diplomatie</span></div>
-          <div class="map-wrap"><canvas data-map="1"></canvas></div>${mapLegend()}</div>
-        <div class="panel"><div class="panel-title">🧑‍💼 Deine Berater</div>${war}${adviceList(tips, 6)}</div>
-      </div>
-      <div class="grid g3" style="margin-top:14px">
-        <div class="panel"><div class="panel-title">👥 Bevölkerungsgruppen <span class="right muted">Zufriedenheit</span></div>${groups}</div>
-        <div class="panel"><div class="panel-title">📋 Lage der Nation</div>${qual}</div>
-        <div class="panel"><div class="panel-title">📌 Aktuelles</div>
-          <div class="bs-line"><span>📜 Aktive Gesetze</span><span>${pols}</span></div>
-          <div class="bs-line"><span>💰 Haushaltssaldo</span><span class="${b.balance >= 0 ? 'good' : 'bad'}">${FS(b.balance, 1)} % (${FM(b.balance * e.gdp / 100)})</span></div>
-          <div class="bs-line"><span>🏦 Zinssatz</span><span>${F(b.rate, 1)} %</span></div>
-          <div class="bs-line"><span>🛢️ Ölpreis</span><span>${F(S.oil * 100, 0)} %</span></div>
-          <div class="bs-line"><span>🌐 Weltkonjunktur</span><span class="${S.global > 0.3 ? 'good' : S.global < -0.3 ? 'bad' : ''}">${S.global > 0.3 ? 'Boom' : S.global < -0.3 ? 'Schwach' : 'Normal'}</span></div>
-          ${mods ? '<div class="panel-title" style="margin-top:12px">⏳ Zeitlich begrenzte Effekte</div>' + mods : ''}
-          <div class="panel-title" style="margin-top:12px">📰 Letzte Meldungen</div>${news}
+        <div class="panel">${mapPanelHead()}<div class="map-wrap"><canvas data-map="1"></canvas></div>${mapLegend()}
+          ${confl ? `<div class="conf-row">${confl}</div>` : ''}</div>
+        <div class="grid" style="align-content:start">
+          <div class="panel"><div class="panel-title">🚦 Lage der Nation</div><div class="lights">${lights}</div></div>
+          <div class="panel"><div class="panel-title">⚠️ Wichtig</div>${important}</div>
         </div>
+      </div>
+      <div class="grid g2" style="margin-top:14px">
+        <div class="panel"><div class="panel-title">👥 Bevölkerung <span class="right muted">Zufriedenheit</span></div><div class="gpills">${groups}</div></div>
+        <div class="panel"><div class="panel-title">🧑‍💼 Kabinettsbericht <span class="right muted">${Engine.dateStr(S)}</span></div><div class="cab-box">${cab}</div></div>
       </div>`;
   }
 
   // ─────────────────────────── Ansicht: Haushalt ───────────────────────────
-  function viewBudget() {
-    if (!draft) draft = { taxes: { ...S.taxes }, spending: { ...S.spending } };
-    const taxRows = Object.keys(TAX_INFO).map(k => sliderRow('tax', k, TAX_INFO[k], draft.taxes[k], S.taxes[k], TAX_INFO[k].min, TAX_INFO[k].max, 0.5)).join('');
-    const spRows = Object.keys(SPEND_INFO).map(k => sliderRow('spend', k, SPEND_INFO[k], draft.spending[k], S.spending[k], 0, SPEND_INFO[k].max, 0.1)).join('');
+  function viewFinance() {
+    const b = S.budget, gdp = S.econ.gdp;
+    const flow = (b.discretionary + Math.max(0, b.balance)) * gdp / 1200;
+    const newDebt = Math.max(0, -b.balance) * gdp / 1200;
+    const taxRows = Object.keys(TAX_INFO).map(k => sliderRow('tax', k, TAX_INFO[k], S.taxes[k], S.country.taxes[k], TAX_INFO[k].min, TAX_INFO[k].max, 0.5)).join('');
+    const spRows = Object.keys(SPEND_INFO).map(k => sliderRow('spend', k, SPEND_INFO[k], S.spending[k], S.country.spending[k], 0, SPEND_INFO[k].max, 0.1)).join('');
+    const fb = (op, label, amt, tip) => `<button class="btn btn-sm" data-action="fin" data-op="${op}" data-amt="${amt}" ${amt <= 0 ? 'disabled' : ''} data-tip="${esc(tip)}">${label}</button>`;
+    const projects = Object.entries(Engine.PROJECTS).map(([id, p]) => {
+      const x = projAmt[id] ?? 0.5;
+      const seg = Engine.PROJECT_AMOUNTS.map(a => `<button class="${a === x ? 'active' : ''}" data-action="proj-amt" data-id="${id}" data-v="${a}">${shortMoney(a * gdp / 100)}</button>`).join('');
+      const tired = Engine.recentUses(S, 'proj:' + id, 12);
+      return `<div class="card compact">
+        <div class="card-head"><div class="ico">${p.icon}</div><div><h4>${p.name}</h4>${tired ? `<div class="tag" style="color:var(--warn)">Wirkung ${Math.round(Engine.fatigue(S, 'proj:' + id, 12, 0.7) * 100)} % (kürzlich genutzt)</div>` : ''}</div></div>
+        <div class="desc">${esc(p.desc)}</div>
+        <div class="seg seg-sm">${seg}</div>
+        ${effectChips(Engine.projectEffects(S, id, x))}
+        <div class="card-foot"><span class="cost">${FM(x * gdp / 100)}</span><button class="btn btn-sm btn-primary" data-action="proj-run" data-id="${id}">Investieren</button></div></div>`;
+    }).join('');
     return `
-      <div class="view-head"><h2>💰 Staatshaushalt</h2><span class="sub">Lege Steuern und Ausgaben fest. Alle Werte in % des BIP (${FM(S.econ.gdp)}).</span></div>
-      ${advisorBlock('wirtschaft', Engine.tips(S).filter(t => t.area === 'wirtschaft' && /Defizit|Zinsen|Überschuss|Inflation/.test(t.text)), 'Ein ausgeglichener Haushalt hält die Zinsen niedrig. Kleine Defizite sind okay, solange die Wirtschaft wächst.')}
-      <div class="budget-layout" style="margin-top:14px">
-        <div>
-          <div class="panel"><div class="panel-title">🧾 Steuern <span class="right muted">Einnahmen</span></div>${taxRows}</div>
-          <div class="panel" style="margin-top:14px"><div class="panel-title">🏗️ Ausgaben <span class="right muted">pro Jahr</span></div>${spRows}</div>
+      <div class="view-head"><h2>💰 Finanzen</h2><span class="sub">Dein Staatskonto: Was übrig bleibt, landet hier – und du entscheidest, was damit passiert.</span></div>
+      <div class="grid g2">
+        <div class="panel konto">
+          <div class="panel-title">🏦 Staatskonto</div>
+          <div class="konto-big">${FM(S.treasury)}</div>
+          <div class="konto-flow good">▲ +${FM(flow)} pro Monat${newDebt > 0 ? ` <span class="bad" style="margin-left:10px">· Neuverschuldung ${FM(newDebt)}/Monat</span>` : ''}</div>
+          ${sliderRow('disc', 'x', { icon: '💼', name: 'Verfügungsfonds', hint: 'Anteil des Haushalts, der jedes Jahr auf dein Konto fließt' }, S.discretionary, 0.5, 0, 3, 0.1)}
+          <div class="bs-line"><span>🧾 Staatsschulden</span><span>${F(S.econ.debt, 0)} % BIP · ${FM(S.econ.debt * gdp / 100)}</span></div>
+          <div class="bs-line"><span>🏦 Zinsen pro Jahr</span><span>${FM(b.interest * gdp / 100)} (${F(b.rate, 1)} %)</span></div>
+          <div class="bs-line"><span>📈 Staatsfonds</span><span>${FM(S.fund)} · Rendite ${FS(S.fundRate, 1)} %</span></div>
+          <div class="bs-line"><span>⭐ Kreditrating</span><b>${Engine.creditRating(S)}</b></div>
+          <div class="fin-actions">
+            <div><label>Schulden tilgen</label>${fb('tilgen', '25 %', S.treasury * 0.25, 'Ein Viertel des Kontos in die Schuldentilgung')} ${fb('tilgen', '50 %', S.treasury * 0.5, 'Die Hälfte des Kontos')} ${fb('tilgen', 'Alles', S.treasury, 'Das ganze Konto')}</div>
+            <div><label>Kredit aufnehmen</label>${fb('kredit', FM(gdp * 0.005), gdp * 0.005, 'Neue Schulden – das Geld landet sofort auf dem Konto')} ${fb('kredit', FM(gdp * 0.01), gdp * 0.01, '')} ${fb('kredit', FM(gdp * 0.03), gdp * 0.03, '')}</div>
+            <div><label>Staatsfonds</label>${fb('fonds_ein', 'Hälfte anlegen', S.treasury * 0.5, 'Geld anlegen – bringt schwankende Rendite')} ${fb('fonds_aus', 'Alles abheben', S.fund, 'Fondsvermögen zurück aufs Konto')}</div>
+          </div>
         </div>
-        <div class="panel budget-summary" id="budget-summary">${budgetSummary()}</div>
-      </div>`;
+        <div class="panel">
+          <div class="panel-title">📊 Haushalt pro Jahr</div>
+          <div class="bs-line"><span>Einnahmen</span><span>${FM(b.revenue * gdp / 100)}</span></div>
+          <div class="bs-line"><span>Ausgaben</span><span>${FM(b.expenses * gdp / 100)}</span></div>
+          <div class="bs-line sub"><span>davon Zinsen</span><span>${FM(b.interest * gdp / 100)}</span></div>
+          <div class="bs-line sub"><span>davon Verfügungsfonds → dein Konto</span><span>${FM(b.discretionary * gdp / 100)}</span></div>
+          <div class="bs-line sub"><span>davon Gesetze & Programme</span><span>${FM(b.policyCost * gdp / 100)}</span></div>
+          ${b.warCost ? `<div class="bs-line sub"><span>davon Krieg, Mobilisierung, Missionen</span><span>${FM(b.warCost * gdp / 100)}</span></div>` : ''}
+          <div class="balance-big ${b.balance >= 0 ? 'pos' : 'neg'}"><div class="muted" style="font-size:12px">${b.balance >= 0 ? 'Überschuss' : 'Defizit'} pro Jahr</div><div class="v">${FM(b.balance * gdp / 100)}</div><div style="font-size:12px">${FS(b.balance, 1)} % des BIP</div></div>
+          ${autoToggle('finanzen')}
+        </div>
+      </div>
+      <div class="section-title">🏗️ Sonderprojekte <span class="count">Investiere Geld vom Konto direkt dort, wo du willst</span></div>
+      <div class="cards">${projects}</div>
+      <details class="panel" style="margin-top:18px" ${S.auto.finanzen ? '' : 'open'}><summary class="panel-title" style="cursor:pointer;margin:0">⚙️ Steuern & Ausgaben im Detail <span class="right muted">Änderungen gelten sofort${S.auto.finanzen ? ' · Der Finanzminister passt sie automatisch an' : ''}</span></summary>
+        <div class="grid g2" style="margin-top:12px"><div>${taxRows}</div><div>${spRows}</div></div>
+      </details>`;
   }
 
-  function sliderRow(kind, k, info, val, cur, min, max, step) {
+  function autoToggle(key) {
+    const a = Engine.AUTO_AREAS[key], on = !!S.auto[key];
+    return `<button class="auto-toggle ${on ? 'on' : ''}" data-action="auto-toggle" data-k="${key}" data-tip="${esc(a.desc)}"><span class="sw"></span>${a.icon} ${a.name}: <b>${on ? 'Minister kümmert sich' : 'Du entscheidest'}</b></button>`;
+  }
+
+  function sliderRow(kind, k, info, val, start, min, max, step) {
     return `<div class="slider-row">
       <div><div class="sl-name">${info.icon} ${info.name}</div><div class="sl-hint">${info.hint}</div></div>
       <input type="range" min="${min}" max="${max}" step="${step}" value="${val}" data-budget="${kind}:${k}">
-      <div class="sl-val" id="sv-${kind}-${k}">${sliderVal(kind, k, val, cur)}</div></div>`;
-  }
-  function sliderVal(kind, k, val, cur) {
-    const changed = Math.abs(val - cur) > 0.001;
-    let amount;
-    if (kind === 'tax') {
-      const b = Engine.computeBudget(S, draft.taxes, draft.spending);
-      amount = FM(b.taxItems[k] * S.econ.gdp / 100);
-    } else amount = FM(val * S.econ.gdp / 100);
-    return `<b class="${changed ? 'changed' : ''}">${F(val, 1)} %</b>${changed ? ` <span class="muted" style="font-size:11px">(${FS(val - cur, 1)})</span>` : ''}<small>${amount}</small>`;
+      <div class="sl-val" id="sv-${kind}-${k}">${sliderVal(kind, k, val, start)}</div></div>`;
   }
 
-  function budgetSummary() {
-    const b = Engine.computeBudget(S, draft.taxes, draft.spending);
-    const cur = S.budget;
-    const cost = Engine.budgetChangeCost(S, draft.taxes, draft.spending);
-    const gdp = S.econ.gdp;
-    const line = (l, v, cls = '') => `<div class="bs-line ${cls}"><span>${l}</span><span>${F(v, 1)} % <span class="muted">· ${FM(v * gdp / 100)}</span></span></div>`;
-    const preview = budgetPreview();
-    return `<div class="panel-title">📊 Haushaltsübersicht</div>
-      ${line('Steuereinnahmen', b.taxRevenue)}
-      ${line('Sonstige Einnahmen', b.otherRevenue, 'sub')}
-      ${b.oilRevenue ? line('Öl-Effekt', b.oilRevenue, 'sub') : ''}
-      ${line('Einnahmen gesamt', b.revenue, 'total')}
-      <div style="height:8px"></div>
-      ${line('Ressorts', b.spendSum)}
-      ${line('Verwaltung', b.admin, 'sub')}
-      ${line('Gesetze & Programme', b.policyCost, 'sub')}
-      ${b.warCost ? line('Kriegskosten', b.warCost, 'sub') : ''}
-      ${line(`Zinsen (${F(b.rate, 1)} %)`, b.interest, 'sub')}
-      ${line('Ausgaben gesamt', b.expenses, 'total')}
-      <div class="balance-big ${b.balance >= 0 ? 'pos' : 'neg'}"><div class="muted" style="font-size:12px">${b.balance >= 0 ? 'Überschuss' : 'Defizit'} pro Jahr</div>
-        <div class="v">${FS(b.balance, 2)} %</div><div style="font-size:12.5px">${FM(b.balance * gdp / 100)}</div>
-        ${Math.abs(b.balance - cur.balance) > 0.005 ? `<div class="muted" style="font-size:12px">aktuell: ${FS(cur.balance, 2)} %</div>` : ''}</div>
-      ${preview ? `<div class="panel-title">🔮 Erwartete Wirkung</div><div class="chips" style="margin-bottom:12px">${preview}</div>` : ''}
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-primary" data-action="budget-apply" ${cost === 0 || cost > S.capital ? 'disabled' : ''} style="flex:1">Beschließen${cost ? ` (${cost} ⚡)` : ''}</button>
-        <button class="btn" data-action="budget-reset" ${cost === 0 ? 'disabled' : ''}>Zurücksetzen</button>
-      </div>
-      <button class="btn btn-sm" data-action="budget-balance" style="width:100%;margin-top:8px" data-tip="Deine Finanzministerin schlägt einen Haushalt mit höchstens 1 % Defizit vor.">💡 Vorschlag: Haushalt ausgleichen</button>
-      ${cost > S.capital ? `<p class="bad" style="font-size:12px;margin:8px 0 0">Nicht genug politisches Kapital (${F(S.capital, 0)} ⚡).</p>` : ''}
-      <p class="muted" style="font-size:12px;margin:10px 0 0">Größere Änderungen kosten mehr politisches Kapital. Die Wirkung entfaltet sich über mehrere Monate.</p>`;
+  function sliderVal(kind, k, val, start) {
+    const amount = kind === 'tax' ? FM(S.budget.taxItems[k] * S.econ.gdp / 100) : FM(val * S.econ.gdp / 100);
+    if (kind === 'disc') return `<b>${F(val, 1)} %</b><small>${amount}/Jahr</small>`;
+    const d = val - start;
+    return `<b>${F(val, 1)} %</b>${Math.abs(d) > 0.001 ? ` <span class="muted" style="font-size:11px">(Start ${FS(d, 1)})</span>` : ''}<small>${amount}/Jahr</small>`;
   }
 
-  function budgetPreview() {
-    const out = [];
-    const T = k => draft.taxes[k] - S.taxes[k], P = k => draft.spending[k] - S.spending[k];
-    const g = -T('income') * 0.035 - T('corporate') * 0.05 - T('vat') * 0.04 + P('infrastructure') * 0.3;
-    if (Math.abs(g) > 0.02) out.push(signedChip('Wachstum', g, false, 2, ' %'));
-    if (Math.abs(T('vat')) > 0.01) out.push(signedChip('Inflation', T('vat') * 0.05, true, 2, ' %'));
-    const st = { education: P('education') * 7, health: P('health') * 4, security: P('police') * 12, environment: P('environment') * 12, military: P('military') * 7, welfare: P('social') * 2.5 };
-    for (const k in st) if (Math.abs(st[k]) >= 0.5) out.push(signedChip(LABELS[k], st[k], false, 0));
-    const grp = {
-      workers: -T('income') * 0.7 - T('vat') * 0.6 + P('social') * 2.5 * 0.4, business: -T('corporate') * 1.2 - T('income') * 0.3,
-      retirees: P('health') * 4 * 0.5 + P('social') * 2.5 * 0.4 - T('vat') * 0.4, youth: P('education') * 7 * 0.5 - T('income') * 0.3 + P('environment') * 12 * 0.3,
-      military: P('military') * 10 + P('military') * 7 * 0.3, greens: P('environment') * 12 * 0.9 + P('environment') * 10,
-      conservatives: P('police') * 12 * 0.5 - T('income') * 0.3 - T('vat') * 0.2,
-    };
-    for (const k in grp) if (Math.abs(grp[k]) >= 0.5) out.push(signedChip(GROUPS[k].icon + ' ' + GROUPS[k].name, grp[k], false, 0));
-    return out.join('');
-  }
 
-  function balanceProposal() {
-    const target = Math.max(-1, S.budget.balance);
-    let b = Engine.computeBudget(S, draft.taxes, draft.spending);
-    let need = target - b.balance;
-    if (need <= 0.01) { toast('Der Haushalt ist bereits solide. 👍', 'good'); return; }
-    // Hälfte über Mehrwertsteuer, Hälfte über proportionale Ausgabenkürzung
-    const vatUp = Math.min(TAX_INFO.vat.max - draft.taxes.vat, need * 0.5 / 0.38);
-    draft.taxes.vat = Math.round((draft.taxes.vat + vatUp) * 2) / 2;
-    b = Engine.computeBudget(S, draft.taxes, draft.spending);
-    need = target - b.balance;
-    if (need > 0) {
-      const factor = Math.max(0.6, 1 - need / b.spendSum);
-      for (const k in draft.spending) draft.spending[k] = Math.round(draft.spending[k] * factor * 10) / 10;
-    }
-    renderView();
-    toast('Vorschlag eingetragen – prüfe ihn und klicke auf „Beschließen“.', 'info');
-  }
+
+
+
+
 
   // ─────────────────────────── Ansicht: Fachbereiche ───────────────────────────
   function advisorBlock(area, tips, idle) {
@@ -533,60 +512,40 @@ const UI = (() => {
     return `<div class="panel advisor"><div class="avatar">${a.avatar}</div><div class="bubble"><div class="who"><b>${a.advisor}</b> · ${a.role}</div>${body}</div></div>`;
   }
 
-  function viewArea(area) {
-    const a = AREAS[area];
-    const tips = Engine.tips(S).filter(t => t.area === area);
-    const actions = ACTIONS.filter(x => x.area === area).map(actionCard).join('');
-    const recs = Engine.recommendedPolicies(S, area, 2);
-    const rank = p => (p.id in S.policies) ? 0 : recs.includes(p.id) ? 1 : Engine.canEnact(S, p.id).ok ? 2 : 3;
-    const pols = POLICIES.filter(p => p.area === area).sort((x, y) => rank(x) - rank(y)).map(p => policyCard(p, recs.includes(p.id))).join('');
-    const active = POLICIES.filter(p => p.area === area && (p.id in S.policies)).length;
+  function viewGovernment() {
+    const filters = [['alle', 'Alle'], ['wirtschaft', '📈 Wirtschaft'], ['soziales', '🤝 Soziales'], ['militaer', '🛡️ Sicherheit'], ['politik', '🏛️ Politik']]
+      .map(([k, l]) => `<button class="btn btn-sm ${govFilter === k ? 'active' : ''}" data-action="gov-filter" data-k="${k}">${l}</button>`).join('');
+    const inArea = x => govFilter === 'alle' || x.area === govFilter;
+    const actions = ACTIONS.filter(inArea).map(actionCard).join('');
+    const recs = new Set(['wirtschaft', 'soziales', 'militaer', 'politik'].flatMap(a => Engine.recommendedPolicies(S, a, 1)));
+    const rank = p => (p.id in S.policies) ? 0 : recs.has(p.id) ? 1 : Engine.canEnact(S, p.id).ok ? 2 : 3;
+    const pols = POLICIES.filter(inArea).sort((x, y) => rank(x) - rank(y)).map(p => policyCard(p, recs.has(p.id))).join('');
+    const activeCount = POLICIES.filter(p => inArea(p) && (p.id in S.policies)).length;
+    const toggles = Object.keys(Engine.AUTO_AREAS).map(autoToggle).join('');
     return `
-      <div class="view-head"><h2>${a.icon} ${a.name}</h2><span class="sub">${areaSub(area)}</span></div>
-      ${advisorBlock(area, tips)}
-      ${areaPanel(area)}
-      <div class="section-title">⚡ Sofortmaßnahmen <span class="count">Einmalige Entscheidungen mit sofortiger Wirkung</span></div>
-      <div class="cards">${actions}</div>
-      <div class="section-title">📜 Gesetze <span class="count">${active} aktiv · wirken dauerhaft, solange sie gelten</span></div>
+      <div class="view-head"><h2>🏛️ Regierung</h2><span class="sub">Entscheide selbst – oder lass deine Minister arbeiten.</span></div>
+      <div class="panel"><div class="panel-title">🤖 Minister-Autopilot <span class="right"><button class="btn btn-sm" data-action="auto-all" data-v="1">Alle an</button> <button class="btn btn-sm" data-action="auto-all" data-v="0">Alle aus</button></span></div>
+        <div class="auto-grid">${toggles}</div>
+        <p class="muted" style="font-size:12px;margin:10px 0 0">Eingeschaltete Minister beschließen sinnvolle Gesetze, halten den Haushalt im Rahmen und entscheiden kleine Ereignisse. Was sie getan haben, steht im Kabinettsbericht. Große Entscheidungen (Kriege, Wahlen, Krisen) triffst immer du.</p></div>
+      <div class="chart-tabs" style="margin-top:16px">${filters}</div>
+      <div class="section-title">⚡ Sofortmaßnahmen <span class="count">sofort wirksam · bezahlt vom Staatskonto · Wiederholungen wirken schwächer</span></div>
+      <div class="cards">${actions || '<span class="muted">Keine Maßnahmen in diesem Bereich.</span>'}</div>
+      <div class="section-title">📜 Gesetze <span class="count">${activeCount} in Kraft · wirken dauerhaft</span></div>
       <div class="cards">${pols}</div>`;
   }
 
-  function areaSub(area) {
-    return { wirtschaft: 'Wachstum, Jobs und Preise – die Basis von allem.', soziales: 'Bildung, Gesundheit, Soziales und Umwelt.',
-      militaer: 'Armee, innere Sicherheit und Kriege.', politik: 'Macht, Medien, Korruption und Wahlen.' }[area];
+  function viewMilitary() {
+    const tips = Engine.tips(S).filter(t => t.area === 'militaer');
+    return `
+      <div class="view-head"><h2>🛡️ Militär</h2><span class="sub">Streitkräfte, Spezialeinheit, Kriege.</span></div>
+      ${tips.length ? advisorBlock('militaer', tips) : ''}
+      <div style="margin-top:4px">${autoToggle('militaer')}</div>
+      ${warPanel()}`;
   }
 
-  function areaPanel(area) {
-    const e = S.econ, st = S.stats, c = S.country;
-    if (area === 'wirtschaft') return `<div class="kpis" style="margin-top:14px">
-      ${kpi('📈 Wachstum', F(e.growth, 1) + ' %', `Potenzial ${F(c.potential, 1)} %`, 'growth', '#3ecf8e', STAT_INFO.growth.desc)}
-      ${kpi('👷 Arbeitslosigkeit', F(e.unemployment, 1) + ' %', deltaTxt('unemployment', 1, true), 'unemployment', '#ff8a5c', STAT_INFO.unemployment.desc)}
-      ${kpi('🏷️ Inflation', F(e.inflation, 1) + ' %', `Ziel ≈ ${F(c.inflBase, 0)} %`, 'inflation', '#c58cff', STAT_INFO.inflation.desc)}
-      ${kpi('💰 Haushalt', FS(S.budget.balance, 1) + ' %', 'des BIP', 'balance', '#f5b942', 'Haushaltssaldo pro Jahr.')}
-      ${kpi('🤝 Handelsabkommen', Object.values(S.trade).filter(Boolean).length, 'Partnerländer', null, null, 'Jedes Handelsabkommen steigert das Wachstum.')}
-    </div>`;
-    if (area === 'soziales') return `<div class="panel" style="margin-top:14px"><div class="grid g2">
-      <div>${['education', 'health', 'welfare'].map(k => barRow(`${STAT_INFO[k].icon} ${STAT_INFO[k].name}`, st[k], { mark: c.stats[k], before: prev?.stats[k], tip: STAT_INFO[k].desc })).join('')}</div>
-      <div>${['environment', 'security'].map(k => barRow(`${STAT_INFO[k].icon} ${STAT_INFO[k].name}`, st[k], { mark: c.stats[k], before: prev?.stats[k], tip: STAT_INFO[k].desc })).join('')}
-        ${['retirees', 'youth', 'greens'].map(g => barRow(`${GROUPS[g].icon} ${GROUPS[g].name}`, S.groups[g], { before: prev?.groups[g], tip: 'Wichtig: ' + GROUPS[g].likes })).join('')}</div>
-    </div></div>`;
-    if (area === 'militaer') return warPanel();
-    if (area === 'politik') {
-      const demo = c.gov === 'demokratie', toE = S.nextElection - S.month;
-      const final = S.mode === 'klassisch' && S.terms >= 3;
-      const est = Engine.clamp(S.approval * 0.85 + 9 + S.campaign, 0, 100);
-      return `<div class="grid g2" style="margin-top:14px">
-        <div class="panel"><div class="panel-title">${demo ? '🗳️ Nächste Wahl' : '🏛️ Nächste Machtprobe'}</div>
-          <div style="font-size:30px;font-weight:800;font-family:var(--mono)">${toE} <span style="font-size:15px" class="muted">Monate</span></div>
-          <div class="muted">${final ? 'Deine letzte Amtszeit – danach endet das Spiel mit deiner Bilanz.' : demo ? `Geschätztes Wahlergebnis heute: <b class="${est >= 50 ? 'good' : 'bad'}">${F(est, 1)} %</b> (50 % nötig)` : 'Du brauchst Stabilität ≥ 30 und ein zufriedenes Militär (≥ 30).'}</div>
-          <div class="bs-line" style="margin-top:8px"><span>Amtszeit</span><span>${S.terms}${S.mode === 'klassisch' ? ' / 3' : ''}</span></div>
-          <div class="bs-line"><span>Korruption</span><span class="${st.corruption > 50 ? 'bad' : 'good'}">${F(st.corruption, 0)}</span></div>
-          <div class="bs-line"><span>Stabilität</span><span>${F(st.stability, 0)}</span></div></div>
-        <div class="panel"><div class="panel-title">👥 Bevölkerungsgruppen</div>${Object.keys(GROUPS).map(g => barRow(`${GROUPS[g].icon} ${GROUPS[g].name}`, S.groups[g], { before: prev?.groups[g], tip: 'Wichtig: ' + GROUPS[g].likes })).join('')}</div>
-      </div>`;
-    }
-    return '';
-  }
+
+
+
 
   function opRow(icon, name, desc, btn) {
     return `<div class="dip-act"><span style="font-size:20px">${icon}</span><div class="t"><b>${name}</b><small>${desc}</small></div>${btn}</div>`;
@@ -607,15 +566,14 @@ const UI = (() => {
       const w = S.wars[0], o = Engine.byId(w.enemy), p = Engine.enemyPower(w.enemy, w), odds = Engine.warOdds(S, w.enemy);
       const pos = (w.progress + 100) / 2;
       const acts = Object.entries(Engine.WAR_ACTIONS).map(([k, a]) => {
-        const cd = (S.cooldowns['war:' + k] || 0) - S.month;
-        const dis = cd > 0 || S.capital < a.cost || (a.minSize && c.milSize < a.minSize);
-        return `<button class="btn btn-sm" data-action="war-act" data-key="${k}" ${dis ? 'disabled' : ''} data-tip="${esc(a.desc)}${a.money ? ' · Kosten ' + moneyText(a.money) : ''}">${a.icon} ${a.name} (${a.cost} ⚡)${cd > 0 ? ' · ' + cd + ' Mon.' : ''}</button>`;
+        const dis = !!(a.minSize && c.milSize < a.minSize);
+        return `<button class="btn btn-sm" data-action="war-act" data-key="${k}" ${dis ? 'disabled' : ''} data-tip="${esc(a.desc)}${a.money ? ' · Kosten ' + moneyText(a.money) : ''}">${a.icon} ${a.name}${a.money ? ' · ' + FM(a.money * S.econ.gdp / 100) : ''}</button>`;
       }).join('');
       const nuke = S.nukes > 0 ? `<div class="panel" style="margin-top:12px;border-color:rgba(255,93,108,.6);background:rgba(255,93,108,.06)">
           <div class="panel-title" style="color:var(--bad)">☢️ Atomare Optionen <span class="right muted">Arsenal: ~${F(S.nukes, 0)} Sprengköpfe</span></div>
           <p class="muted" style="font-size:12.5px;margin:0 0 10px">${Engine.hasNukes(S, o.id) ? `<b class="bad">${esc(o.name)} ist selbst Atommacht.</b> Ein Atomschlag löst eine nukleare Krise aus – nur mit kühlem Kopf (Deeskalation, UN-Vermittlung) lässt sich ein Atomkrieg noch verhindern.` : 'Ein Atomschlag beendet den Krieg sofort – aber dein Land wird weltweit geächtet: Sanktionen, zerbrochene Bündnisse, Wirtschaftseinbruch und Massenproteste.'}</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-sm" data-action="nuke-threat" ${S.capital < 20 || (S.cooldowns.nukeThreat || 0) > S.month ? 'disabled' : ''} data-tip="Drohung mit Atomwaffen: Der Gegner lenkt vielleicht ein. Ansehen −12, alle Beziehungen −8.">⚠️ Nukleare Drohung (20 ⚡)</button>
+            <button class="btn btn-sm" data-action="nuke-threat" data-tip="Drohung mit Atomwaffen: Der Gegner lenkt vielleicht ein. Ansehen −12, alle Beziehungen −8.">⚠️ Nukleare Drohung</button>
             <button class="btn btn-sm btn-danger" data-action="nuke-strike">☢️ Atomschlag befehlen</button>
           </div></div>` : '';
       war = `<div class="panel war-panel" style="margin-top:14px"><div class="panel-title">⚔️ Krieg gegen ${flag(o.id)} ${esc(o.name)} <span class="right">${w.months} Monate</span></div>
@@ -623,7 +581,7 @@ const UI = (() => {
         <div class="war-track"><i style="left:0;width:${pos}%;background:linear-gradient(90deg,#1d6b4a,var(--good))"></i><i style="left:${pos}%;right:0;background:linear-gradient(90deg,var(--bad),#6b1d26)"></i></div>
         <div style="display:flex;justify-content:space-between" class="muted"><span>◀ Niederlage</span><b class="${w.progress >= 0 ? 'good' : 'bad'}">Frontverlauf ${FS(w.progress, 0)}</b><span>Sieg ▶</span></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">${acts}
-          <button class="btn btn-sm btn-good" data-action="dip-act" data-id="${o.id}" data-key="frieden" ${S.capital < 10 ? 'disabled' : ''}>🕊️ Frieden anbieten (10 ⚡)</button></div>
+          <button class="btn btn-sm btn-good" data-action="dip-act" data-id="${o.id}" data-key="frieden">🕊️ Frieden anbieten</button></div>
         ${w.attrition ? `<p class="muted" style="font-size:12px;margin:8px 0 0">Feind geschwächt durch Blockade/Sabotage: −${F(w.attrition * 100, 0)} % Kampfkraft</p>` : ''}
         <p class="muted" style="font-size:12px;margin:8px 0 0">Bei +100 gewinnst du, bei −100 musst du kapitulieren. Der Gegner mobilisiert jeden Monat weiter. Offensiven wirken nur bei gutem Kräfteverhältnis.</p>
         ${nuke}</div>`;
@@ -636,7 +594,7 @@ const UI = (() => {
         ${barRow('🛡️ Militärstärke', S.stats.military, { mark: c.stats.military, before: prev?.stats.military, tip: STAT_INFO.military.desc })}
         ${barRow('📯 Kriegsbereitschaft', S.readiness, { mark: S.readinessTarget, tip: 'Wie kriegsbereit deine Armee ist. Steigt nur langsam (ca. 4 pro Monat) – Vorbereitung braucht Zeit! Strich = Zielwert.' })}
         ${barRow('🎖️ Zufriedenheit Militär', S.groups.military, { before: prev?.groups.military, tip: 'Unter 15 droht ein Putsch, wenn auch die Stabilität niedrig ist!' })}
-        <div class="form-row" style="margin:10px 0"><label>Bereitschaftsstufe (Erhöhen 5 ⚡, Senken 2 ⚡)</label><div class="seg">${lvl}</div></div>
+        <div class="form-row" style="margin:10px 0"><label>Bereitschaftsstufe</label><div class="seg">${lvl}</div></div>
         <div class="bs-line"><span>Kampfkraft (inkl. Verbündete)</span><b>${F(my, 0)}</b></div>
         <div class="bs-line"><span>Verteidigungsbudget</span><span>${F(S.spending.military, 1)} % BIP</span></div>
         <div class="bs-line"><span>Atomwaffen</span><span>${nukeLine}</span></div></div>`;
@@ -644,12 +602,11 @@ const UI = (() => {
     // ── Spezialeinheit ──
     const target = Engine.byId(Engine.sfTarget(S));
     const ops = Object.entries(Engine.SF_OPS).map(([k, a]) => {
-      const cd = (S.cooldowns['sf:' + k] || 0) - S.month;
-      const dis = cd > 0 || S.capital < a.cost || (a.war && !S.wars.length);
+      const dis = !!(a.war && !S.wars.length);
       const chance = a.base !== undefined ? ` · Erfolgschance <b>${F(Engine.sfChance(S, a.base) * 100, 0)} %</b>` : '';
       const extra = k === 'festnahme' ? ` · Ziel vermutet in ${flag(target.id)} ${esc(target.name)}` : '';
-      return opRow(a.icon, a.name, `${esc(a.desc)}${chance}${extra}${cd > 0 ? ` · <span class="warn">bereit in ${cd} Mon.</span>` : ''}`,
-        `<button class="btn btn-sm btn-primary" data-action="sf-op" data-key="${k}" ${dis ? 'disabled' : ''}>${a.cost} ⚡</button>`);
+      return opRow(a.icon, a.name, `${esc(a.desc)}${chance}${extra}`,
+        `<button class="btn btn-sm btn-primary" data-action="sf-op" data-key="${k}" ${dis ? 'disabled' : ''}>Los</button>`);
     }).join('');
     const sf = `<div class="panel"><div class="panel-title">🥷 Spezialeinheit: ${esc(c.sf.name)} <span class="right muted">${S.sf.success}/${S.sf.missions} Einsätze erfolgreich</span></div>
         ${barRow('🥷 Einsatzqualität', S.sf.quality, { mark: c.sf.quality, tip: 'Bestimmt die Erfolgschance aller Kommandoeinsätze. Steigt durch Training, das Gesetz „Spezialkräfte ausbauen“ und ein höheres Verteidigungsbudget.' })}
@@ -663,27 +620,26 @@ const UI = (() => {
 
   function actionCard(a) {
     const chk = Engine.canDoAction(S, a.id);
-    return `<div class="card ${chk.ok ? '' : 'locked'}">
-      <div class="card-head"><div class="ico">${a.icon}</div><div><h4>${esc(a.name)}</h4></div></div>
-      <div class="desc">${esc(a.desc)}</div>
+    const f = Engine.fatigue(S, 'act:' + a.id, a.cooldown);
+    const money = a.effects.money || 0;
+    return `<div class="card compact ${chk.ok ? '' : 'locked'}" data-tip="${esc(a.desc)}">
+      <div class="card-head"><div class="ico">${a.icon}</div><div><h4>${esc(a.name)}</h4>${f < 1 ? `<div class="tag" style="color:var(--warn)">Wirkung ${Math.round(f * 100)} % (kürzlich genutzt)</div>` : ''}</div></div>
       ${effectChips(a.effects)}
-      <div class="card-foot"><span class="cost">${a.cost} ⚡</span><span class="why">${chk.ok ? `Abklingzeit ${a.cooldown} Mon.` : esc(chk.why)}</span>
+      <div class="card-foot"><span class="cost">${money > 0 ? FM(money * S.econ.gdp / 100) : money < 0 ? '+' + FM(-money * S.econ.gdp / 100) : 'kostenlos'}</span><span class="why">${chk.ok ? '' : esc(chk.why)}</span>
         <button class="btn btn-sm btn-primary" data-action="do-action" data-id="${a.id}" ${chk.ok ? '' : 'disabled'}>Ausführen</button></div>
     </div>`;
   }
 
   function policyCard(p, isRec) {
-    const active = !!(p.id in S.policies);
+    const active = p.id in S.policies;
     const chk = Engine.canEnact(S, p.id);
-    const rc = Engine.repealCost(p);
+    const impl = Engine.implCost(p) * S.econ.gdp / 100;
     const foot = active
-      ? `<span class="cost">${rc} ⚡</span><span class="why">seit ${Engine.dateStr(S, S.policies[p.id])}</span><button class="btn btn-sm btn-danger" data-action="repeal" data-id="${p.id}" ${S.capital < rc ? 'disabled' : ''}>Aufheben</button>`
-      : `<span class="cost">${p.cost} ⚡</span><span class="why">${chk.ok ? '' : esc(chk.why)}</span><button class="btn btn-sm btn-good" data-action="enact" data-id="${p.id}" ${chk.ok ? '' : 'disabled'}>Beschließen</button>`;
-    return `<div class="card ${active ? 'active' : isRec ? 'recommended' : chk.ok ? '' : 'locked'}">
-      <div class="card-head"><div class="ico">${p.icon}</div><div>${active ? '<div class="tag">✔ In Kraft</div>' : isRec ? '<div class="tag rec">⭐ Berater-Empfehlung</div>' : ''}<h4>${esc(p.name)}</h4></div></div>
-      <div class="desc">${esc(p.desc)}</div>
+      ? `<span class="why">seit ${Engine.dateStr(S, S.policies[p.id])}</span><button class="btn btn-sm btn-danger" data-action="repeal" data-id="${p.id}">Aufheben</button>`
+      : `<span class="cost" data-tip="Einmalige Einführungskosten">${FM(impl)}</span><span class="why">${chk.ok ? '' : esc(chk.why)}</span><button class="btn btn-sm btn-good" data-action="enact" data-id="${p.id}" ${chk.ok ? '' : 'disabled'}>Beschließen</button>`;
+    return `<div class="card compact ${active ? 'active' : isRec ? 'recommended' : chk.ok ? '' : 'locked'}" data-tip="${esc(p.desc)}<br><br>💡 ${esc(p.advice)}">
+      <div class="card-head"><div class="ico">${p.icon}</div><div>${active ? '<div class="tag">✔ In Kraft</div>' : isRec ? '<div class="tag rec">⭐ Empfohlen</div>' : ''}<h4>${esc(p.name)}</h4></div></div>
       ${policyChips(p)}
-      <div class="hint">💡 ${esc(p.advice)}</div>
       <div class="card-foot">${foot}</div>
     </div>`;
   }
@@ -699,20 +655,57 @@ const UI = (() => {
     return `<div class="rel-bar"><i style="${r >= 0 ? 'left:50%' : `left:${50 - w}%`};width:${w}%;background:${relColor(r)}"></i></div>`;
   }
   function mapLegend() {
-    return `<div class="map-legend"><span><i style="background:var(--gold)"></i>Dein Land</span><span><i style="background:${relColor(80)}"></i>Freunde</span>
+    if (mapMode === 'buendnisse') return `<div class="map-legend"><span><i style="background:var(--gold)"></i>Dein Land / dein Bündnis</span><span><i style="background:#4da3ff"></i>NATO</span><span><i style="background:#9db9ff"></i>EU</span><span><i style="background:#ff7a59"></i>BRICS</span><span><i style="background:#2ec4b6"></i>Pazifik / USMCA</span><span>— Linien: unsere Bündnisse</span></div>`;
+    if (mapMode === 'beziehungen') return `<div class="map-legend"><span><i style="background:var(--gold)"></i>Dein Land</span><span><i style="background:${relColor(80)}"></i>Freunde</span>
       <span><i style="background:${relColor(0)}"></i>Neutral</span><span><i style="background:${relColor(-80)}"></i>Feinde</span><span><i style="background:#ff2040"></i>Krieg</span></div>`;
+    return `<div class="map-legend"><span><i style="background:var(--gold)"></i>Dein Land</span><span><i style="background:#ff4d5e"></i>Krieg</span><span><i style="background:#ff9f43"></i>Bürgerkrieg</span><span>⚠️ Krisenherd (Größe = Intensität)</span><span>🪖 Friedenstruppe</span><span>Klicke auf Marker oder Länder</span></div>`;
   }
 
-  function viewDiplomacy() {
+  function mapPanelHead() {
+    const modes = [['konflikte', '⚔️ Konflikte'], ['beziehungen', '🤝 Beziehungen'], ['buendnisse', '🛡️ Bündnisse']]
+      .map(([k, l]) => `<button class="${mapMode === k ? 'active' : ''}" data-action="map-mode" data-k="${k}">${l}</button>`).join('');
+    return `<div class="panel-title">🌍 Weltlage <span class="right"><span class="seg seg-sm">${modes}</span></span></div>`;
+  }
+
+  function viewWorld() {
     const tips = Engine.tips(S).filter(t => t.area === 'diplomatie');
-    const tabs = [['laender', '🏳️ Länder & Verträge'], ['buendnisse', '🤝 Bündnisse'], ['abruestung', '☮️ Atomwaffenfreie Welt']]
+    const tabs = [['konflikte', `⚔️ Konflikte (${S.conflicts.length})`], ['laender', '🏳️ Länder & Verträge'], ['buendnisse', '🤝 Bündnisse'], ['abruestung', '☮️ Abrüstung']]
       .map(([k, l]) => `<button class="btn ${dipTab === k ? 'active' : ''}" data-action="dip-tab" data-t="${k}">${l}</button>`).join('');
-    const body = dipTab === 'buendnisse' ? viewBlocs() : dipTab === 'abruestung' ? viewDisarm() : viewCountries();
+    const body = dipTab === 'buendnisse' ? viewBlocs() : dipTab === 'abruestung' ? viewDisarm() : dipTab === 'laender' ? viewCountries() : viewConflicts();
     return `
-      <div class="view-head"><h2>🌍 Diplomatie</h2><span class="sub">Verträge, Bündnisse, Abrüstung – und im Notfall Krieg.</span></div>
-      ${advisorBlock('diplomatie', tips)}
+      <div class="view-head"><h2>🌍 Welt</h2><span class="sub">Konflikte, Verträge, Bündnisse – klicke auf die Karte.</span></div>
+      <div class="panel">${mapPanelHead()}<div class="map-wrap"><canvas data-map="1"></canvas></div>${mapLegend()}</div>
+      ${tips.length ? `<div style="margin-top:14px">${advisorBlock('diplomatie', tips)}</div>` : ''}
+      <div style="margin-top:14px">${autoToggle('diplomatie')}</div>
       <div class="chart-tabs" style="margin-top:14px">${tabs}</div>
       ${body}`;
+  }
+
+  function conflictIcon(k) { return k.type === 'war' ? '⚔️' : k.type === 'civil' ? '🔥' : '⚠️'; }
+  function conflictKind(k) { return k.type === 'war' ? 'Krieg zwischen Staaten' : k.type === 'civil' ? 'Bürgerkrieg' : Engine.HOTSPOTS[k.key].kind; }
+
+  function viewConflicts() {
+    if (!S.conflicts.length) return '<div class="panel"><div class="tip good"><span class="ti">🕊️</span><span>Die Welt ist gerade friedlich. Kein Konflikt weit und breit.</span></div></div>';
+    if (!S.conflicts.some(k => k.id === selConflict)) selConflict = S.conflicts.slice().sort((a, b) => b.intensity - a.intensity)[0].id;
+    const list = S.conflicts.slice().sort((a, b) => b.intensity - a.intensity).map(k => `
+      <div class="dip-row ${k.id === selConflict ? 'sel' : ''}" data-action="conflict-sel" data-id="${k.id}" style="grid-template-columns:28px 1fr 110px 40px">
+        <span style="font-size:18px">${conflictIcon(k)}</span><span>${esc(k.name)}<br><small class="muted">${conflictKind(k)}</small></span>
+        <div class="bar"><i style="width:${k.intensity}%;background:${k.intensity > 66 ? 'var(--bad)' : k.intensity > 33 ? 'var(--warn)' : 'var(--good)'}"></i></div>
+        <span class="badges">${k.peacekeepers ? '🪖' : ''}</span></div>`).join('');
+    const k = S.conflicts.find(x => x.id === selConflict);
+    const sides = k.type === 'war' ? `<div class="power-cmp" style="margin:12px 0"><div>${flag(k.a, 'flag flag-lg')}<div><b>${esc(Engine.byId(k.a).name)}</b></div><div class="muted">Beziehung ${FS(S.relations[k.a], 0)}</div></div><div class="muted">vs.</div><div>${flag(k.b, 'flag flag-lg')}<div><b>${esc(Engine.byId(k.b).name)}</b></div><div class="muted">Beziehung ${FS(S.relations[k.b], 0)}</div></div></div>
+        <div class="war-track"><i style="left:0;width:${(k.progress + 100) / 2}%;background:linear-gradient(90deg,#3b5ba8,#6c8fe0)"></i><i style="left:${(k.progress + 100) / 2}%;right:0;background:linear-gradient(90deg,#a85b3b,#e08f6c)"></i></div>`
+      : k.type === 'civil' ? `<div style="margin:12px 0">${flag(k.a, 'flag flag-lg')} <b>${esc(Engine.byId(k.a).name)}</b></div>` : '';
+    const opts = Engine.conflictOptions(S, k).map(o => opRow(o.icon, o.name, `${esc(o.desc)}${o.why ? ` · <span class="bad">${esc(o.why)}</span>` : ''}`,
+      `<button class="btn btn-sm ${o.danger ? 'btn-danger' : 'btn-primary'}" data-action="intervene" data-id="${k.id}" data-key="${o.key}" ${o.ok ? '' : 'disabled'}>${o.money ? FM(o.money * S.econ.gdp / 100) : 'Los'}</button>`)).join('');
+    return `<div class="dip-layout">
+      <div class="panel"><div class="panel-title">⚔️ Krisenherde & Kriege <span class="right muted">Intensität</span></div><div class="dip-list">${list}</div></div>
+      <div class="panel"><div class="detail-head"><div class="big-ico" style="font-size:30px;width:56px;height:56px;display:grid;place-items:center;background:var(--panel3);border-radius:14px">${conflictIcon(k)}</div><div><h3>${esc(k.name)}</h3><div class="muted">${conflictKind(k)} · seit ${k.months} Mon.</div></div></div>
+        ${sides}
+        <div class="bs-line" style="margin-top:8px"><span>Intensität</span><b class="${k.intensity > 66 ? 'bad' : k.intensity > 33 ? 'warn' : 'good'}">${F(k.intensity, 0)} / 100</b></div>
+        ${k.peacekeepers ? '<div class="bs-line"><span>🪖 Unsere Friedenstruppe</span><span class="good">vor Ort</span></div>' : ''}
+        <div class="panel-title" style="margin-top:12px">Eingreifen</div><div class="dip-actions">${opts}</div></div>
+    </div>`;
   }
 
   function treatyBadges(id) {
@@ -743,7 +736,7 @@ const UI = (() => {
     const nuc = Engine.hasNukes(S, id);
     const opts = Engine.dipOptions(S, id).map(a => `
       <div class="dip-act"><span style="font-size:20px">${a.icon}</span><div class="t"><b>${a.name}</b><small>${esc(a.desc)}${a.money ? ' · Kosten ' + moneyText(a.money) : ''}${a.key === 'krieg' ? ` · Kräfteverhältnis <b class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}">${F(odds * 100, 0)} %</b>${nuc ? ' · <b class="bad">Atommacht!</b>' : ''}${S.pacts[id]?.nichtangriff ? ' · <b class="bad">Bricht den Nichtangriffspakt!</b>' : ''}` : ''}</small>${!a.ok ? `<small class="bad"> · ${esc(a.why)}</small>` : ''}</div>
-        <button class="btn btn-sm ${a.key === 'krieg' ? 'btn-danger' : 'btn-primary'}" data-action="dip-act" data-id="${id}" data-key="${a.key}" ${a.ok ? '' : 'disabled'}>${a.cost ? a.cost + ' ⚡' : 'Los'}</button></div>`).join('');
+        <button class="btn btn-sm ${a.key === 'krieg' ? 'btn-danger' : 'btn-primary'}" data-action="dip-act" data-id="${id}" data-key="${a.key}" ${a.ok ? '' : 'disabled'}>${a.money ? FM(a.money * S.econ.gdp / 100) : 'Los'}</button></div>`).join('');
     const active = Object.keys(Engine.TREATIES).filter(t => Engine.hasTreaty(S, id, t));
     const tr = active.map(t => `<span class="treaty">${Engine.TREATIES[t].icon} ${Engine.TREATIES[t].name} <a class="x" data-action="treaty-cancel" data-id="${id}" data-t="${t}" data-tip="Vertrag kündigen (verschlechtert die Beziehung)">✕</a></span>`);
     if (S.sanctions[id]) tr.push('<span class="treaty">🚫 Sanktionen</span>');
@@ -760,7 +753,7 @@ const UI = (() => {
         <div style="grid-column:1/-1"><span>Bündnisse</span><b>${blocs || '–'}</b></div>
       </div>
       ${Engine.atWarWith(S, id) ? '' : `<button class="btn btn-primary" style="width:100%;margin-bottom:12px" data-action="neg-open" data-id="${id}">📝 Vertrag aushandeln</button>`}
-      <div class="panel-title">Aktionen <span class="right">⚡ ${F(S.capital, 0)} verfügbar</span></div>
+      <div class="panel-title">Aktionen</div>
       <div class="dip-actions">${opts}</div>`;
   }
 
@@ -770,7 +763,7 @@ const UI = (() => {
     const types = Object.entries(Engine.TREATIES).map(([k, t]) => {
       const has = Engine.hasTreaty(S, neg.id, k), bl = has ? 'Besteht bereits' : Engine.treatyBlocked(S, neg.id, k);
       return `<button class="choice ${neg.type === k ? 'recommended' : ''}" data-action="neg-type" data-t="${k}" ${bl ? 'disabled style="opacity:.45;cursor:not-allowed"' : ''}>
-        <div class="c-top"><span style="font-size:18px">${t.icon}</span><span class="c-label">${k === 'beitritt' && S.ownBloc ? 'Beitritt zum ' + esc(S.ownBloc.name) : t.name}</span><span class="cost" style="margin-left:auto;color:var(--gold);font-family:var(--mono)">${t.cost} ⚡</span></div>
+        <div class="c-top"><span style="font-size:18px">${t.icon}</span><span class="c-label">${k === 'beitritt' && S.ownBloc ? 'Beitritt zum ' + esc(S.ownBloc.name) : t.name}</span></div>
         <div class="c-desc">${esc(t.desc)}${bl ? ` · <b>${esc(bl)}</b>` : ''}</div></button>`;
     }).join('');
     const moneyBtns = Engine.MONEY_OFFERS.map((m, i) => `<button class="${neg.money === i ? 'active' : ''}" data-action="neg-money" data-v="${i}">${i === 0 ? 'Nichts' : F(m, 2) + ' % BIP'}</button>`).join('');
@@ -794,7 +787,7 @@ const UI = (() => {
         : '<p class="muted">Wähle zuerst einen Vertrag.</p>'}
       </div>
       <div class="modal-foot"><button class="btn" data-action="modal-close">Abbrechen</button>
-        <button class="btn btn-primary" data-action="neg-send" ${!neg.type || S.capital < cost ? 'disabled' : ''}>Angebot senden (${cost} ⚡)</button></div>`, { closable: true, wide: true, update: neg.open });
+        <button class="btn btn-primary" data-action="neg-send" ${!neg.type ? 'disabled' : ''}>Angebot senden</button></div>`, { closable: true, wide: true, update: neg.open });
     neg.open = true;
   }
 
@@ -804,8 +797,8 @@ const UI = (() => {
       const st = Engine.blocStatus(S, k);
       const members = st.members.map(id => `<span data-tip="${esc(Engine.byId(id).name)}">${flag(id)}</span>`).join(' ');
       const btn = st.member
-        ? `<button class="btn btn-sm btn-danger" data-action="bloc-leave" data-k="${k}" ${S.capital < st.leaveCost ? 'disabled' : ''}>Austreten (${st.leaveCost} ⚡)</button>`
-        : `<button class="btn btn-sm btn-good" data-action="bloc-join" data-k="${k}" ${st.why || S.capital < st.joinCost ? 'disabled' : ''}>Beitritt beantragen (${st.joinCost} ⚡)</button>`;
+        ? `<button class="btn btn-sm btn-danger" data-action="bloc-leave" data-k="${k}" >Austreten</button>`
+        : `<button class="btn btn-sm btn-good" data-action="bloc-join" data-k="${k}" ${st.why ? 'disabled' : ''}>Beitritt beantragen</button>`;
       return `<div class="card ${st.member ? 'active' : st.why ? 'locked' : ''}">
         <div class="card-head"><div class="ico">${b.icon}</div><div>${st.member ? '<div class="tag">✔ Mitglied</div>' : ''}<h4>${b.name}</h4><div class="muted" style="font-size:12px">${b.kind}</div></div></div>
         <div class="desc">${esc(b.desc)}</div>
@@ -822,7 +815,7 @@ const UI = (() => {
         <div class="card-head"><div class="ico">🏳️</div><div><h4>Eigenes Bündnis gründen</h4><div class="muted" style="font-size:12px">Benötigt Ansehen ≥ 30</div></div></div>
         <div class="desc">Schmiede deine eigene Allianz! Danach lädst du Länder einzeln per Vertragsverhandlung („Beitritt zu deinem Bündnis“) ein.</div>
         <div class="form-row"><label>Name des Bündnisses</label><input type="text" id="inp-bloc" maxlength="40" placeholder="${esc(S.country.name)}-Pakt"></div>
-        <div class="card-foot"><span class="cost">30 ⚡</span><button class="btn btn-sm btn-primary" data-action="bloc-found" ${S.capital < 30 || S.stats.reputation < 30 ? 'disabled' : ''}>Gründen</button></div></div>`;
+        <div class="card-foot"><span></span><button class="btn btn-sm btn-primary" data-action="bloc-found" ${S.stats.reputation < 30 ? 'disabled' : ''}>Gründen</button></div></div>`;
     return `<div class="cards">${cards}${own}</div>
       <p class="muted" style="font-size:12.5px;margin-top:12px">Militärbündnisse wie die NATO verpflichten zum Beistand und verbessern deine Kampfkraft im Krieg. Gegnerische Blöcke (NATO ↔ BRICS) reagieren verärgert auf einen Beitritt.</p>`;
   }
@@ -835,12 +828,11 @@ const UI = (() => {
     const rows = holders.map(id => {
       const self = id === S.countryId, o = Engine.byId(id);
       const count = self ? S.nukes : S.worldNukes[id];
-      const cd = (S.cooldowns['disarm:' + id] || 0) - S.month;
       let action;
       if (d.signed[id]) action = '<span class="good">✔ unterzeichnet</span>';
       else if (!d.active) action = '<span class="muted">–</span>';
-      else if (self) action = `<button class="btn btn-sm btn-good" data-action="disarm-pledge" ${S.capital < 10 ? 'disabled' : ''} data-tip="Wir verpflichten uns selbst – das erhöht unsere Glaubwürdigkeit stark. Militär & Konservative 😠">Selbst unterzeichnen (10 ⚡)</button>`;
-      else action = `<span class="muted" style="font-size:12px;margin-right:8px">Chance ${F(Engine.disarmChance(S, id) * 100, 0)} %</span><button class="btn btn-sm btn-primary" data-action="disarm-persuade" data-id="${id}" ${cd > 0 || S.capital < 12 ? 'disabled' : ''}>${cd > 0 ? `in ${cd} Mon.` : 'Überzeugen (12 ⚡)'}</button>`;
+      else if (self) action = `<button class="btn btn-sm btn-good" data-action="disarm-pledge" data-tip="Wir verpflichten uns selbst – das erhöht unsere Glaubwürdigkeit stark. Militär & Konservative 😠">Selbst unterzeichnen</button>`;
+      else action = `<span class="muted" style="font-size:12px;margin-right:8px">Chance ${F(Engine.disarmChance(S, id) * 100, 0)} %</span><button class="btn btn-sm btn-primary" data-action="disarm-persuade" data-id="${id}" >Überzeugen</button>`;
       return `<div class="dip-act">${flag(id)}<div class="t"><b>${esc(o.name)}${self ? ' (wir)' : ''}</b><small>☢️ ~${F(count, 0)} Sprengköpfe${S.pacts[id]?.ruestung ? ' · 🕊️ Rüstungskontrollvertrag' : ''}</small></div>${action}</div>`;
     }).join('');
     const status = d.done ? '<div class="tip good"><span class="ti">🏅</span><span><b>Die Welt ist frei von Atomwaffen.</b> Ein historischer Erfolg.</span></div>'
@@ -849,7 +841,7 @@ const UI = (() => {
       : `<div class="tip"><span class="ti">☮️</span><span>Starte eine weltweite Initiative zur Abschaffung aller Atomwaffen. Gute Beziehungen, hohes Ansehen und Rüstungskontrollverträge erhöhen die Chancen. Besitzt du selbst Atomwaffen, musst du mit gutem Beispiel vorangehen.</span></div>`;
     return `<div class="grid g2">
       <div class="panel"><div class="panel-title">☮️ Initiative für eine atomwaffenfreie Welt</div>${status}
-        ${!d.active && !d.done ? `<button class="btn btn-primary" style="width:100%;margin-top:6px" data-action="disarm-start" ${S.capital < 20 || S.stats.reputation < 45 || S.nukeUsed ? 'disabled' : ''}>Initiative starten (20 ⚡${S.stats.reputation < 45 ? ' · Ansehen ≥ 45 nötig' : ''})</button>` : ''}
+        ${!d.active && !d.done ? `<button class="btn btn-primary" style="width:100%;margin-top:6px" data-action="disarm-start" ${S.stats.reputation < 45 || S.nukeUsed ? 'disabled' : ''}>Initiative starten${S.stats.reputation < 45 ? ' (Ansehen ≥ 45 nötig)' : ''}</button>` : ''}
         <div class="bs-line" style="margin-top:12px"><span>Atomsprengköpfe weltweit</span><b>~${F(totalNow, 0)}</b></div>
         <div class="bs-line"><span>Unser Ansehen</span><b>${F(S.stats.reputation, 0)}</b></div>
         <p class="muted" style="font-size:12px">Unterzeichner können wieder abspringen, wenn die Beziehung stark sinkt oder du mit ihnen Krieg führst. Erst wenn alle unterschrieben haben, wird abgerüstet.</p></div>
@@ -870,38 +862,19 @@ const UI = (() => {
     gdp: { name: 'BIP (Mrd. $)', color: '#6cb8ff' },
     military: { name: 'Militärstärke', color: '#9aa7c7', min: 0, max: 100 },
   };
-  function viewStats() {
+  function viewChronik() {
     const tabs = Object.entries(CHARTS).map(([k, c]) => `<button class="btn btn-sm ${k === chartMetric ? 'active' : ''}" data-action="chart" data-m="${k}">${c.name}</button>`).join('');
-    const smalls = ['approval', 'growth', 'unemployment', 'debt'].filter(k => k !== chartMetric).slice(0, 3)
-      .map(k => `<div class="panel"><div class="panel-title">${CHARTS[k].name}</div><div class="chart-box mini-chart"><canvas data-chart="${k}"></canvas></div></div>`).join('');
+    const list = S.news.slice(0, 60).map(n => `<div class="news-item ${n.type}"><span class="when">${Engine.dateStr(S, n.month)}</span><span class="txt">${esc(n.text)}</span></div>`).join('');
     return `
-      <div class="view-head"><h2>📊 Statistiken</h2><span class="sub">Die Entwicklung deines Landes seit Amtsantritt.</span></div>
-      <div class="panel"><div class="chart-tabs">${tabs}</div><div class="chart-box"><canvas data-chart="${chartMetric}"></canvas></div></div>
-      <div class="grid g3" style="margin-top:14px">${smalls}</div>`;
+      <div class="view-head"><h2>📊 Chronik</h2><span class="sub">Entwicklung und Nachrichten seit deinem Amtsantritt.</span></div>
+      <div class="grid g-main">
+        <div class="panel"><div class="chart-tabs">${tabs}</div><div class="chart-box"><canvas data-chart="${chartMetric}"></canvas></div></div>
+        <div class="panel"><div class="panel-title">📰 Nachrichten</div><div style="max-height:420px;overflow-y:auto">${list}</div></div>
+      </div>`;
   }
 
   // ─────────────────────────── Ansicht: Nachrichten ───────────────────────────
-  function viewNews() {
-    const top = S.news.find(n => n.type === 'event' || n.type === 'bad' || n.type === 'good') || S.news[0];
-    const others = S.news.filter(n => n !== top).slice(0, 6);
-    const paperName = { DE: 'Hauptstadt-Kurier', AT: 'Wiener Morgenblatt', CH: 'Berner Tagblatt' }[S.countryId] || `${S.country.capital}er Zeitung`;
-    const list = S.news.map(n => `<div class="news-item ${n.type}"><span class="when">${Engine.dateStr(S, n.month)}</span><span class="txt">${esc(n.text)}</span></div>`).join('');
-    return `
-      <div class="view-head"><h2>📰 Nachrichten</h2><span class="sub">Was das Land bewegt.</span></div>
-      <div class="grid g-main">
-        <div class="newspaper">
-          <div class="np-name">${esc(paperName)}</div>
-          <div class="np-date">${Engine.dateStr(S)} · Unabhängig seit 1848 · Preis: 2,50</div>
-          <div class="np-head">${esc(top ? top.text : 'Ruhiger Monat im Regierungsviertel')}</div>
-          <div class="np-cols">
-            <p><b>Umfrage:</b> ${F(S.approval, 0)} % der Bürger sind mit der Arbeit von ${esc(S.leader.title)} ${esc(S.leader.name)} zufrieden.</p>
-            <p><b>Wirtschaft:</b> Das Wachstum liegt bei ${F(S.econ.growth, 1)} %, die Arbeitslosigkeit bei ${F(S.econ.unemployment, 1)} % und die Inflation bei ${F(S.econ.inflation, 1)} %.</p>
-            ${others.map(n => `<p>${esc(n.text)}</p>`).join('')}
-          </div>
-        </div>
-        <div class="panel"><div class="panel-title">🗂️ Archiv</div><div style="max-height:560px;overflow-y:auto">${list}</div></div>
-      </div>`;
-  }
+
 
   // ─────────────────────────── Karte ───────────────────────────
   let mapDots = null;
@@ -921,35 +894,67 @@ const UI = (() => {
   function latLonToXY(lat, lon, w, h) {
     return [(lon + 180) / 360 * w, (WORLD_MAP.latTop - lat) / (WORLD_MAP.latTop - WORLD_MAP.latBottom) * h];
   }
-  function drawMap(c, opts = {}) {
-    prepMap();
-    const { ctx, w, h } = fitCanvas(c);
+  function blocColor(id) {
+    if (S.ownBloc && S.ownBloc.members.includes(id)) return 'rgba(245,185,66,.75)';
+    const b = Engine.byId(id).blocs;
+    if (b.includes('NATO')) return '#4da3ff';
+    if (b.includes('BRICS')) return '#ff7a59';
+    if (b.includes('EU')) return '#9db9ff';
+    if (b.includes('PAZ') || b.includes('NA')) return '#2ec4b6';
+    return 'rgba(150,160,185,.45)';
+  }
+  function conflictStateOf(id) {
+    for (const k of S.conflicts) {
+      if (k.type === 'war' && (k.a === id || k.b === id)) return 'war';
+      if (k.type === 'civil' && k.a === id) return 'civil';
+    }
+    return null;
+  }
+  const mapCache = {};
+  function baseLayer(w, h, opts) {
+    const key = [opts.start ? 'start' : mapMode, w, h, opts.start ? setupSel : '', S ? S.month : '', S ? Object.keys(S.policies).length : '', selCountry, view, S ? S.conflicts.map(k => k.id).join() + S.wars.length + JSON.stringify(S.ownBloc && S.ownBloc.members) + S.blocs.join() : ''].join('|');
+    const dpr = window.devicePixelRatio || 1;
+    if (mapCache.key === key && mapCache.canvas) return mapCache.canvas;
+    const cv = document.createElement('canvas'); cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const cw = w / WORLD_MAP.width, chh = h / WORLD_MAP.height, rad = Math.max(0.8, Math.min(cw, chh) * 0.36);
-    const t = opts.time || 0;
     for (const d of mapDots) {
       const id = keyToId[d.ch];
-      let col = 'rgba(110,130,180,0.25)', r = rad;
+      let col = 'rgba(110,130,180,0.22)', r = rad;
       if (id) {
         if (opts.start) col = id === setupSel ? '#f5b942' : 'rgba(120,160,240,0.55)';
         else if (id === S.countryId) col = '#f5b942';
-        else if (Engine.atWarWith(S, id)) col = `rgba(255,32,64,${0.65 + 0.35 * Math.sin(t / 200)})`;
-        else col = relColor(S.relations[id]);
-        if (!opts.start && id === selCountry && view === 'diplomatie') r = rad * 1.35;
+        else if (Engine.atWarWith(S, id)) col = '#ff2040';
+        else if (mapMode === 'beziehungen') col = relColor(S.relations[id]);
+        else if (mapMode === 'buendnisse') col = blocColor(id);
+        else { const cs = conflictStateOf(id); col = cs === 'war' ? '#ff4d5e' : cs === 'civil' ? '#ff9f43' : S.alliance[id] ? 'rgba(120,170,255,.55)' : 'rgba(140,155,195,.42)'; }
+        if (!opts.start && id === selCountry && view === 'welt' && dipTab === 'laender') r = rad * 1.35;
       }
       ctx.fillStyle = col;
       ctx.beginPath(); ctx.arc((d.x + 0.5) * cw, (d.y + 0.5) * chh, r, 0, Math.PI * 2); ctx.fill();
     }
-    // Hauptstadt-Marker
-    if (!opts.start && S) {
-      const [x, y] = latLonToXY(...COUNTRY_COORDS[S.countryId], w, h);
-      ctx.strokeStyle = '#ffd479'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.stroke();
-      if (S.wars.length) for (const wr of S.wars) {
-        const [ex, ey] = latLonToXY(...COUNTRY_COORDS[wr.enemy], w, h);
-        ctx.strokeStyle = 'rgba(255,60,80,.8)'; ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo((x + ex) / 2, Math.min(y, ey) - 40, ex, ey); ctx.stroke(); ctx.setLineDash([]);
-      }
-    }
+    mapCache.key = key; mapCache.canvas = cv;
+    return cv;
+  }
+  function arc(ctx, x, y, ex, ey, color, dash, width = 1.5) {
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash || []);
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.quadraticCurveTo((x + ex) / 2, Math.min(y, ey) - Math.max(20, Math.abs(ex - x) * 0.15), ex, ey); ctx.stroke(); ctx.setLineDash([]);
+  }
+  let placedLabels = [];
+  function label(ctx, text, x, y, color = '#e7ecf7', alt = null) {
+    ctx.font = '600 11px Segoe UI, system-ui, sans-serif'; ctx.textAlign = 'center';
+    const w = ctx.measureText(text).width + 6;
+    const free = yy => !placedLabels.some(r => Math.abs(r.x - x) < (r.w + w) / 2 && Math.abs(r.y - yy) < 14);
+    if (!free(y)) { if (alt !== null && free(alt)) y = alt; else return; }
+    placedLabels.push({ x, y, w });
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(5,8,18,.85)'; ctx.strokeText(text, x, y);
+    ctx.fillStyle = color; ctx.fillText(text, x, y);
+  }
+  function drawMap(c, opts = {}) {
+    prepMap();
+    const { ctx, w, h } = fitCanvas(c);
+    const t = opts.time || performance.now();
+    ctx.drawImage(baseLayer(w, h, opts), 0, 0, w, h);
     if (opts.pings) for (const p of opts.pings) {
       const [x, y] = latLonToXY(...COUNTRY_COORDS[p.id], w, h);
       const age = (t - p.t) / 2000;
@@ -957,7 +962,63 @@ const UI = (() => {
       ctx.strokeStyle = `rgba(245,185,66,${1 - age})`; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(x, y, 4 + age * 30, 0, Math.PI * 2); ctx.stroke();
     }
+    if (opts.start || !S) return;
+    const xy = id => latLonToXY(...COUNTRY_COORDS[id], w, h);
+    placedLabels = [];
+    const [px, py] = xy(S.countryId);
+    // Bündnislinien
+    if (mapMode === 'buendnisse') for (const id in S.alliance) if (S.alliance[id]) { const [x, y] = xy(id); arc(ctx, px, py, x, y, 'rgba(245,185,66,.45)', null, 1.2); }
+    if (mapMode === 'beziehungen') for (const id in S.trade) if (S.trade[id]) { const [x, y] = xy(id); arc(ctx, px, py, x, y, 'rgba(62,207,142,.35)', [2, 4], 1); }
+    // Konflikte
+    const pulse = 0.5 + 0.5 * Math.sin(t / 300);
+    for (const k of S.conflicts) {
+      const [lat, lon] = Engine.conflictPos(k);
+      const [x, y] = latLonToXY(lat, lon, w, h);
+      const sel = view === 'welt' && dipTab === 'konflikte' && k.id === selConflict;
+      if (k.type === 'war') {
+        const [ax, ay] = xy(k.a), [bx, by] = xy(k.b);
+        arc(ctx, ax, ay, bx, by, `rgba(255,77,94,${0.55 + 0.4 * pulse})`, [5, 4], sel ? 2.5 : 1.8);
+      }
+      const r = 5 + k.intensity / 9;
+      ctx.fillStyle = k.type === 'civil' ? `rgba(255,159,67,${0.18 + 0.12 * pulse})` : `rgba(255,77,94,${0.16 + 0.14 * pulse})`;
+      ctx.beginPath(); ctx.arc(x, y, r + 4 * pulse, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = sel ? '#ffffff' : k.type === 'civil' ? '#ff9f43' : '#ff4d5e'; ctx.lineWidth = sel ? 2.2 : 1.4;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+      if (k.peacekeepers) { ctx.strokeStyle = '#6cb8ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 5, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.font = '13px Segoe UI Emoji, Apple Color Emoji, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+      ctx.fillText(k.peacekeepers ? '🪖' : k.type === 'war' ? '⚔️' : k.type === 'civil' ? '🔥' : '⚠️', x, y + 5);
+      if (w > 520 && (k.intensity > 35 || sel)) label(ctx, k.name.replace(/^Krieg /, ''), x, y - r - 6, sel ? '#ffd479' : '#ffd0d5', y + r + 15);
+    }
+    // Eigene Kriege
+    for (const wr of S.wars) { const [ex, ey] = xy(wr.enemy); arc(ctx, px, py, ex, ey, `rgba(255,32,64,${0.6 + 0.4 * pulse})`, [6, 4], 2.4); label(ctx, '⚔️ Unser Krieg', (px + ex) / 2, Math.min(py, ey) - 20, '#ff8a95'); }
+    // Hauptstadt
+    ctx.strokeStyle = '#ffd479'; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.arc(px, py, 6 + 2 * pulse, 0, Math.PI * 2); ctx.stroke();
   }
+  function conflictHit(c, ev) {
+    if (!S || !S.conflicts) return null;
+    const r = c.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    let best = null, bd = 1e9;
+    for (const k of S.conflicts) {
+      const [x, y] = latLonToXY(...Engine.conflictPos(k), r.width, r.height);
+      const d = Math.hypot(x - mx, y - my);
+      if (d < 7 + k.intensity / 9 && d < bd) { best = k; bd = d; }
+    }
+    return best;
+  }
+  function startGameMapLoop() {
+    if (mapAnim) return;
+    let last = 0;
+    const loop = t => {
+      mapAnim = requestAnimationFrame(loop);
+      if (t - last < 70) return;
+      last = t;
+      if (!$('#screen-game').classList.contains('active')) return;
+      document.querySelectorAll('#view canvas[data-map]').forEach(c => drawMap(c, { time: t }));
+    };
+    mapAnim = requestAnimationFrame(loop);
+  }
+
   function mapHit(c, ev) {
     prepMap();
     const r = c.getBoundingClientRect();
@@ -1093,14 +1154,15 @@ const UI = (() => {
     const steps = [
       ['Willkommen im Amt!', 'Du regierst ein echtes Land. Jeder Klick auf <b>„Nächster Monat“</b> (oder <kbd>Leertaste</kbd>) lässt einen Monat vergehen. Mit ⏩ läuft die Zeit automatisch.'],
       ['Zustimmung ist alles', 'Deine Zustimmung ergibt sich aus der Zufriedenheit von sieben <b>Bevölkerungsgruppen</b>. In Demokratien wird alle 4 Jahre gewählt – du brauchst 50 % der Stimmen.'],
-      ['Politisches Kapital ⚡', 'Gesetze, Sofortmaßnahmen und Haushaltsänderungen kosten politisches Kapital. Es wächst jeden Monat – je beliebter du bist, desto schneller.'],
-      ['Vier Politikfelder', '<b>Wirtschaft, Soziales, Militär und Politik</b> – jedes mit eigenen Gesetzen, Sofortmaßnahmen und einem Berater, der dir Tipps gibt. Grüne Chips sind gute, rote schlechte Folgen.'],
-      ['Haushalt & Diplomatie', 'Im <b>Haushalt</b> legst du Steuern und Ausgaben fest – achte auf das Defizit! In der <b>Diplomatie</b> schließt du Handelsabkommen und Bündnisse.'],
+      ['Staatskonto 🏦', 'Was im Haushalt übrig bleibt, landet auf deinem Konto. Damit bezahlst du Gesetze, Maßnahmen und Sonderprojekte – oder tilgst Schulden. Ist das Konto leer, macht der Staat automatisch neue Schulden.'],
+      ['Minister-Autopilot 🤖', 'Deine Minister kümmern sich auf Wunsch selbst um Finanzen, Wirtschaft, Soziales, Militär, Diplomatie und kleine Ereignisse. Du greifst ein, wann du willst. Einstellbar unter <b>Regierung</b>.'],
+      ['Entscheiden', 'Unter <b>Regierung</b> beschließt du Gesetze und Sofortmaßnahmen – ohne Wartezeit. Wiederholst du dieselbe Maßnahme schnell, wirkt sie schwächer. Grüne Chips sind gute, rote schlechte Folgen.'],
+      ['Die Welt', 'Die Karte zeigt Kriege ⚔️, Bürgerkriege 🔥 und Krisenherde ⚠️. Klicke darauf, um zu vermitteln, zu helfen, Friedenstruppen zu schicken oder einzugreifen.'],
       ['Militär & Kriege', 'Kriege brauchen <b>Vorbereitung</b>: Verteidigungsbudget, Kriegsbereitschaft (steigt nur langsam) und Verbündete. Achte auf das <b>Kräfteverhältnis</b> – Offensiven wirken nur, wenn du stärker bist. Deine <b>Spezialeinheit</b> bekämpft Terror. Atommächte lassen sich nicht einfach besiegen.'],
       ['Starke und schwache Staaten', 'Die <b>Staatskapazität</b> bestimmt, wie gut Reformen wirken. Ein Land wie Sudan kann sich nicht in wenigen Jahren in eine Schweiz verwandeln – Fortschritt braucht dort Jahrzehnte.'],
       ['Ereignisse', 'Krisen, Skandale und Chancen passieren zufällig. Deine Berater markieren die empfohlene Option mit ⭐ – du musst ihnen aber nicht folgen.'],
       ['Gefahren', 'Vorsicht vor <b>Revolution</b> (Stabilität &lt; 10), <b>Putsch</b> (unzufriedenes Militär), <b>Staatsbankrott</b> (zu hohe Schulden) und <b>Abwahl</b>. Rote Punkte in der Navigation warnen dich.'],
-      ['Tastenkürzel', '<kbd>Leertaste</kbd> nächster Monat · <kbd>1</kbd>–<kbd>9</kbd> Bereiche wechseln · <kbd>1</kbd>–<kbd>4</kbd> Option im Ereignis wählen · <kbd>A</kbd> Automatik · <kbd>Esc</kbd> Menü schließen'],
+      ['Tastenkürzel', '<kbd>Leertaste</kbd> nächster Monat · <kbd>1</kbd>–<kbd>6</kbd> Bereiche wechseln · <kbd>1</kbd>–<kbd>4</kbd> Option im Ereignis wählen · <kbd>A</kbd> Automatik · <kbd>Esc</kbd> Menü schließen'],
     ];
     openModal(`
       <div class="modal-head"><div class="big-ico">📘</div><div><div class="cat">Anleitung</div><h3>${first ? 'Deine ersten Schritte als Staatsoberhaupt' : 'So funktioniert das Spiel'}</h3></div></div>
@@ -1180,7 +1242,9 @@ const UI = (() => {
       const t = ev.target.closest && ev.target.closest('[data-tip]');
       const canvas = ev.target.tagName === 'CANVAS' && ev.target.dataset.map !== undefined ? ev.target : null;
       let html = t && t.dataset.tip ? t.dataset.tip : '';
-      if (canvas && S) {
+      const kHit = canvas && S ? conflictHit(canvas, ev) : null;
+      if (kHit) html = `<b>${conflictIcon(kHit)} ${esc(kHit.name)}</b><br>${conflictKind(kHit)}<br>Intensität ${F(kHit.intensity, 0)}/100${kHit.peacekeepers ? '<br>🪖 Unsere Friedenstruppe vor Ort' : ''}<br><i>Klicken zum Eingreifen</i>`;
+      else if (canvas && S) {
         const id = mapHit(canvas, ev);
         if (id) {
           const o = Engine.byId(id);
@@ -1233,10 +1297,22 @@ const UI = (() => {
       case 'enact': { const p = Engine.policyById(id); result(Engine.enactPolicy(S, id), `📜 „${esc(p.name)}“ ist beschlossen!`); break; }
       case 'repeal': { const p = Engine.policyById(id); result(Engine.repealPolicy(S, id), `„${esc(p.name)}“ wurde aufgehoben.`); break; }
       case 'do-action': { const x = Engine.actionById(id); result(Engine.doAction(S, id), `${x.icon} ${esc(x.name)} durchgeführt.`); break; }
-      case 'budget-apply': { const r = Engine.applyBudget(S, draft.taxes, draft.spending); if (r.ok) draft = null; result(r, `💰 Neuer Haushalt beschlossen (${r.cost} ⚡).`); break; }
-      case 'budget-reset': draft = null; renderView(); break;
-      case 'budget-balance': balanceProposal(); break;
-      case 'dip-select': selCountry = id; renderView(); break;
+      case 'fin': { const r = Engine.financeOp(S, el.dataset.op, +el.dataset.amt); result(r, r.msg ? esc(r.msg) : ''); break; }
+      case 'proj-amt': projAmt[id] = +el.dataset.v; renderView(); break;
+      case 'proj-run': { const r = Engine.runProject(S, id, projAmt[id] ?? 0.5); result(r, r.msg ? esc(r.msg) : ''); break; }
+      case 'auto-toggle': S.auto[el.dataset.k] = !S.auto[el.dataset.k]; save(); renderAll(); break;
+      case 'auto-all': for (const k in Engine.AUTO_AREAS) S.auto[k] = el.dataset.v === '1'; save(); renderAll(); break;
+      case 'gov-filter': govFilter = el.dataset.k; renderView(); break;
+      case 'map-mode': mapMode = el.dataset.k; renderView(); break;
+      case 'conflict-open': selConflict = id; dipTab = 'konflikte'; view = 'welt'; renderSidebar(); renderView(); break;
+      case 'conflict-sel': selConflict = id; renderView(); break;
+      case 'intervene': {
+        if (el.dataset.key.startsWith('eingreifen') && !confirm('Wirklich militärisch eingreifen? Das bedeutet Krieg.')) return;
+        const r = Engine.intervene(S, id, el.dataset.key);
+        if (r.ok && r.msg) toast(esc(r.msg), r.msg.startsWith('❌') ? 'bad' : 'good', 4000);
+        result({ ok: r.ok, why: r.why }); break;
+      }
+      case 'dip-select': selCountry = id; dipTab = 'laender'; renderView(); break;
       case 'dip-act': {
         if (el.dataset.key === 'krieg' && !confirm(`Willst du ${Engine.byId(id).name} wirklich den Krieg erklären?`)) return;
         const r = Engine.dipAction(S, id, el.dataset.key);
@@ -1295,18 +1371,26 @@ const UI = (() => {
       const el = ev.target.closest('[data-action]');
       if (el && !el.disabled) handleAction(el, ev);
       const c = ev.target.tagName === 'CANVAS' && ev.target.dataset.map !== undefined ? ev.target : null;
-      if (c && S) { const id = mapHit(c, ev); if (id && id !== S.countryId) { selCountry = id; view = 'diplomatie'; renderSidebar(); renderView(); } }
+      if (c && S) {
+        const k = conflictHit(c, ev);
+        if (k) { selConflict = k.id; dipTab = 'konflikte'; view = 'welt'; renderSidebar(); renderView(); return; }
+        const id = mapHit(c, ev);
+        if (id && id !== S.countryId) { selCountry = id; dipTab = 'laender'; view = 'welt'; renderSidebar(); renderView(); }
+      }
     });
     document.addEventListener('input', ev => {
       const t = ev.target;
-      if (t.dataset && t.dataset.budget && draft) {
+      if (t.dataset && t.dataset.budget && S) {
         const [kind, k] = t.dataset.budget.split(':');
-        const v = +t.value;
-        if (kind === 'tax') draft.taxes[k] = v; else draft.spending[k] = v;
-        for (const kk in TAX_INFO) $(`#sv-tax-${kk}`).innerHTML = sliderVal('tax', kk, draft.taxes[kk], S.taxes[kk]);
-        $(`#sv-spend-${k}`) && ($(`#sv-spend-${k}`).innerHTML = sliderVal('spend', k, draft.spending[k], S.spending[k]));
-        $('#budget-summary').innerHTML = budgetSummary();
+        if (kind === 'tax') S.taxes[k] = +t.value; else if (kind === 'disc') S.discretionary = +t.value; else S.spending[k] = +t.value;
+        S.budget = Engine.computeBudget(S);
+        if (kind === 'tax') for (const kk in TAX_INFO) $(`#sv-tax-${kk}`).innerHTML = sliderVal('tax', kk, S.taxes[kk], S.country.taxes[kk]);
+        if (kind === 'disc') $('#sv-disc-x').innerHTML = sliderVal('disc', 'x', S.discretionary, 0.5);
+        if (kind === 'spend') $(`#sv-spend-${k}`).innerHTML = sliderVal('spend', k, S.spending[k], S.country.spending[k]);
       }
+    });
+    document.addEventListener('change', ev => {
+      if (ev.target.dataset && ev.target.dataset.budget && S) { save(); renderTopbar(); const sc = $('#view').scrollTop; renderView(); $('#view').scrollTop = sc; }
     });
     $('#file-import').addEventListener('change', ev => { if (ev.target.files[0]) importSave(ev.target.files[0]); ev.target.value = ''; });
     document.addEventListener('keydown', ev => {

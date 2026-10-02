@@ -20,15 +20,12 @@ npm run build:win      # erzeugt eine portable .exe im Ordner dist/
 
 | Bereich | Was du tun kannst |
 |---|---|
-| 🧭 **Lagezentrum** | Alle Kennzahlen auf einen Blick, Weltkarte, Bevölkerungsgruppen, Berater-Warnungen |
-| 💰 **Haushalt** | Einkommen-, Unternehmens- und Mehrwertsteuer + 7 Ausgabenressorts per Schieberegler, Live-Vorschau, „Haushalt ausgleichen“-Vorschlag |
-| 📈 **Wirtschaft** | 14 Gesetze (Mindestlohn, Bürokratieabbau, Schuldenbremse …) und Sofortmaßnahmen (Konjunkturpaket, Sparpaket …) |
-| 🤝 **Soziales** | Bildung, Gesundheit, Rente, Wohnen, Einwanderung, Klima – 16 Gesetze |
+| 🧭 **Übersicht** | Lebendige Weltkarte, „Ampeln“ für die Lage der Nation, Bevölkerung, Kabinettsbericht |
+| 🏛️ **Regierung** | Gesetze und Sofortmaßnahmen ohne Wartezeit – plus **Minister-Autopilot** pro Bereich |
+| 💰 **Finanzen** | **Staatskonto** mit Verfügungsfonds und Überschüssen, Schulden tilgen, Kredite, Staatsfonds, **Sonderprojekte**, Steuern & Ausgaben |
+| 🌍 **Welt** | **Konflikte & Krisenherde** (vermitteln, helfen, Friedenstruppen, eingreifen), Vertragsverhandlungen, Bündnisse (EU, NATO, BRICS …, eigenes Bündnis), atomwaffenfreie Welt |
 | 🛡️ **Militär** | Mobilisierung, Offensiven (Boden, Luft, See), Spezialeinheiten (KSK, Navy SEALs, SAS, GIGN …), Terrorabwehr, Atomwaffen |
-| 🏛️ **Politik** | Korruption, Medien, Notstand, Wahlkampf – und der Countdown zur nächsten Wahl |
-| 🌍 **Diplomatie** | Beziehungen zu 26 Ländern, **Vertragsverhandlungen** mit eigenen Angeboten (Handel, Militärbündnis, Nichtangriffspakt, Forschung, Energie, Rüstungskontrolle), **Bündnisse** (EU, NATO, BRICS, USMCA, Pazifik-Partnerschaft) beitreten/verlassen oder **eigenes Bündnis gründen**, **Initiative für eine atomwaffenfreie Welt**, Sanktionen, Krieg & Frieden |
-| 📊 **Statistiken** | Verlaufsdiagramme für Zustimmung, Wachstum, Schulden, Inflation u. v. m. |
-| 📰 **Nachrichten** | Eigene Tageszeitung und Newsticker |
+| 📊 **Chronik** | Verlaufsdiagramme und Nachrichtenarchiv |
 
 - **Realistische Unterschiede:** Die *Staatskapazität* bestimmt, wie gut Reformen wirken – ein schwacher Staat wie Sudan entwickelt sich nur langsam. Kriege brauchen Vorbereitung: Ohne Mobilisierung und Verbündete hat auch Deutschland gegen eine Großmacht keine Chance. Atommächte lassen sich nicht einfach besiegen.
 - **Spezialeinheiten** jedes Landes für Terrorabwehr, Geiselbefreiung und Kommandoeinsätze – der Erfolg hängt von ihrer Ausbildung ab.
@@ -36,7 +33,9 @@ npm run build:win      # erzeugt eine portable .exe im Ordner dist/
 - **Atomwaffenfreie Welt:** Überzeuge jede Atommacht einzeln, gehe selbst mit gutem Beispiel voran – dann werden alle Arsenale abgebaut (Friedensnobelpreis inklusive).
 - **54 Zufallsereignisse** mit 2–4 Entscheidungsoptionen: Generalstreik, Börsencrash, Pandemie, Terroranschlag, Ölschock, Spionage, Putschgerüchte, WM-Titel …
 - **7 Bevölkerungsgruppen** (Arbeiter, Unternehmer, Rentner, Jugend, Militär, Umweltbewegung, Konservative) – ihre Zufriedenheit ergibt deine Zustimmung.
-- **Politisches Kapital ⚡** als Ressource für Gesetze und Maßnahmen.
+- **Staatskonto statt Punkten:** Alles wird sofort beschlossen und vom Konto bezahlt; wiederholte Maßnahmen wirken schwächer.
+- **Minister-Autopilot:** Minister kümmern sich auf Wunsch selbst um Finanzen, Wirtschaft, Soziales, Militär, Diplomatie und kleine Ereignisse – große Entscheidungen bleiben bei dir.
+- **Lebendige Welt:** Andere Länder führen Kriege, Krisenherde entstehen und verschwinden – sichtbar auf der Karte.
 - **Wahlen** alle 4 Jahre (Demokratien) bzw. **Machtproben** (autoritäre Staaten).
 - **Spielende** durch Abwahl, Misstrauensvotum, Revolution, Militärputsch, Staatsbankrott oder Atomkrieg – oder erfolgreich nach 3 Amtszeiten mit **Vermächtnis-Punkten**. Endlosmodus verfügbar.
 - 3 Schwierigkeitsgrade, automatisches Speichern, Export/Import von Spielständen, Tastenkürzel.
@@ -46,7 +45,7 @@ npm run build:win      # erzeugt eine portable .exe im Ordner dist/
 | Taste | Aktion |
 |---|---|
 | `Leertaste` | Nächster Monat |
-| `1`–`9` | Bereich wechseln |
+| `1`–`6` | Bereich wechseln |
 | `1`–`4` | Option im Ereignis wählen |
 | `A` | Automatischer Zeitablauf |
 | `Esc` | Menü |
