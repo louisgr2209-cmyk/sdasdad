@@ -1,0 +1,24 @@
+{
+  "name": "praesident-simulator",
+  "version": "1.0.0",
+  "description": "Präsident – Der Staatssimulator: Regiere ein echtes Land, triff Entscheidungen und überlebe Krisen.",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node tools/sim-test.js 144 10 advisor",
+    "build:win": "electron-builder --win portable",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux AppImage"
+  },
+  "build": {
+    "appId": "de.praesident.simulator",
+    "productName": "Praesident",
+    "files": ["index.html", "css/**", "js/**", "assets/**", "electron/**"],
+    "directories": { "output": "dist" }
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "license": "MIT"
+}
