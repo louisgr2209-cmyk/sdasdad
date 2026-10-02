@@ -445,3 +445,12 @@ details > summary::-webkit-details-marker { display: none; }
 .seg button { white-space: nowrap; }
 .seg-sm { flex-wrap: wrap; }
 .seg-sm button { flex: 1 1 auto; }
+
+/* Streitkräfte-Tabelle */
+table.forces { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.forces th { text-align: left; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; padding: 6px 8px; border-bottom: 1px solid var(--border2); }
+table.forces td { padding: 6px 8px; border-bottom: 1px dashed var(--border); vertical-align: middle; }
+table.forces td.num { font-family: var(--mono); }
+table.forces td.acts { text-align: right; white-space: nowrap; }
+table.forces .u-ico { display: inline-block; width: 26px; font-size: 17px; }
+.modal.country .seg button { font-size: 13px; padding: 8px; }

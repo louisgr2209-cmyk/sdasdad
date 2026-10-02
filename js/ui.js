@@ -16,7 +16,8 @@ const UI = (() => {
   const projAmt = {};
   let mapAnim = null;
   let neg = null; // laufende Vertragsverhandlung
-  let setupOpts = { name: '', title: 'Präsident', difficulty: 'normal', mode: 'klassisch' };
+  let setupOpts = { name: '', title: 'Präsident', difficulty: 'normal', mode: 'klassisch', autopilot: 'aus' };
+  let countryModal = null; // { id, tab }
   let startAnim = null;
   const prefs = loadPrefs();
 
@@ -141,6 +142,7 @@ const UI = (() => {
       <div class="form-row"><label>Dein Titel</label><select id="inp-title">${titleOpts}</select></div>
       <div class="form-row"><label>Schwierigkeit</label>${seg('difficulty', [['leicht', 'Leicht'], ['normal', 'Normal'], ['schwer', 'Schwer']])}</div>
       <div class="form-row"><label>Spielmodus</label>${seg('mode', [['klassisch', '3 Amtszeiten'], ['endlos', 'Endlos']])}</div>
+      <div class="form-row"><label>Minister-Autopilot</label>${seg('autopilot', [['aus', 'Aus – ich entscheide alles'], ['an', 'An – Minister helfen']])}</div>
       <p class="muted" style="font-size:12px;margin:0">${c.gov === 'demokratie' ? 'Alle 4 Jahre wird gewählt – du brauchst die Mehrheit.' : 'Keine freien Wahlen – aber alle 4 Jahre eine Machtprobe. Achte auf Stabilität und Militär!'}</p>
       <button class="btn btn-primary btn-lg" data-action="start-game" style="min-width:0">Amt antreten ▶</button>`;
   }
@@ -149,7 +151,7 @@ const UI = (() => {
   function startGame() {
     setupOpts.name = ($('#inp-name')?.value || '').trim() || 'Alex Muster';
     setupOpts.title = $('#inp-title')?.value || 'Präsident';
-    S = Engine.newGame(setupSel, setupOpts);
+    S = Engine.newGame(setupSel, { ...setupOpts, autopilot: setupOpts.autopilot === 'an' });
     view = 'overview'; selCountry = null; prev = null;
     enterGame();
     save();
@@ -527,9 +529,10 @@ const UI = (() => {
     const toggles = Object.keys(Engine.AUTO_AREAS).map(autoToggle).join('');
     return `
       <div class="view-head"><h2>🏛️ Regierung</h2><span class="sub">Entscheide selbst – oder lass deine Minister arbeiten.</span></div>
-      <div class="panel"><div class="panel-title">🤖 Minister-Autopilot <span class="right"><button class="btn btn-sm" data-action="auto-all" data-v="1">Alle an</button> <button class="btn btn-sm" data-action="auto-all" data-v="0">Alle aus</button></span></div>
+      <details class="panel" ${Object.values(S.auto).some(Boolean) ? 'open' : ''}><summary class="panel-title" style="cursor:pointer;margin:0">🤖 Minister-Autopilot (optional) <span class="right muted">${Object.values(S.auto).filter(Boolean).length} von ${Object.keys(Engine.AUTO_AREAS).length} aktiv · aufklappen</span></summary>
+        <div style="margin:12px 0 8px"><button class="btn btn-sm" data-action="auto-all" data-v="1">Alle an</button> <button class="btn btn-sm" data-action="auto-all" data-v="0">Alle aus</button></div>
         <div class="auto-grid">${toggles}</div>
-        <p class="muted" style="font-size:12px;margin:10px 0 0">Eingeschaltete Minister beschließen sinnvolle Gesetze, halten den Haushalt im Rahmen und entscheiden kleine Ereignisse. Was sie getan haben, steht im Kabinettsbericht. Große Entscheidungen (Kriege, Wahlen, Krisen) triffst immer du.</p></div>
+        <p class="muted" style="font-size:12px;margin:10px 0 0">Eingeschaltete Minister beschließen sinnvolle Gesetze, halten den Haushalt im Rahmen und entscheiden kleine Ereignisse. Was sie getan haben, steht im Kabinettsbericht. Große Entscheidungen (Kriege, Wahlen, Krisen) triffst immer du.</p></details>
       <div class="chart-tabs" style="margin-top:16px">${filters}</div>
       <div class="section-title">⚡ Sofortmaßnahmen <span class="count">sofort wirksam · bezahlt vom Staatskonto · Wiederholungen wirken schwächer</span></div>
       <div class="cards">${actions || '<span class="muted">Keine Maßnahmen in diesem Bereich.</span>'}</div>
@@ -537,18 +540,37 @@ const UI = (() => {
       <div class="cards">${pols}</div>`;
   }
 
+  function forcesPanel() {
+    const f = S.forces, total = Engine.unitPower(f) || 1;
+    const incoming = {}; for (const o of S.orders || []) incoming[o.type] = (incoming[o.type] || 0) + o.n;
+    const rows = Object.entries(Engine.UNIT_TYPES).map(([k, u]) => {
+      const share = (f[k] || 0) * u.power / total * 100;
+      const inc = incoming[k] ? `<span class="good" style="font-size:12px"> +${F(incoming[k], 0)} bestellt</span>` : '';
+      return `<tr>
+        <td><span class="u-ico">${u.icon}</span>${u.name}</td>
+        <td class="num"><b>${F(f[k] || 0, 0)}</b>${inc}</td>
+        <td><div class="bar" style="width:90px"><i style="width:${Math.min(100, share * 2)}%;background:var(--blue)"></i></div></td>
+        <td class="muted" style="font-size:12px">${FM(u.price)} · ${Engine.buildTime(S, k)} Mon.</td>
+        <td class="acts">
+          <button class="btn btn-sm" data-action="unit-sell" data-k="${k}" data-n="${u.step}" ${(f[k] || 0) < 1 ? 'disabled' : ''} data-tip="${u.step} ausmustern (25 % Erlös)">−${u.step}</button>
+          <button class="btn btn-sm btn-good" data-action="unit-buy" data-k="${k}" data-n="${u.step}" data-tip="${u.step} bestellen für ${esc(FM(u.price * u.step))}">+${u.step}</button>
+          <button class="btn btn-sm btn-good" data-action="unit-buy" data-k="${k}" data-n="${u.step * 5}" data-tip="${u.step * 5} bestellen für ${esc(FM(u.price * u.step * 5))}">+${u.step * 5}</button>
+        </td></tr>`;
+    }).join('');
+    const extra = S.budget.forcesCost * S.econ.gdp / 100;
+    return `<div class="panel" style="margin-top:14px"><div class="panel-title">🪖 Streitkräfte <span class="right muted">Kampfkraft ${F(Engine.militaryPower(S, false), 0)} · Truppenstärke ${F(Engine.forceRatio(S) * 100, 0)} % ${extra > 0 ? '· Zusatz-Unterhalt ' + FM(extra) + '/Jahr' : ''}</span></div>
+      <table class="forces"><thead><tr><th>Gattung</th><th>Bestand</th><th>Anteil Kampfkraft</th><th>Preis · Lieferzeit</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Neue Einheiten werden vom Staatskonto bezahlt und nach der Lieferzeit einsatzbereit. Mehr Einheiten als zu Spielbeginn kosten laufend Unterhalt. Im Krieg gehen Einheiten verloren – Bodenoffensiven brauchen Heer, Luftschläge Jets und Drohnen, Seeblockaden Schiffe.</p></div>`;
+  }
+
   function viewMilitary() {
     const tips = Engine.tips(S).filter(t => t.area === 'militaer');
     return `
       <div class="view-head"><h2>🛡️ Militär</h2><span class="sub">Streitkräfte, Spezialeinheit, Kriege.</span></div>
       ${tips.length ? advisorBlock('militaer', tips) : ''}
-      <div style="margin-top:4px">${autoToggle('militaer')}</div>
+      ${forcesPanel()}
       ${warPanel()}`;
   }
-
-
-
-
 
   function opRow(icon, name, desc, btn) {
     return `<div class="dip-act"><span style="font-size:20px">${icon}</span><div class="t"><b>${name}</b><small>${desc}</small></div>${btn}</div>`;
@@ -596,8 +618,8 @@ const UI = (() => {
     // ── Streitkräfte & Mobilisierung ──
     const lvl = Engine.READINESS_LEVELS.map(l => `<button class="${S.readinessTarget === l.value ? 'active' : ''}" data-action="readiness" data-v="${l.value}" data-tip="<b>${l.name}</b><br>${l.desc}<br>Kosten: ${F(Math.max(0, l.value - 25) * 0.035, 2)} % BIP/Jahr<br>Kampfkraft ×${F(0.5 + l.value / 100, 2)}">${l.name.split(' ')[0]}</button>`).join('');
     const nukeLine = S.nukes > 0 ? `☢️ ~${F(S.nukes, 0)} Sprengköpfe` : S.nukeProgram ? `<span class="warn">Programm läuft – fertig in ${S.nukeProgram - S.month} Mon.</span>` : '<span class="muted">keine</span>';
-    const forces = `<div class="panel"><div class="panel-title">🛡️ Streitkräfte & Mobilisierung</div>
-        ${barRow('🛡️ Militärstärke', S.stats.military, { mark: c.stats.military, before: prev?.stats.military, tip: STAT_INFO.military.desc })}
+    const forces = `<div class="panel"><div class="panel-title">📯 Bereitschaft & Ausbildung</div>
+        ${barRow('🎯 Ausbildung & Ausrüstung', S.stats.military, { mark: c.stats.military, before: prev?.stats.military, tip: STAT_INFO.military.desc })}
         ${barRow('📯 Kriegsbereitschaft', S.readiness, { mark: S.readinessTarget, tip: 'Wie kriegsbereit deine Armee ist. Steigt nur langsam (ca. 4 pro Monat) – Vorbereitung braucht Zeit! Strich = Zielwert.' })}
         ${barRow('🎖️ Zufriedenheit Militär', S.groups.military, { before: prev?.groups.military, tip: 'Unter 15 droht ein Putsch, wenn auch die Stabilität niedrig ist!' })}
         <div class="form-row" style="margin:10px 0"><label>Bereitschaftsstufe</label><div class="seg">${lvl}</div></div>
@@ -727,12 +749,10 @@ const UI = (() => {
       const o = Engine.byId(id), r = S.relations[id];
       return `<div class="dip-row ${id === selCountry ? 'sel' : ''}" data-action="dip-select" data-id="${id}">${flag(id)}<span>${esc(o.name)}</span>${relBar(r)}<span class="badges">${treatyBadges(id) || '<span class="muted">' + F(r, 0) + '</span>'}</span></div>`;
     }).join('');
-    return `<div class="dip-layout">
+    return `<div>
         <div>
-          <div class="panel"><div class="panel-title">🗺️ Weltkarte</div><div class="map-wrap"><canvas data-map="1"></canvas></div>${mapLegend()}</div>
-          <div class="panel" style="margin-top:14px"><div class="panel-title">🏳️ Länder <span class="right muted">📜 Handel · 🛡️ Bündnis · 🤞 Nichtangriff · 🔬 Forschung · ⚡ Energie · 🕊️ Rüstungskontrolle · ☢️ Atommacht</span></div><div class="dip-list">${list}</div></div>
+          <div class="panel"><div class="panel-title">🏳️ Länder <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:500">· Klick öffnet das Länderfenster</span> <span class="right muted">📜 Handel · 🛡️ Bündnis · 🤞 Nichtangriff · 🔬 Forschung · ⚡ Energie · 🕊️ Rüstungskontrolle · ☢️ Atommacht</span></div><div class="dip-list">${list}</div></div>
         </div>
-        <div class="panel" id="dip-detail">${dipDetail(selCountry)}</div>
       </div>`;
   }
 
@@ -772,6 +792,55 @@ const UI = (() => {
     if (Engine.projection(S, id) < 0.8) parts.push(`Weit entfernt: nur ${Math.round(Engine.projection(S, id) * 100)} % unserer Kampfkraft kommen an`);
     if (S.pacts[id]?.nichtangriff) parts.push('<b class="bad">Bricht den Nichtangriffspakt!</b>');
     return '<br>' + parts.join(' · ');
+  }
+
+  // ── Länderfenster ──
+  function showCountry(id, tab) {
+    const o = Engine.byId(id);
+    if (S.relations[id] === undefined) return;
+    countryModal = { id, tab: tab || (countryModal && countryModal.id === id ? countryModal.tab : 'info') };
+    const r = S.relations[id], t = countryModal.tab;
+    const tabs = [['info', '📋 Übersicht'], ['diplo', '🤝 Diplomatie & Handel'], ['mil', '🛡️ Militär']]
+      .map(([k, l]) => `<button class="${t === k ? 'active' : ''}" data-action="cm-tab" data-t="${k}">${l}</button>`).join('');
+    const active = Object.keys(Engine.TREATIES).filter(x => Engine.hasTreaty(S, id, x));
+    const treaties = active.map(x => `<span class="treaty">${Engine.TREATIES[x].icon} ${Engine.TREATIES[x].name} <a class="x" data-action="treaty-cancel" data-id="${id}" data-t="${x}" data-tip="Kündigen">✕</a></span>`);
+    if (S.sanctions[id]) treaties.push('<span class="treaty">🚫 Sanktionen</span>');
+    if (S.puppets[id] !== undefined) treaties.push('<span class="treaty">⛓️ Marionette</span>');
+    if (Engine.atWarWith(S, id)) treaties.push('<span class="treaty" style="background:rgba(255,77,94,.25)">⚔️ Krieg</span>');
+    const opts = Engine.dipOptions(S, id);
+    const optRow = a => `<div class="dip-act"><span style="font-size:20px">${a.icon}</span><div class="t"><b>${a.name}</b><small>${esc(a.desc)}${a.money ? ' · Kosten ' + moneyText(a.money) : ''}${a.key === 'krieg' || a.key === 'ultimatum' ? ` · Kräfteverhältnis <b>${F(Engine.warOdds(S, id) * 100, 0)} %</b>` : ''}${a.key === 'krieg' ? warConsequences(id) : ''}</small>${!a.ok ? `<small class="bad"> · ${esc(a.why)}</small>` : ''}</div>
+        <button class="btn btn-sm ${a.key === 'krieg' ? 'btn-danger' : 'btn-primary'}" data-action="dip-act" data-id="${id}" data-key="${a.key}" ${a.ok ? '' : 'disabled'}>${a.money ? FM(a.money * S.econ.gdp / 100) : 'Los'}</button></div>`;
+    let body = '';
+    if (t === 'info') {
+      const conf = S.conflicts.filter(k => k.a === id || k.b === id).map(k => k.name);
+      body = `<div class="kv-grid">
+        <div><span>Einwohner</span><b>${F(o.pop, o.pop < 20 ? 1 : 0)} Mio.</b></div><div><span>BIP</span><b>${FM(o.gdp)}</b></div>
+        <div><span>BIP pro Kopf</span><b>${F(o.gdp * 1e9 / (o.pop * 1e6), 0)} $</b></div><div><span>Staatsform</span><b>${o.gov === 'demokratie' ? 'Demokratie' : 'Autoritär'}</b></div>
+        <div><span>Ansehen</span><b>${o.stats.reputation}</b></div><div><span>Atomwaffen</span><b>${Engine.hasNukes(S, id) ? '☢️ ~' + F(S.worldNukes[id], 0) : 'keine'}</b></div>
+        <div><span>Bündnisse</span><b>${o.blocs.map(b => Engine.BLOCS[b] ? Engine.BLOCS[b].name : b).join(', ') || '–'}</b></div><div><span>Kampfkraft</span><b>${F(Engine.enemyPower(id), 0)}</b></div>
+      </div>
+      <p class="muted" style="margin:12px 0 0">${esc(o.blurb)}</p>
+      ${conf.length ? `<div class="tip danger" style="margin-top:10px"><span class="ti">⚔️</span><span>Verwickelt in: ${esc(conf.join(', '))}</span></div>` : ''}`;
+    } else if (t === 'diplo') {
+      body = `${Engine.atWarWith(S, id) ? '' : `<button class="btn btn-primary" style="width:100%;margin-bottom:12px" data-action="neg-open" data-id="${id}">📝 Vertrag aushandeln (Handel, Bündnis, Nichtangriff …)</button>`}
+        <div class="dip-actions">${opts.filter(a => !['krieg', 'ultimatum'].includes(a.key)).map(optRow).join('')}</div>`;
+    } else {
+      const theirs = Engine.initForces(o), w = S.wars.find(x => x.enemy === id);
+      const rows = Object.entries(Engine.UNIT_TYPES).map(([k, u]) => `<tr><td><span class="u-ico">${u.icon}</span>${u.short}</td><td class="num"><b>${F(S.forces[k] || 0, 0)}</b></td><td class="num">${F(Math.round((theirs[k] || 0) * (1 - (w ? w.attrition : 0))), 0)}</td></tr>`).join('');
+      body = `<table class="forces"><thead><tr><th>Gattung</th><th>Wir</th><th>${esc(o.name)} (geschätzt)</th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="bs-line" style="margin-top:10px"><span>Kräfteverhältnis (inkl. Entfernung & Verbündete)</span><b>${F(Engine.warOdds(S, id) * 100, 0)} %</b></div>
+        <div class="dip-actions" style="margin-top:10px">${opts.filter(a => ['krieg', 'ultimatum', 'frieden'].includes(a.key)).map(optRow).join('') || '<span class="muted">Keine militärischen Optionen (Verbündeter).</span>'}</div>`;
+    }
+    openModal(`
+      <div class="modal-head">${flag(id, 'flag flag-xl')}<div style="flex:1"><div class="cat">${esc(o.capital)} · ${o.region}</div><h3>${esc(o.name)}</h3>
+        <div style="margin-top:6px;display:flex;align-items:center;gap:10px"><span>Beziehung: <b style="color:${relColor(r)}">${relWord(r)} (${FS(r, 0)})</b></span><div style="flex:1;max-width:220px">${relBar(r)}</div></div></div>
+        <button class="btn btn-ghost" data-action="modal-close" style="align-self:flex-start">✕</button></div>
+      <div class="modal-body">
+        <div class="treaties" style="margin-bottom:12px">${treaties.length ? treaties.join('') : '<span class="muted" style="font-size:12.5px">Keine Verträge</span>'}</div>
+        <div class="seg" style="margin-bottom:14px">${tabs}</div>
+        ${body}
+      </div>`, { closable: true, wide: true, update: !!$('#modal-root .modal.country') });
+    const m = $('#modal-root .modal'); if (m) m.classList.add('country');
   }
 
   // ── Verhandlungsfenster ──
@@ -1116,7 +1185,7 @@ const UI = (() => {
     $('#modal-root').innerHTML = `<div class="modal-bg" ${opts.closable ? 'data-action="modal-bg"' : ''}><div class="modal ${opts.wide ? 'modal-wide' : ''}">${html}</div></div>`;
     afterRender();
   }
-  function closeModal() { $('#modal-root').innerHTML = ''; }
+  function closeModal() { $('#modal-root').innerHTML = ''; countryModal = null; }
 
   const CAT_NAME = { wirtschaft: 'Wirtschaft', soziales: 'Gesellschaft', politik: 'Innenpolitik', militaer: 'Sicherheit', diplomatie: 'Außenpolitik', info: 'Meldung' };
 
@@ -1176,6 +1245,7 @@ const UI = (() => {
       ['Minister-Autopilot 🤖', 'Deine Minister kümmern sich auf Wunsch selbst um Finanzen, Wirtschaft, Soziales, Militär, Diplomatie und kleine Ereignisse. Du greifst ein, wann du willst. Einstellbar unter <b>Regierung</b>.'],
       ['Entscheiden', 'Unter <b>Regierung</b> beschließt du Gesetze und Sofortmaßnahmen – ohne Wartezeit. Wiederholst du dieselbe Maßnahme schnell, wirkt sie schwächer. Grüne Chips sind gute, rote schlechte Folgen.'],
       ['Aggressiv spielen', 'Stelle Ultimaten oder erkläre Kriege. Nach einem Sieg diktierst du die Bedingungen: <b>Annexion</b>, <b>Marionettenregierung</b> oder <b>Reparationen</b>. Aber Vorsicht: Entfernung, Bündnisse des Gegners, Atommächte und weltweite Sanktionen machen Eroberungen schwer.'],
+      ['Länder & Streitkräfte', '<b>Klicke auf ein Land auf der Karte</b>, um alles mit ihm zu regeln: Verträge, Handel, Waffenverkauf, Ultimatum oder Krieg. Unter <b>Militär</b> kaufst du Panzer, Jets, Schiffe & Co. – mit Lieferzeit.'],
       ['Die Welt', 'Die Karte zeigt Kriege ⚔️, Bürgerkriege 🔥 und Krisenherde ⚠️. Klicke darauf, um zu vermitteln, zu helfen, Friedenstruppen zu schicken oder einzugreifen.'],
       ['Militär & Kriege', 'Kriege brauchen <b>Vorbereitung</b>: Verteidigungsbudget, Kriegsbereitschaft (steigt nur langsam) und Verbündete. Achte auf das <b>Kräfteverhältnis</b> – Offensiven wirken nur, wenn du stärker bist. Deine <b>Spezialeinheit</b> bekämpft Terror. Atommächte lassen sich nicht einfach besiegen.'],
       ['Starke und schwache Staaten', 'Die <b>Staatskapazität</b> bestimmt, wie gut Reformen wirken. Ein Land wie Sudan kann sich nicht in wenigen Jahren in eine Schweiz verwandeln – Fortschritt braucht dort Jahrzehnte.'],
@@ -1331,13 +1401,16 @@ const UI = (() => {
         if (r.ok && r.msg) toast(esc(r.msg), r.msg.startsWith('❌') ? 'bad' : 'good', 4000);
         result({ ok: r.ok, why: r.why }); break;
       }
-      case 'goto-country': selCountry = id; dipTab = 'laender'; view = 'welt'; renderSidebar(); renderView(); break;
-      case 'dip-select': selCountry = id; dipTab = 'laender'; renderView(); break;
+      case 'goto-country': showCountry(id, 'mil'); break;
+      case 'dip-select': showCountry(id, 'info'); break;
+      case 'cm-tab': showCountry(countryModal.id, el.dataset.t); break;
+      case 'unit-buy': { const r = Engine.buyUnits(S, el.dataset.k, +el.dataset.n); result(r, r.msg ? esc(r.msg) : ''); break; }
+      case 'unit-sell': { const r = Engine.disbandUnits(S, el.dataset.k, +el.dataset.n); result(r, r.msg ? esc(r.msg) : ''); break; }
       case 'dip-act': {
         if (el.dataset.key === 'krieg' && !confirm(`Willst du ${Engine.byId(id).name} wirklich den Krieg erklären?`)) return;
         const r = Engine.dipAction(S, id, el.dataset.key);
         if (r.ok) sfx(el.dataset.key === 'krieg' ? 'war' : 'good');
-        if (r.ok) { toast(esc(r.msg), el.dataset.key === 'krieg' ? 'bad' : 'good'); save(); renderAll(); processQueue(); } else { toast(esc(r.why), 'bad'); }
+        if (r.ok) { toast(esc(r.msg), el.dataset.key === 'krieg' ? 'bad' : 'good'); save(); renderAll(); if (countryModal && $('#modal-root .modal.country') && S.relations[id] !== undefined) showCountry(id); processQueue(); } else { toast(esc(r.why), 'bad'); }
         break;
       }
       case 'war-act': { const r = Engine.warAction(S, el.dataset.key); result(r); if (r.ok) toast(esc(r.msg), 'info'); break; }
@@ -1367,7 +1440,7 @@ const UI = (() => {
       }
       case 'treaty-cancel': {
         if (!confirm(`${Engine.TREATIES[el.dataset.t].name} mit ${Engine.byId(id).name} wirklich kündigen?`)) return;
-        result(Engine.cancelTreaty(S, id, el.dataset.t)); break;
+        result(Engine.cancelTreaty(S, id, el.dataset.t)); if ($('#modal-root .modal.country')) showCountry(id); break;
       }
       case 'bloc-join': { const r = Engine.joinBloc(S, el.dataset.k); if (r.ok) toast(esc(r.msg), r.msg.startsWith('✅') ? 'good' : 'bad', 4500); result({ ok: r.ok, why: r.why }); break; }
       case 'bloc-leave': {
@@ -1395,7 +1468,7 @@ const UI = (() => {
         const k = conflictHit(c, ev);
         if (k) { selConflict = k.id; dipTab = 'konflikte'; view = 'welt'; renderSidebar(); renderView(); return; }
         const id = mapHit(c, ev);
-        if (id && id !== S.countryId && S.relations[id] !== undefined) { selCountry = id; dipTab = 'laender'; view = 'welt'; renderSidebar(); renderView(); }
+        if (id && id !== S.countryId && S.relations[id] !== undefined) showCountry(id, 'info');
       }
     });
     document.addEventListener('input', ev => {

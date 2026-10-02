@@ -13,7 +13,7 @@ let errors = 0;
 for (const c of COUNTRIES) {
   const agg = { appr: 0, debt: 0, growth: 0, stab: 0, unemp: 0, infl: 0, over: {}, survived: 0, months: 0 };
   for (let r = 0; r < runs; r++) {
-    const s = Engine.newGame(c.id, { difficulty: 'normal' });
+    const s = Engine.newGame(c.id, { difficulty: 'normal', autopilot: true });
     try {
       while (s.month < months && !s.gameOver) {
         Engine.tick(s);

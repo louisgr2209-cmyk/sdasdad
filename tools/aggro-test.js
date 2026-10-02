@@ -11,7 +11,7 @@ const runs = +(process.argv[3] || 5);
 for (const id of ids) {
   const res = {}; let annexTotal = 0, puppetsTotal = 0, wars = 0;
   for (let r = 0; r < runs; r++) {
-    const s = Engine.newGame(id);
+    const s = Engine.newGame(id, { autopilot: true });
     s.spending.military += 2; s.readinessTarget = 100; s.auto.militaer = true;
     while (s.month < 144 && !s.gameOver) {
       Engine.tick(s);

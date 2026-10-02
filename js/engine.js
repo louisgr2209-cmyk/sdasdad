@@ -81,7 +81,9 @@ const Engine = (() => {
       capital: 0,
       treasury: c.gdp * 0.02, fund: 0, fundRate: 4, discretionary: 0.5,
       uses: {},
-      auto: { finanzen: true, wirtschaft: true, soziales: true, militaer: true, diplomatie: true, politik: true, ereignisse: true },
+      auto: opts.autopilot ? { finanzen: true, wirtschaft: true, soziales: true, militaer: true, diplomatie: true, politik: true, ereignisse: true }
+        : { finanzen: false, wirtschaft: false, soziales: false, militaer: false, diplomatie: false, politik: false, ereignisse: false },
+      orders: [],
       cabinet: [],
       conflicts: [], conflictSeq: 0,
       policies: {},
@@ -119,6 +121,7 @@ const Engine = (() => {
     for (const o of COUNTRIES) if (o.id !== c.id && o.nukes > 0) s.worldNukes[o.id] = o.nukes;
     s.disarm = { active: false, signed: {}, dismantling: false, done: false };
     s.annexed = {}; s.puppets = {}; s.casusBelli = {}; s.popExtra = 0;
+    s.forces = initForces(c); s.forcesBase = unitPower(s.forces);
     initConflicts(s);
     if (c.readiness) { s.readiness = c.readiness; s.readinessTarget = c.readiness; }
     if (c.startWar && s.relations[c.startWar] !== undefined) {
@@ -240,11 +243,12 @@ const Engine = (() => {
     const interest = s.econ.debt * rate / 100;
     let spendSum = 0;
     for (const k in SPEND_INFO) spendSum += spending[k];
+    const forcesCost = s.forces ? Math.max(0, forceRatio(s) - 1) * s.country.spending.military * 0.8 : 0;
     const discretionary = s.discretionary || 0; // Verfügungsfonds: fließt jeden Monat aufs Staatskonto
-    const expenses = spendSum + ADMIN_COST + policyCost + warCost + interest + discretionary;
+    const expenses = spendSum + ADMIN_COST + policyCost + warCost + interest + discretionary + forcesCost;
     const balance = revenue - expenses;
     return { taxItems, taxRevenue, oilRevenue, otherRevenue: s.otherRevenue || 0, revenue, spendSum, admin: ADMIN_COST, policyCost, warCost, interest, rate,
-      expenses, balance, discretionary, interestShare: interest / Math.max(1, revenue) };
+      expenses, balance, discretionary, forcesCost, interestShare: interest / Math.max(1, revenue) };
   }
 
   function budgetChangeCost(s, taxes, spending) {
@@ -370,6 +374,12 @@ const Engine = (() => {
 
     // ── Politisches Kapital ──
 
+    // ── Lieferungen neuer Einheiten ──
+    for (const o of [...(s.orders || [])]) if (o.month <= s.month) {
+      s.forces[o.type] = (s.forces[o.type] || 0) + o.n;
+      s.orders.splice(s.orders.indexOf(o), 1);
+      addNews(s, `Ausgeliefert: ${fmt(o.n, 0)} × ${UNIT_TYPES[o.type].name}.`, 'good');
+    }
     // ── Mobilisierung ──
     s.readiness = clamp(s.readiness + clamp(s.readinessTarget - s.readiness, -6, 4), 0, 100);
     if (s.readiness > 55 && !s.wars.length) { s.groupMood.youth -= (s.readiness - 55) * 0.012; s.groupMood.workers -= (s.readiness - 55) * 0.006; }
@@ -465,7 +475,7 @@ const Engine = (() => {
   // Kriegsbereitschaft: 25 = Frieden, 100 = Generalmobilmachung. Wirkt als Multiplikator auf die Kampfkraft.
   const readinessFactor = r => 0.5 + r / 100;
   function militaryPower(s, withAllies = true) {
-    let p = s.stats.military * s.country.milSize * readinessFactor(s.readiness ?? 25);
+    let p = s.stats.military * s.country.milSize * forceRatio(s) * readinessFactor(s.readiness ?? 25);
     // Verbündete helfen voll bei Verteidigung, bei eigenen Angriffskriegen nur zögerlich
     const defensive = s.wars.length > 0 && s.wars.every(w => w.forced);
     if (withAllies) for (const id in s.alliance) if (s.alliance[id] && !atWarWith(s, id)) { const o = byId(id); p += o.stats.military * o.milSize * (defensive ? 0.15 : 0.05) * Math.max(0, s.relations[id]) / 100; }
@@ -539,7 +549,8 @@ const Engine = (() => {
       if (s.nukes > 0 && delta < 0 && w.progress < -40) delta *= 0.3;
       w.progress = clamp(w.progress + delta, -100, 100);
       w.months++;
-      s.stats.military = clamp(s.stats.military - 0.4, 0, 100);
+      s.stats.military = clamp(s.stats.military - 0.2, 0, 100);
+      loseUnits(s, ['infanterie', 'panzer', 'artillerie', 'kampfjets', 'drohnen'], 0.006);
       if (w.months > 6) s.approvalMood -= 0.6;
       // Eine in die Enge getriebene Atommacht kann eskalieren
       if (hasNukes(s, w.enemy) && w.progress > 75 && !w.nukeWarned) {
@@ -922,6 +933,7 @@ const Engine = (() => {
     buendnis_end:{ name: 'Bündnis aufkündigen', icon: '💔', cost: 0, desc: 'Beziehung −25' },
     sanktion:    { name: 'Sanktionen verhängen', icon: '🚫', cost: 10, desc: 'Beziehung −30, eigenes Wachstum −0,25 %' },
     sanktion_end:{ name: 'Sanktionen aufheben', icon: '🔓', cost: 5, desc: 'Beziehung +10, Wachstum +0,25 %' },
+    waffen:      { name: 'Waffen verkaufen', icon: '📦', cost: 0, cd: 6, desc: 'Rüstungsexport: Geld aufs Konto, Beziehung +8. Ansehen leidet bei zweifelhaften Regimen.' },
     ultimatum:   { name: 'Ultimatum stellen', icon: '📯', cost: 0, desc: 'Fordere Tribut. Ein schwächeres Land zahlt vielleicht – lehnt es ab, hast du einen Kriegsgrund.' },
     krieg:       { name: 'Krieg erklären', icon: '⚔️', cost: 0, desc: 'Je besser die Beziehung, desto größer die Empörung. Mit Kriegsgrund deutlich weniger.' },
     frieden:     { name: 'Frieden anbieten', icon: '🕊️', cost: 10, cd: 3, desc: 'Erfolg hängt vom Kriegsverlauf ab' },
@@ -940,6 +952,7 @@ const Engine = (() => {
     opt('besuch', true);
     opt('hilfe', true);
     if (s.sanctions[id]) opt('sanktion_end', true); else opt('sanktion', !s.alliance[id], 'Nicht gegen Verbündete');
+    opt('waffen', s.relations[id] > -20 && !s.sanctions[id], s.sanctions[id] ? 'Sanktionen bestehen' : 'Beziehung zu schlecht');
     if (!s.puppets[id]) opt('ultimatum', !s.alliance[id] && !s.casusBelli[id], s.alliance[id] ? 'Nicht gegen Verbündete' : 'Wir haben bereits einen Kriegsgrund');
     if (!s.puppets[id]) opt('krieg', !s.alliance[id] && s.wars.length === 0, s.wars.length ? 'Bereits im Krieg' : 'Erst das Bündnis kündigen');
     return list;
@@ -963,6 +976,13 @@ const Engine = (() => {
       case 'sanktion': s.sanctions[id] = true; s.trade[id] = false; rel(-30); s.baseRelations[id] -= 15;
         s.stats.reputation = clamp(s.stats.reputation + (o.stats.reputation < 40 ? 2 : -2), 0, 100); s.groupMood.conservatives += 2; msg = `Sanktionen gegen ${o.name} verhängt.`; break;
       case 'sanktion_end': s.sanctions[id] = false; rel(10); s.baseRelations[id] += 10; msg = `Sanktionen gegen ${o.name} aufgehoben.`; break;
+      case 'waffen': {
+        const value = Math.min(o.gdp * 0.002, s.econ.gdp * 0.003) * df;
+        s.treasury += value; rel(8); s.groupMood.business += 1; s.groupMood.greens -= 2;
+        s.stats.reputation = clamp(s.stats.reputation - (o.stats.reputation < 40 ? 4 : 1), 0, 100);
+        msg = `Rüstungsgüter für ${fmtMoney(value)} an ${o.name} verkauft.`;
+        break;
+      }
       case 'ultimatum': {
         const odds = warOdds(s, id);
         const p = clamp((odds - 0.5) * 1.6 + 0.1 - (hasNukes(s, id) ? 0.3 : 0), 0.02, 0.85);
@@ -998,13 +1018,13 @@ const Engine = (() => {
   const WAR_ACTIONS = {
     bodenoffensive: { name: 'Bodenoffensive', icon: '🪖', cost: 8, money: 0.3, cd: 2, desc: 'Großangriff der Landstreitkräfte. Wirkung hängt stark vom Kräfteverhältnis ab. Verluste: Militärstärke −2, Zustimmung −1' },
     luftschlaege:   { name: 'Luftschläge', icon: '✈️', cost: 6, money: 0.25, cd: 2, desc: 'Kampfjets und Drohnen greifen militärische Ziele an. Ansehen −2' },
-    seeblockade:    { name: 'Seeblockade', icon: '⚓', cost: 8, money: 0.2, cd: 4, minSize: 1.5, desc: 'Die Marine schneidet den Nachschub ab: Feind dauerhaft −6 % Kampfkraft. Braucht eine große Flotte' },
+    seeblockade:    { name: 'Seeblockade', icon: '⚓', cost: 8, money: 0.2, cd: 4, desc: 'Die Marine schneidet den Nachschub ab: Feind dauerhaft −6 % Kampfkraft. Braucht mindestens 8 Kriegsschiffe/U-Boote' },
     hilfe_bitte:    { name: 'Verbündete um Hilfe bitten', icon: '📞', cost: 10, cd: 6, desc: 'Nur mit Verbündeten. Front +10' },
   };
   function warAction(s, key) {
     const a = WAR_ACTIONS[key], w = s.wars[0];
     if (!w) return { ok: false, why: 'Kein Krieg' };
-    if (a.minSize && s.country.milSize < a.minSize) return { ok: false, why: 'Unsere Marine ist dafür zu klein' };
+    if (key === 'seeblockade' && (s.forces.kriegsschiffe || 0) + (s.forces.uboote || 0) < 8) return { ok: false, why: 'Mindestens 8 Kriegsschiffe/U-Boote nötig' };
     const allies = Object.keys(s.alliance).filter(id => s.alliance[id]);
     if (key === 'hilfe_bitte' && !allies.length) return { ok: false, why: 'Keine Verbündeten' };
     const wf = fatigue(s, 'war:' + key, a.cd, 0.6);
@@ -1014,11 +1034,12 @@ const Engine = (() => {
     const eff = Math.pow(odds * 2, 1.6) * wf; // Unterlegene Armeen erreichen mit Offensiven kaum etwas; erschöpfte Truppen auch
     let msg = `${a.name} angeordnet.`;
     if (key === 'bodenoffensive') {
-      s.stats.military = clamp(s.stats.military - 2, 0, 100); s.approvalMood -= 1;
-      if (Math.random() < 0.15 + odds) { w.boost = (w.boost || 0) + 14 * eff; msg = 'Die Offensive kommt voran – die Front verschiebt sich zu unseren Gunsten.'; }
-      else { w.boost = (w.boost || 0) - 6; s.stats.military = clamp(s.stats.military - 2, 0, 100); msg = 'Die Offensive bleibt stecken. Schwere Verluste.'; }
+      s.approvalMood -= 1;
+      const land = landShare(s);
+      if (Math.random() < 0.15 + odds) { w.boost = (w.boost || 0) + 14 * eff * land; loseUnits(s, ['infanterie', 'panzer', 'artillerie'], 0.015); msg = 'Die Offensive kommt voran – die Front verschiebt sich zu unseren Gunsten.'; }
+      else { w.boost = (w.boost || 0) - 6; loseUnits(s, ['infanterie', 'panzer', 'artillerie'], 0.04); msg = 'Die Offensive bleibt stecken. Schwere Verluste an Panzern und Truppen.'; }
     }
-    if (key === 'luftschlaege') { w.boost = (w.boost || 0) + 9 * eff; s.stats.reputation = clamp(s.stats.reputation - 2, 0, 100); msg = 'Luftschläge gegen militärische Ziele durchgeführt.'; }
+    if (key === 'luftschlaege') { if (!(s.forces.kampfjets + s.forces.drohnen)) return { ok: false, why: 'Keine Kampfjets oder Drohnen' }; w.boost = (w.boost || 0) + 9 * eff * airShare(s); loseUnits(s, ['kampfjets'], 0.01); loseUnits(s, ['drohnen'], 0.04); s.stats.reputation = clamp(s.stats.reputation - 2, 0, 100); msg = 'Luftschläge gegen militärische Ziele durchgeführt.'; }
     if (key === 'seeblockade') { w.attrition = Math.min(0.5, (w.attrition || 0) + 0.06); msg = 'Die Seeblockade schwächt den Nachschub des Gegners.'; }
     if (key === 'hilfe_bitte') { w.boost = (w.boost || 0) + Math.min(15, (militaryPower(s) - militaryPower(s, false)) / enemyPower(w.enemy, w) * 25); for (const id of allies) s.relations[id] = clamp(s.relations[id] - 4, -100, 100); msg = 'Verbündete schicken Unterstützung.'; }
     s.budget = computeBudget(s);
@@ -1104,6 +1125,58 @@ const Engine = (() => {
     if (Math.random() < p) { endWar(s, w, 'frieden'); s.treasury += s.econ.gdp * 0.01; return { ok: true, msg: `✅ ${o.name} lenkt ein und akzeptiert einen Waffenstillstand zu unseren Bedingungen.` }; }
     s.stats.stability = clamp(s.stats.stability - 5, 0, 100);
     return { ok: true, msg: `❌ ${o.name} lässt sich nicht einschüchtern. Die Welt ist alarmiert.` };
+  }
+
+  // ─────────────────────────── Streitkräfte ───────────────────────────
+  // price: Mrd. $ pro Einheit, power: Kampfwert, build: Lieferzeit in Monaten, per: Anzahl je Größeneinheit
+  const UNIT_TYPES = {
+    infanterie:    { name: 'Infanterie-Brigaden', short: 'Infanterie', icon: '🪖', domain: 'land', price: 0.25, power: 8, build: 6, per: 20, step: 5 },
+    panzer:        { name: 'Kampfpanzer', short: 'Panzer', icon: '🛞', domain: 'land', price: 0.012, power: 1, build: 12, per: 300, step: 50 },
+    artillerie:    { name: 'Artilleriesysteme', short: 'Artillerie', icon: '💥', domain: 'land', price: 0.006, power: 0.5, build: 8, per: 400, step: 50 },
+    kampfjets:     { name: 'Kampfjets', short: 'Kampfjets', icon: '✈️', domain: 'luft', price: 0.09, power: 4, build: 24, per: 120, step: 10 },
+    drohnen:       { name: 'Kampfdrohnen', short: 'Drohnen', icon: '🛸', domain: 'luft', price: 0.015, power: 0.8, build: 6, per: 60, step: 25 },
+    flugabwehr:    { name: 'Flugabwehr-Batterien', short: 'Flugabwehr', icon: '📡', domain: 'luft', price: 0.4, power: 6, build: 18, per: 40, step: 5 },
+    kriegsschiffe: { name: 'Kriegsschiffe', short: 'Schiffe', icon: '🚢', domain: 'see', price: 1.2, power: 25, build: 36, per: 15, step: 2 },
+    uboote:        { name: 'U-Boote', short: 'U-Boote', icon: '🐋', domain: 'see', price: 1.8, power: 30, build: 48, per: 4, step: 1 },
+  };
+  // Grobe Schätzung der Streitkräfte eines Landes aus Größe und Militärstärke
+  function initForces(c) {
+    const base = c.milSize * c.stats.military / 50;
+    const sea = ['US', 'GB', 'FR', 'JP', 'CN', 'IN', 'AU', 'KR', 'TW', 'IT', 'ES', 'TR', 'RU', 'ID', 'NO', 'NL', 'CA', 'BR'].includes(c.id) ? 1.3 : ['CH', 'AT', 'CZ', 'HU', 'ET', 'KZ', 'SD'].includes(c.id) ? 0 : 0.6;
+    const f = {};
+    for (const [k, u] of Object.entries(UNIT_TYPES)) f[k] = Math.round(base * u.per * (u.domain === 'see' ? sea : 1));
+    return f;
+  }
+  function unitPower(f) { let p = 0; for (const k in UNIT_TYPES) p += (f[k] || 0) * UNIT_TYPES[k].power; return p; }
+  function forceRatio(s) { return s.forces && s.forcesBase ? unitPower(s.forces) / s.forcesBase : 1; }
+  function domainPower(s, d) { let p = 0; for (const k in UNIT_TYPES) if (UNIT_TYPES[k].domain === d) p += (s.forces[k] || 0) * UNIT_TYPES[k].power; return p; }
+  function landShare(s) { return clamp(domainPower(s, 'land') / Math.max(1, unitPower(s.forces)) * 2.2, 0.3, 1.3); }
+  function airShare(s) { return clamp(domainPower(s, 'luft') / Math.max(1, unitPower(s.forces)) * 3, 0.3, 1.4); }
+  function loseUnits(s, types, share) {
+    for (const k of types) { const n = s.forces[k] || 0; s.forces[k] = Math.max(0, n - Math.max(n > 0 ? 1 : 0, Math.round(n * share * rand(0.6, 1.4)))); }
+  }
+  function buildTime(s, type) { return Math.max(2, Math.round(UNIT_TYPES[type].build * (1.4 - s.capacity / 200))); }
+  function buyUnits(s, type, n) {
+    const u = UNIT_TYPES[type];
+    if (!u || n <= 0) return { ok: false, why: 'Ungültig' };
+    const cost = u.price * n;
+    pay(s, cost);
+    const months = buildTime(s, type);
+    s.orders.push({ type, n, month: s.month + months });
+    s.groupMood.military += Math.min(4, cost / s.econ.gdp * 300);
+    s.groupMood.greens -= Math.min(3, cost / s.econ.gdp * 150);
+    addNews(s, `Bestellt: ${fmt(n, 0)} × ${u.name} für ${fmtMoney(cost)}.`, 'info');
+    return { ok: true, msg: `${u.icon} ${fmt(n, 0)} ${u.short} bestellt (${fmtMoney(cost)}) – Lieferung in ${months} Monaten.` };
+  }
+  function disbandUnits(s, type, n) {
+    const u = UNIT_TYPES[type];
+    n = Math.min(n, s.forces[type] || 0);
+    if (n <= 0) return { ok: false, why: 'Keine Einheiten vorhanden' };
+    s.forces[type] -= n;
+    const refund = u.price * n * 0.25;
+    s.treasury += refund;
+    s.groupMood.military -= Math.min(5, refund / s.econ.gdp * 800);
+    return { ok: true, msg: `${fmt(n, 0)} ${u.short} ausgemustert (+${fmtMoney(refund)}).` };
   }
 
   // ─────────────────────────── Eroberung ───────────────────────────
@@ -1954,6 +2027,7 @@ const Engine = (() => {
     if (!s.auto) s.auto = { finanzen: true, wirtschaft: true, soziales: true, militaer: true, diplomatie: true, politik: true, ereignisse: true };
     if (!s.cabinet) s.cabinet = [];
     if (!s.conflicts) initConflicts(s);
+    if (!s.forces) { s.forces = initForces(c); s.forcesBase = unitPower(s.forces); s.orders = []; }
     if (!s.annexed) { s.annexed = {}; s.puppets = {}; s.casusBelli = {}; s.popExtra = 0; }
     s.budget = computeBudget(s);
     return s;
@@ -1979,6 +2053,7 @@ const Engine = (() => {
     rollRandomEvent, resolveEvent, applyEffects, scoreEffects, recommend, scorePolicy, recommendedPolicies,
     canEnact, enactPolicy, repealPolicy, repealCost, canDoAction, doAction,
     dipOptions, dipAction, DIP_ACTIONS, WAR_ACTIONS, warAction, militaryPower, militaryPowerVs, enemyPower, atWarWith, warOdds, projection, defenderHelp,
+    UNIT_TYPES, initForces, unitPower, forceRatio, buyUnits, disbandUnits, buildTime,
     pay, financeOp, PROJECTS, PROJECT_AMOUNTS, projectEffects, runProject, implCost, fatigue, recentUses,
     AUTO_AREAS, isMajor, HOTSPOTS, conflictPos, conflictOptions, intervene,
     hasNukes, TREATIES, MONEY_OFFERS, hasTreaty, treatyBlocked, negotiationChance, negotiate, cancelTreaty,

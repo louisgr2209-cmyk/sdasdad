@@ -23,8 +23,9 @@ npm run build:win      # erzeugt eine portable .exe im Ordner dist/
 | 🧭 **Übersicht** | Lebendige Weltkarte, „Ampeln“ für die Lage der Nation, Bevölkerung, Kabinettsbericht |
 | 🏛️ **Regierung** | Gesetze und Sofortmaßnahmen ohne Wartezeit – plus **Minister-Autopilot** pro Bereich |
 | 💰 **Finanzen** | **Staatskonto** mit Verfügungsfonds und Überschüssen, Schulden tilgen, Kredite, Staatsfonds, **Sonderprojekte**, Steuern & Ausgaben |
+| 🗺️ **Länderfenster** | Klick auf ein Land auf der Karte: Übersicht, Diplomatie & Handel (Verträge, Waffenverkauf, Sanktionen), Militär (Streitkräfte im Vergleich, Ultimatum, Krieg) |
 | 🌍 **Welt** | **Konflikte & Krisenherde** (vermitteln, helfen, Friedenstruppen, eingreifen), Vertragsverhandlungen, Bündnisse (EU, NATO, BRICS …, eigenes Bündnis), atomwaffenfreie Welt |
-| 🛡️ **Militär** | Mobilisierung, Offensiven (Boden, Luft, See), Spezialeinheiten (KSK, Navy SEALs, SAS, GIGN …), Terrorabwehr, Atomwaffen |
+| 🛡️ **Militär** | **8 Truppengattungen** (Infanterie, Panzer, Artillerie, Jets, Drohnen, Flugabwehr, Schiffe, U-Boote) kaufen & ausmustern, Mobilisierung, Offensiven, Spezialeinheiten (KSK, Navy SEALs …), Terrorabwehr, Atomwaffen |
 | 📊 **Chronik** | Verlaufsdiagramme und Nachrichtenarchiv |
 
 - **Realistische Unterschiede:** Die *Staatskapazität* bestimmt, wie gut Reformen wirken – ein schwacher Staat wie Sudan entwickelt sich nur langsam. Kriege brauchen Vorbereitung: Ohne Mobilisierung und Verbündete hat auch Deutschland gegen eine Großmacht keine Chance. Atommächte lassen sich nicht einfach besiegen.
@@ -35,7 +36,7 @@ npm run build:win      # erzeugt eine portable .exe im Ordner dist/
 - **54 Zufallsereignisse** mit 2–4 Entscheidungsoptionen: Generalstreik, Börsencrash, Pandemie, Terroranschlag, Ölschock, Spionage, Putschgerüchte, WM-Titel …
 - **7 Bevölkerungsgruppen** (Arbeiter, Unternehmer, Rentner, Jugend, Militär, Umweltbewegung, Konservative) – ihre Zufriedenheit ergibt deine Zustimmung.
 - **Staatskonto statt Punkten:** Alles wird sofort beschlossen und vom Konto bezahlt; wiederholte Maßnahmen wirken schwächer.
-- **Minister-Autopilot:** Minister kümmern sich auf Wunsch selbst um Finanzen, Wirtschaft, Soziales, Militär, Diplomatie und kleine Ereignisse – große Entscheidungen bleiben bei dir.
+- **Minister-Autopilot (optional, standardmäßig aus):** Minister kümmern sich auf Wunsch selbst um Finanzen, Wirtschaft, Soziales, Militär, Diplomatie und kleine Ereignisse – große Entscheidungen bleiben bei dir.
 - **Lebendige Welt:** Andere Länder führen Kriege, Krisenherde entstehen und verschwinden – sichtbar auf der Karte.
 - **Wahlen** alle 4 Jahre (Demokratien) bzw. **Machtproben** (autoritäre Staaten).
 - **Spielende** durch Abwahl, Misstrauensvotum, Revolution, Militärputsch, Staatsbankrott oder Atomkrieg – oder erfolgreich nach 3 Amtszeiten mit **Vermächtnis-Punkten**. Endlosmodus verfügbar.
