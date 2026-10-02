@@ -36,8 +36,9 @@ const UI = (() => {
     approval: 'Zustimmung', stability: 'Stabilität', growth: 'Wachstum', unemployment: 'Arbeitslosigkeit', inflation: 'Inflation',
     debt: 'Schulden', interest: 'Zinsen', capitalGain: 'Kapital/Monat', education: 'Bildung', health: 'Gesundheit', security: 'Sicherheit',
     environment: 'Umwelt', military: 'Militärstärke', corruption: 'Korruption', reputation: 'Ansehen', welfare: 'Soziales Netz',
+    capacity: 'Staatskapazität', terror: 'Terrorgefahr', sf: 'Spezialkräfte',
   };
-  const INVERT = { corruption: 1, unemployment: 1, inflation: 1, debt: 1, interest: 1 };
+  const INVERT = { corruption: 1, unemployment: 1, inflation: 1, debt: 1, interest: 1, terror: 1 };
   const ADVISOR_IDLE = {
     wirtschaft: 'Die Wirtschaft läuft stabil. Bürokratieabbau und Digitalisierung sind fast immer gute Investitionen.',
     soziales: 'Sozial ist das Land ruhig. Bildung und Gesundheit zahlen sich langfristig immer aus.',
@@ -86,8 +87,11 @@ const UI = (() => {
 
   // ─────────────────────────── Spielvorbereitung ───────────────────────────
   const REGION_FILTER = ['Alle', 'Europa', 'Amerika', 'Asien', 'Nahost & Afrika', 'Ozeanien', 'Leicht'];
-  function stars(n) { return `<span class="stars" title="Schwierigkeit">${'★'.repeat(n)}<span class="off">${'★'.repeat(3 - n)}</span></span>`; }
-  function diffName(n) { return ['', 'Leicht', 'Mittel', 'Schwer'][n]; }
+  function stars(n) {
+    if (n >= 4) return '<span class="stars" title="Schwierigkeit" style="color:var(--bad)">★★★★</span>';
+    return `<span class="stars" title="Schwierigkeit">${'★'.repeat(n)}<span class="off">${'★'.repeat(3 - n)}</span></span>`;
+  }
+  function diffName(n) { return ['', 'Leicht', 'Mittel', 'Schwer', 'Extrem'][n]; }
 
   function showSetup() {
     $('#setup-filter').innerHTML = REGION_FILTER.map(f => `<button class="btn btn-sm ${f === setupFilter ? 'active' : ''}" data-action="setup-filter" data-f="${f}">${f}</button>`).join('');
@@ -123,6 +127,10 @@ const UI = (() => {
         <div><span>Militär</span><b>${c.stats.military}${c.nuclear ? ' ☢️' : ''}</b></div>
         <div><span>Staatsform</span><b>${c.gov === 'demokratie' ? 'Demokratie' : 'Autoritär'}</b></div>
         <div><span>Bündnisse</span><b>${c.blocs.join(', ') || '–'}</b></div>
+        <div><span>Staatskapazität</span><b class="${c.capacity < 35 ? 'bad' : c.capacity < 60 ? 'warn' : 'good'}">${c.capacity}</b></div>
+        <div><span>Spezialeinheit</span><b>${esc(c.sf.name)}</b></div>
+        <div><span>Atomwaffen</span><b>${c.nukes ? '☢️ ~' + F(c.nukes, 0) : 'keine'}</b></div>
+        <div><span>Kampfkraft</span><b>${F(c.stats.military * c.milSize, 0)}</b></div>
       </div>
       <div class="form-row"><label>Dein Name</label><input type="text" id="inp-name" maxlength="28" placeholder="z. B. Alex Muster" value="${esc(setupOpts.name)}"></div>
       <div class="form-row"><label>Dein Titel</label><select id="inp-title">${titleOpts}</select></div>
@@ -326,10 +334,12 @@ const UI = (() => {
     if (eff.peace) out.push(chip('🕊️ Frieden', 'good'));
     if (eff.oil) { const exp = S.country.oil > 2; out.push(chip(`🛢️ Ölpreis ${FS(eff.oil * 100, 0)} %`, (eff.oil > 0) === exp ? 'good' : 'bad')); }
     if (eff.campaign) out.push(signedChip('📣 Wahlkampf', eff.campaign, false, 0));
+    if (eff.terror) out.push(signedChip('💣 Terrorgefahr', eff.terror, true, 0));
+    if (eff.sfQuality) out.push(signedChip(`🥷 ${S.country.sf.name}`, eff.sfQuality, false, 0));
     let html = `<div class="chips">${out.join('')}</div>`;
     if (eff.chance) {
-      const p = Math.round(eff.chance.p * 100);
-      html += `<div class="chance-block">
+      const p = Math.round(Engine.chanceP(S, eff.chance) * 100);
+      html += `<div class="chance-block">${eff.chance.sf ? `<div class="ch-line">🥷 Erfolgschance abhängig von <b>${esc(S.country.sf.name)}</b> (Qualität ${F(S.sf.quality, 0)})</div>` : ''}
         <div class="ch-line">🎲 <b>${p} %</b> Erfolg: ${effectChips(eff.chance.success, land) || chip('keine Folgen')}</div>
         <div class="ch-line">🎲 <b>${100 - p} %</b> Misserfolg: ${effectChips(eff.chance.fail, land) || chip('keine Folgen')}</div></div>`;
     }
@@ -378,7 +388,9 @@ const UI = (() => {
     const groups = Object.keys(GROUPS).map(g => barRow(`${GROUPS[g].icon} ${GROUPS[g].name}`, S.groups[g],
       { before: prev?.groups[g], tip: `<b>${GROUPS[g].name}</b> (${Math.round(GROUPS[g].weight * 100)} % der Wähler)<br>Wichtig: ${GROUPS[g].likes}` })).join('');
     const qual = ['education', 'health', 'security', 'environment', 'welfare', 'military', 'reputation', 'corruption'].map(k =>
-      barRow(`${STAT_INFO[k].icon} ${STAT_INFO[k].name}`, S.stats[k], { inv: STAT_INFO[k].invert, mark: c.stats[k], before: prev?.stats[k], tip: `<b>${STAT_INFO[k].name}</b><br>${STAT_INFO[k].desc}<br><i>Strich = Startwert</i>` })).join('');
+      barRow(`${STAT_INFO[k].icon} ${STAT_INFO[k].name}`, S.stats[k], { inv: STAT_INFO[k].invert, mark: c.stats[k], before: prev?.stats[k], tip: `<b>${STAT_INFO[k].name}</b><br>${STAT_INFO[k].desc}<br><i>Strich = Startwert</i>` })).join('')
+      + barRow(`${STAT_INFO.capacity.icon} ${STAT_INFO.capacity.name}`, S.capacity, { mark: c.capacity, tip: `<b>${STAT_INFO.capacity.name}</b><br>${STAT_INFO.capacity.desc}` })
+      + barRow(`${STAT_INFO.terror.icon} ${STAT_INFO.terror.name}`, S.terror, { inv: true, tip: `<b>${STAT_INFO.terror.name}</b><br>${STAT_INFO.terror.desc}` });
     const mods = S.mods.slice(0, 6).map(m => `<div class="bs-line"><span>⏳ ${LABELS[m.key] || m.key} ${FS(m.value, 1)}</span><span class="muted">${m.months} Mon.</span></div>`).join('');
     const war = S.wars.map(w => { const o = Engine.byId(w.enemy); return `<div class="tip danger"><span class="ti">⚔️</span><span>Krieg gegen ${flag(o.id)} <b>${esc(o.name)}</b> – Frontverlauf ${FS(w.progress, 0)}</span><button class="btn btn-sm go" data-action="nav" data-view="militaer">→</button></div>`; }).join('');
     const pols = Object.keys(S.policies).length;
@@ -519,9 +531,9 @@ const UI = (() => {
     const tips = Engine.tips(S).filter(t => t.area === area);
     const actions = ACTIONS.filter(x => x.area === area).map(actionCard).join('');
     const recs = Engine.recommendedPolicies(S, area, 2);
-    const rank = p => S.policies[p.id] ? 0 : recs.includes(p.id) ? 1 : Engine.canEnact(S, p.id).ok ? 2 : 3;
+    const rank = p => (p.id in S.policies) ? 0 : recs.includes(p.id) ? 1 : Engine.canEnact(S, p.id).ok ? 2 : 3;
     const pols = POLICIES.filter(p => p.area === area).sort((x, y) => rank(x) - rank(y)).map(p => policyCard(p, recs.includes(p.id))).join('');
-    const active = POLICIES.filter(p => p.area === area && S.policies[p.id]).length;
+    const active = POLICIES.filter(p => p.area === area && (p.id in S.policies)).length;
     return `
       <div class="view-head"><h2>${a.icon} ${a.name}</h2><span class="sub">${areaSub(area)}</span></div>
       ${advisorBlock(area, tips)}
@@ -569,39 +581,77 @@ const UI = (() => {
     return '';
   }
 
+  function opRow(icon, name, desc, btn) {
+    return `<div class="dip-act"><span style="font-size:20px">${icon}</span><div class="t"><b>${name}</b><small>${desc}</small></div>${btn}</div>`;
+  }
+
   function warPanel() {
     const my = Engine.militaryPower(S);
-    const rows = Object.keys(S.relations).sort((a, b) => S.relations[a] - S.relations[b]).slice(0, 3).map(id => {
-      const o = Engine.byId(id), p = Engine.enemyPower(id);
-      return `<div class="bs-line"><span>${flag(id)} ${esc(o.name)} <span class="muted">(Beziehung ${F(S.relations[id], 0)})</span></span><span class="${p > my ? 'bad' : 'good'}">${F(p, 0)}${o.nuclear ? ' ☢️' : ''}</span></div>`;
+    const c = S.country;
+    const rows = Object.keys(S.relations).sort((a, b) => S.relations[a] - S.relations[b]).slice(0, 4).map(id => {
+      const o = Engine.byId(id), p = Engine.enemyPower(id), odds = my / (my + p);
+      return `<div class="bs-line" data-tip="Kräfteverhältnis: Unter 40 % ist ein Krieg aussichtslos, über 60 % gut gewinnbar."><span>${flag(id)} ${esc(o.name)} <span class="muted">(Beziehung ${F(S.relations[id], 0)})</span></span>
+        <span class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}">${F(p, 0)}${o.nuclear ? ' ☢️' : ''} · ${F(odds * 100, 0)} %</span></div>`;
     }).join('');
+
+    // ── Aktiver Krieg ──
     let war = '';
     if (S.wars.length) {
-      const w = S.wars[0], o = Engine.byId(w.enemy), p = Engine.enemyPower(w.enemy);
+      const w = S.wars[0], o = Engine.byId(w.enemy), p = Engine.enemyPower(w.enemy, w), odds = Engine.warOdds(S, w.enemy);
       const pos = (w.progress + 100) / 2;
       const acts = Object.entries(Engine.WAR_ACTIONS).map(([k, a]) => {
         const cd = (S.cooldowns['war:' + k] || 0) - S.month;
-        const dis = cd > 0 || S.capital < a.cost;
+        const dis = cd > 0 || S.capital < a.cost || (a.minSize && c.milSize < a.minSize);
         return `<button class="btn btn-sm" data-action="war-act" data-key="${k}" ${dis ? 'disabled' : ''} data-tip="${esc(a.desc)}${a.money ? ' · Kosten ' + moneyText(a.money) : ''}">${a.icon} ${a.name} (${a.cost} ⚡)${cd > 0 ? ' · ' + cd + ' Mon.' : ''}</button>`;
       }).join('');
+      const nuke = S.nukes > 0 ? `<div class="panel" style="margin-top:12px;border-color:rgba(255,93,108,.6);background:rgba(255,93,108,.06)">
+          <div class="panel-title" style="color:var(--bad)">☢️ Atomare Optionen <span class="right muted">Arsenal: ~${F(S.nukes, 0)} Sprengköpfe</span></div>
+          <p class="muted" style="font-size:12.5px;margin:0 0 10px">${o.nuclear ? `<b class="bad">${esc(o.name)} ist selbst Atommacht.</b> Ein Atomschlag führt fast sicher zum nuklearen Gegenschlag – und damit zum Ende.` : 'Ein Atomschlag beendet den Krieg sofort – aber dein Land wird weltweit geächtet: Sanktionen, zerbrochene Bündnisse, Wirtschaftseinbruch und Massenproteste.'}</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-sm" data-action="nuke-threat" ${S.capital < 20 || (S.cooldowns.nukeThreat || 0) > S.month ? 'disabled' : ''} data-tip="Drohung mit Atomwaffen: Der Gegner lenkt vielleicht ein. Ansehen −12, alle Beziehungen −8.">⚠️ Nukleare Drohung (20 ⚡)</button>
+            <button class="btn btn-sm btn-danger" data-action="nuke-strike">☢️ Atomschlag befehlen</button>
+          </div></div>` : '';
       war = `<div class="panel war-panel" style="margin-top:14px"><div class="panel-title">⚔️ Krieg gegen ${flag(o.id)} ${esc(o.name)} <span class="right">${w.months} Monate</span></div>
-        <div class="power-cmp"><div><div class="muted">Wir</div><div class="p good">${F(my, 0)}</div></div><div class="muted">vs.</div><div><div class="muted">${esc(o.name)}</div><div class="p bad">${F(p, 0)}${o.nuclear ? ' ☢️' : ''}</div></div></div>
+        <div class="power-cmp"><div><div class="muted">Wir</div><div class="p good">${F(my, 0)}</div></div><div><div class="muted">Kräfteverhältnis</div><div class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}" style="font-size:18px;font-weight:800">${F(odds * 100, 0)} %</div></div><div><div class="muted">${esc(o.name)}</div><div class="p bad">${F(p, 0)}${o.nuclear ? ' ☢️' : ''}</div></div></div>
         <div class="war-track"><i style="left:0;width:${pos}%;background:linear-gradient(90deg,#1d6b4a,var(--good))"></i><i style="left:${pos}%;right:0;background:linear-gradient(90deg,var(--bad),#6b1d26)"></i></div>
         <div style="display:flex;justify-content:space-between" class="muted"><span>◀ Niederlage</span><b class="${w.progress >= 0 ? 'good' : 'bad'}">Frontverlauf ${FS(w.progress, 0)}</b><span>Sieg ▶</span></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">${acts}
           <button class="btn btn-sm btn-good" data-action="dip-act" data-id="${o.id}" data-key="frieden" ${S.capital < 10 ? 'disabled' : ''}>🕊️ Frieden anbieten (10 ⚡)</button></div>
-        <p class="muted" style="font-size:12px;margin:10px 0 0">Bei +100 gewinnst du den Krieg, bei −100 musst du kapitulieren. Jeder Kriegsmonat kostet 1,5 % des BIP und Wachstum.</p></div>`;
+        ${w.attrition ? `<p class="muted" style="font-size:12px;margin:8px 0 0">Feind geschwächt durch Blockade/Sabotage: −${F(w.attrition * 100, 0)} % Kampfkraft</p>` : ''}
+        <p class="muted" style="font-size:12px;margin:8px 0 0">Bei +100 gewinnst du, bei −100 musst du kapitulieren. Der Gegner mobilisiert jeden Monat weiter. Offensiven wirken nur bei gutem Kräfteverhältnis.</p>
+        ${nuke}</div>`;
     }
-    return `${war}<div class="grid g2" style="margin-top:14px">
-      <div class="panel"><div class="panel-title">🛡️ Streitkräfte</div>
-        ${barRow('🛡️ Militärstärke', S.stats.military, { mark: S.country.stats.military, before: prev?.stats.military, tip: STAT_INFO.military.desc })}
-        ${barRow('🚓 Sicherheit', S.stats.security, { mark: S.country.stats.security, before: prev?.stats.security, tip: STAT_INFO.security.desc })}
+
+    // ── Streitkräfte & Mobilisierung ──
+    const lvl = Engine.READINESS_LEVELS.map(l => `<button class="${S.readinessTarget === l.value ? 'active' : ''}" data-action="readiness" data-v="${l.value}" data-tip="<b>${l.name}</b><br>${l.desc}<br>Kosten: ${F(Math.max(0, l.value - 25) * 0.035, 2)} % BIP/Jahr<br>Kampfkraft ×${F(0.5 + l.value / 100, 2)}">${l.name.split(' ')[0]}</button>`).join('');
+    const nukeLine = S.nukes > 0 ? `☢️ ~${F(S.nukes, 0)} Sprengköpfe` : S.nukeProgram ? `<span class="warn">Programm läuft – fertig in ${S.nukeProgram - S.month} Mon.</span>` : '<span class="muted">keine</span>';
+    const forces = `<div class="panel"><div class="panel-title">🛡️ Streitkräfte & Mobilisierung</div>
+        ${barRow('🛡️ Militärstärke', S.stats.military, { mark: c.stats.military, before: prev?.stats.military, tip: STAT_INFO.military.desc })}
+        ${barRow('📯 Kriegsbereitschaft', S.readiness, { mark: S.readinessTarget, tip: 'Wie kriegsbereit deine Armee ist. Steigt nur langsam (ca. 4 pro Monat) – Vorbereitung braucht Zeit! Strich = Zielwert.' })}
         ${barRow('🎖️ Zufriedenheit Militär', S.groups.military, { before: prev?.groups.military, tip: 'Unter 15 droht ein Putsch, wenn auch die Stabilität niedrig ist!' })}
-        <div class="bs-line"><span>Kampfkraft (inkl. Verbündete)</span><b>${F(my, 0)}${S.country.nuclear ? ' ☢️' : ''}</b></div>
-        <div class="bs-line"><span>Verteidigungsbudget</span><span>${F(S.spending.military, 1)} % BIP</span></div></div>
-      <div class="panel"><div class="panel-title">🎯 Größte Bedrohungen <span class="right muted">Kampfkraft</span></div>${rows}
-        <p class="muted" style="font-size:12px">Krieg erklären kannst du in der Diplomatie – nur bei Beziehung ≤ −40.</p></div>
-    </div>`;
+        <div class="form-row" style="margin:10px 0"><label>Bereitschaftsstufe (Erhöhen 5 ⚡, Senken 2 ⚡)</label><div class="seg">${lvl}</div></div>
+        <div class="bs-line"><span>Kampfkraft (inkl. Verbündete)</span><b>${F(my, 0)}</b></div>
+        <div class="bs-line"><span>Verteidigungsbudget</span><span>${F(S.spending.military, 1)} % BIP</span></div>
+        <div class="bs-line"><span>Atomwaffen</span><span>${nukeLine}</span></div></div>`;
+
+    // ── Spezialeinheit ──
+    const target = Engine.byId(Engine.sfTarget(S));
+    const ops = Object.entries(Engine.SF_OPS).map(([k, a]) => {
+      const cd = (S.cooldowns['sf:' + k] || 0) - S.month;
+      const dis = cd > 0 || S.capital < a.cost || (a.war && !S.wars.length);
+      const chance = a.base !== undefined ? ` · Erfolgschance <b>${F(Engine.sfChance(S, a.base) * 100, 0)} %</b>` : '';
+      const extra = k === 'festnahme' ? ` · Ziel vermutet in ${flag(target.id)} ${esc(target.name)}` : '';
+      return opRow(a.icon, a.name, `${esc(a.desc)}${chance}${extra}${cd > 0 ? ` · <span class="warn">bereit in ${cd} Mon.</span>` : ''}`,
+        `<button class="btn btn-sm btn-primary" data-action="sf-op" data-key="${k}" ${dis ? 'disabled' : ''}>${a.cost} ⚡</button>`);
+    }).join('');
+    const sf = `<div class="panel"><div class="panel-title">🥷 Spezialeinheit: ${esc(c.sf.name)} <span class="right muted">${S.sf.success}/${S.sf.missions} Einsätze erfolgreich</span></div>
+        ${barRow('🥷 Einsatzqualität', S.sf.quality, { mark: c.sf.quality, tip: 'Bestimmt die Erfolgschance aller Kommandoeinsätze. Steigt durch Training, das Gesetz „Spezialkräfte ausbauen“ und ein höheres Verteidigungsbudget.' })}
+        ${barRow('💣 Terrorgefahr', S.terror, { inv: true, tip: STAT_INFO.terror.desc })}
+        <div class="dip-actions" style="margin-top:10px">${ops}</div></div>`;
+
+    return `${war}<div class="grid g2" style="margin-top:14px">${forces}${sf}</div>
+      <div class="panel" style="margin-top:14px"><div class="panel-title">🎯 Mögliche Gegner <span class="right muted">Kampfkraft · unser Kräfteverhältnis</span></div>${rows}
+        <p class="muted" style="font-size:12px;margin:8px 0 0">Krieg erklären kannst du in der Diplomatie (nur bei Beziehung ≤ −40). Bereite dich vor: Verteidigungsbudget erhöhen, mobilisieren, Verbündete gewinnen – das dauert Monate bis Jahre.</p></div>`;
   }
 
   function actionCard(a) {
@@ -616,7 +666,7 @@ const UI = (() => {
   }
 
   function policyCard(p, isRec) {
-    const active = !!S.policies[p.id];
+    const active = !!(p.id in S.policies);
     const chk = Engine.canEnact(S, p.id);
     const rc = Engine.repealCost(p);
     const foot = active
@@ -669,8 +719,9 @@ const UI = (() => {
 
   function dipDetail(id) {
     const o = Engine.byId(id), r = S.relations[id];
+    const odds = Engine.warOdds(S, id);
     const opts = Engine.dipOptions(S, id).map(a => `
-      <div class="dip-act"><span style="font-size:20px">${a.icon}</span><div class="t"><b>${a.name}</b><small>${esc(a.desc)}${a.money ? ' · Kosten ' + moneyText(a.money) : ''}</small>${!a.ok ? `<small class="bad"> · ${esc(a.why)}</small>` : ''}</div>
+      <div class="dip-act"><span style="font-size:20px">${a.icon}</span><div class="t"><b>${a.name}</b><small>${esc(a.desc)}${a.money ? ' · Kosten ' + moneyText(a.money) : ''}${a.key === 'krieg' ? ` · Kräfteverhältnis <b class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}">${F(odds * 100, 0)} %</b>${o.nuclear ? ' · <b class="bad">Atommacht!</b>' : ''}` : ''}</small>${!a.ok ? `<small class="bad"> · ${esc(a.why)}</small>` : ''}</div>
         <button class="btn btn-sm ${a.key === 'krieg' ? 'btn-danger' : 'btn-primary'}" data-action="dip-act" data-id="${id}" data-key="${a.key}" ${a.ok ? '' : 'disabled'}>${a.cost ? a.cost + ' ⚡' : 'Los'}</button></div>`).join('');
     const tr = [S.trade[id] && '📜 Handelsabkommen', S.alliance[id] && '🤝 Bündnis', S.sanctions[id] && '🚫 Sanktionen', Engine.atWarWith(S, id) && '⚔️ Krieg'].filter(Boolean);
     const my = Engine.militaryPower(S), their = Engine.enemyPower(id);
@@ -922,6 +973,8 @@ const UI = (() => {
       ['Politisches Kapital ⚡', 'Gesetze, Sofortmaßnahmen und Haushaltsänderungen kosten politisches Kapital. Es wächst jeden Monat – je beliebter du bist, desto schneller.'],
       ['Vier Politikfelder', '<b>Wirtschaft, Soziales, Militär und Politik</b> – jedes mit eigenen Gesetzen, Sofortmaßnahmen und einem Berater, der dir Tipps gibt. Grüne Chips sind gute, rote schlechte Folgen.'],
       ['Haushalt & Diplomatie', 'Im <b>Haushalt</b> legst du Steuern und Ausgaben fest – achte auf das Defizit! In der <b>Diplomatie</b> schließt du Handelsabkommen und Bündnisse.'],
+      ['Militär & Kriege', 'Kriege brauchen <b>Vorbereitung</b>: Verteidigungsbudget, Kriegsbereitschaft (steigt nur langsam) und Verbündete. Achte auf das <b>Kräfteverhältnis</b> – Offensiven wirken nur, wenn du stärker bist. Deine <b>Spezialeinheit</b> bekämpft Terror. Atommächte lassen sich nicht einfach besiegen.'],
+      ['Starke und schwache Staaten', 'Die <b>Staatskapazität</b> bestimmt, wie gut Reformen wirken. Ein Land wie Sudan kann sich nicht in wenigen Jahren in eine Schweiz verwandeln – Fortschritt braucht dort Jahrzehnte.'],
       ['Ereignisse', 'Krisen, Skandale und Chancen passieren zufällig. Deine Berater markieren die empfohlene Option mit ⭐ – du musst ihnen aber nicht folgen.'],
       ['Gefahren', 'Vorsicht vor <b>Revolution</b> (Stabilität &lt; 10), <b>Putsch</b> (unzufriedenes Militär), <b>Staatsbankrott</b> (zu hohe Schulden) und <b>Abwahl</b>. Rote Punkte in der Navigation warnen dich.'],
       ['Tastenkürzel', '<kbd>Leertaste</kbd> nächster Monat · <kbd>1</kbd>–<kbd>9</kbd> Bereiche wechseln · <kbd>1</kbd>–<kbd>4</kbd> Option im Ereignis wählen · <kbd>A</kbd> Automatik · <kbd>Esc</kbd> Menü schließen'],
@@ -994,7 +1047,7 @@ const UI = (() => {
     el.className = `toast ${type}`; el.innerHTML = html;
     if (kind) el.dataset.kind = kind;
     root.appendChild(el);
-    while (root.children.length > 4) root.firstChild.remove();
+    while (root.children.length > 3) root.firstChild.remove();
     setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 300); }, ms);
   }
 
@@ -1068,7 +1121,20 @@ const UI = (() => {
         if (r.ok) { toast(esc(r.msg), el.dataset.key === 'krieg' ? 'bad' : 'good'); save(); renderAll(); processQueue(); } else { toast(esc(r.why), 'bad'); }
         break;
       }
-      case 'war-act': result(Engine.warAction(S, el.dataset.key)); break;
+      case 'war-act': { const r = Engine.warAction(S, el.dataset.key); result(r); if (r.ok) toast(esc(r.msg), 'info'); break; }
+      case 'readiness': { const r = Engine.setReadiness(S, +el.dataset.v); result(r); if (r.ok) toast(esc(r.msg), 'info', 4000); break; }
+      case 'sf-op': { const r = Engine.sfOp(S, el.dataset.key); if (r.ok) toast(esc(r.msg), r.msg.startsWith('❌') ? 'bad' : 'good', 4500); result({ ok: r.ok, why: r.why }); break; }
+      case 'nuke-threat': {
+        if (!confirm('Mit Atomwaffen drohen? Das schadet deinem Ansehen und allen Beziehungen.')) return;
+        const r = Engine.nuclearThreat(S); if (r.ok) toast(esc(r.msg), r.msg.startsWith('✅') ? 'good' : 'bad', 5000); result({ ok: r.ok, why: r.why }); break;
+      }
+      case 'nuke-strike': {
+        const o = Engine.byId(S.wars[0].enemy);
+        if (!confirm(`ATOMSCHLAG gegen ${o.name}?\n\nDeine Berater warnen eindringlich: ${o.nuclear ? 'Es droht ein nuklearer Gegenschlag und damit das Ende deines Landes.' : 'Dein Land wird weltweit geächtet – Sanktionen, Bündnisbruch, Wirtschaftseinbruch.'}`)) return;
+        if (!confirm('Letzte Bestätigung: Diese Entscheidung kann nicht rückgängig gemacht werden.')) return;
+        sfx('war');
+        const r = Engine.nuclearStrike(S); result({ ok: r.ok, why: r.why }); break;
+      }
       case 'chart': chartMetric = el.dataset.m; renderView(); break;
       case 'choice': choose(+el.dataset.i); break;
       case 'end-continue': continueEndless(); break;

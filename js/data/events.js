@@ -326,7 +326,7 @@ const EVENTS = [
     ] },
 
   { id: 'terror', icon: '💣', cat: 'militaer', title: 'Terroranschlag in {capital}',
-    weight: s => s.stats.security < 60 ? 1.2 : 0.35,
+    weight: s => s.terror / 45,
     text: 'Ein Anschlag erschüttert {capital}. Es gibt zahlreiche Tote. Das Land ist im Schock.',
     choices: [
       { label: 'Sicherheitsgesetze verschärfen', effects: { stats: { security: 6, reputation: -2 }, groups: { youth: -6, conservatives: 8 } } },
@@ -335,7 +335,7 @@ const EVENTS = [
     ] },
 
   { id: 'cyberangriff', icon: '👾', cat: 'militaer', title: 'Cyberangriff auf das Stromnetz', ctx: 'rival',
-    weight: s => s.policies.cyber ? 0.2 : 0.7,
+    weight: s => 'cyber' in s.policies ? 0.2 : 0.7,
     text: 'Hacker – vermutlich aus {land} – legen Teile der Energieversorgung lahm.',
     choices: [
       { label: 'Cyberabwehr massiv ausbauen', effects: { money: 0.3, stats: { security: 4 } } },
@@ -452,5 +452,42 @@ const EVENTS = [
       { label: 'Zugeständnisse: Jobs & Geld für die Jugend', effects: { money: 0.4, groups: { youth: 6 } } },
       { label: 'Proteste niederschlagen', effects: { stats: { reputation: -12 }, groups: { youth: -15, military: 3 }, chance: { p: 0.7, success: { text: 'Die Straßen sind wieder ruhig – vorerst.', stats: { stability: 4 } },
         fail: { text: 'Die Gewalt heizt die Proteste erst richtig an!', stats: { stability: -15 } } } } },
+    ] },
+
+  // ═════════════ TERRORABWEHR & SPEZIALKRÄFTE ═════════════
+  // chance.sf = true: Erfolgschance hängt von der Qualität deiner Spezialeinheit ab (p = Grundwert)
+  { id: 'terrorwarnung', icon: '📡', cat: 'militaer', title: 'Geheimdienst warnt vor Anschlag',
+    weight: s => s.terror / 35,
+    text: 'Abgefangene Nachrichten deuten darauf hin, dass eine Terrorzelle in den nächsten Tagen zuschlagen will. Der Aufenthaltsort ist bekannt.',
+    choices: [
+      { label: 'Zugriff durch {sf}', desc: 'Die Eliteeinheit schlägt zuerst zu.', effects: { chance: { sf: true, p: 0.35,
+        success: { text: '{sf} nimmt die Zelle fest, bevor sie zuschlagen kann.', terror: -25, stats: { approval: 3, security: 2 } },
+        fail: { text: 'Der Zugriff misslingt, einige Verdächtige entkommen.', terror: 5, stats: { approval: -5, stability: -3 } } } } },
+      { label: 'Polizei-Großeinsatz', effects: { money: 0.05, terror: -10, groups: { youth: -2 } } },
+      { label: 'Öffentlich warnen', effects: { terror: -5, stats: { approval: -1 }, mods: [{ key: 'growth', value: -0.1, months: 2 }] } },
+    ] },
+
+  { id: 'geiselnahme', icon: '🚨', cat: 'militaer', title: 'Geiselnahme in {capital}',
+    weight: s => s.terror / 60, cooldown: 24,
+    text: 'Bewaffnete haben in {capital} Dutzende Menschen in ihre Gewalt gebracht und stellen politische Forderungen. Das ganze Land schaut zu.',
+    choices: [
+      { label: '{sf} befreit die Geiseln', desc: 'Riskant – das Ergebnis hängt von der Ausbildung der Einheit ab.', effects: { chance: { sf: true, p: 0.3,
+        success: { text: '{sf} befreit alle Geiseln unverletzt. Das Land feiert die Einheit.', stats: { approval: 8 }, terror: -10, sfQuality: 2, groups: { military: 4 } },
+        fail: { text: 'Die Befreiung endet tragisch. Es gibt Opfer unter den Geiseln.', stats: { approval: -12, stability: -4 }, sfQuality: -5 } } } },
+      { label: 'Verhandeln', effects: { capital: -8, chance: { p: 0.6, success: { text: 'Die Geiselnehmer geben nach zähen Verhandlungen auf.', stats: { approval: 3 } },
+        fail: { text: 'Die Verhandlungen scheitern – die Lage eskaliert.', stats: { approval: -6, stability: -2 } } } } },
+      { label: 'Forderungen erfüllen', effects: { money: 0.05, terror: 10, stats: { approval: -4, reputation: -3 } } },
+    ] },
+
+  { id: 'terrorfuehrer', icon: '🎯', cat: 'militaer', title: 'Terrorführer in {land} aufgespürt', ctx: 'unsafe',
+    weight: s => 0.3 + s.terror / 80,
+    text: 'Der Kopf eines Terrornetzwerks, das Anschläge in deinem Land geplant hat, versteckt sich in {land}. Die dortige Regierung ist unwillig oder unfähig, ihn auszuliefern.',
+    choices: [
+      { label: 'Kommandoeinsatz von {sf}', desc: 'Grenzübertritt ohne Erlaubnis – belastet die Beziehung zu {land}.', effects: { relation: -12, chance: { sf: true, p: 0.2,
+        success: { text: '{sf} fasst den Gesuchten und bringt ihn vor Gericht.', stats: { approval: 6 }, terror: -20, groups: { military: 4, conservatives: 3 } },
+        fail: { text: 'Der Einsatz scheitert und wird öffentlich.', stats: { approval: -6, reputation: -4 }, relation: -15, sfQuality: -5 } } } },
+      { label: 'Auslieferung fordern', effects: { capital: -8, relation: -3, chance: { p: 0.35, success: { text: '{land} liefert den Gesuchten aus.', stats: { approval: 3 }, terror: -10 },
+        fail: { text: '{land} weigert sich.' } } } },
+      { label: 'Informationen an Partner weitergeben', effects: { relation: 5, terror: -5 } },
     ] },
 ];

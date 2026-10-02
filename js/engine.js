@@ -18,6 +18,8 @@ const STAT_INFO = {
   growth:       { name: 'Wachstum', icon: '📈', unit: '%', desc: 'Reales Wirtschaftswachstum pro Jahr.' },
   unemployment: { name: 'Arbeitslosigkeit', icon: '👷', unit: '%', desc: 'Anteil der Arbeitslosen. Niedrig ist gut!', invert: true },
   inflation:    { name: 'Inflation', icon: '🏷️', unit: '%', desc: 'Preissteigerung pro Jahr. Ideal sind ca. 2 %.', invert: true },
+  capacity:     { name: 'Staatskapazität', icon: '🏗️', desc: 'Wie gut dein Staat Reformen umsetzen kann (Verwaltung, Rechtsstaat, Infrastruktur). Begrenzt, wie weit sich Bildung, Gesundheit usw. entwickeln können. Wächst nur sehr langsam.' },
+  terror:       { name: 'Terrorgefahr', icon: '💣', desc: 'Wahrscheinlichkeit von Anschlägen und Geiselnahmen. Sinkt durch Polizei, Sicherheit und Einsätze der Spezialkräfte.', invert: true },
   debt:         { name: 'Staatsschulden', icon: '🧾', unit: '% BIP', desc: 'Gesamtschulden im Verhältnis zur Wirtschaftsleistung. Hohe Schulden bedeuten hohe Zinsen.', invert: true },
 };
 
@@ -101,6 +103,13 @@ const Engine = (() => {
       s.groupMood[g] = 0;
     }
     initDiplomacy(s);
+    s.capacity = c.capacity;
+    s.readiness = 25; s.readinessTarget = 25;
+    s.sf = { quality: c.sf.quality, missions: 0, success: 0 };
+    s.terror = clamp(75 - c.stats.security * 0.7, 5, 90);
+    s.nukes = c.nukes; s.nukeProgram = null; s.nukeUsed = false;
+    s.sfTarget = null;
+    if (c.crisis) for (const k of ['growth', 'stability', 'security']) if (c.crisis[k]) s.mods.push({ key: k, value: c.crisis[k], months: c.crisis.months, label: c.crisis.label });
     // Haushalt kalibrieren: sonstige Einnahmen so wählen, dass das reale Defizit herauskommt
     s.taxEff = 1; s.otherRevenue = 0;
     const b0 = computeBudget(s);
@@ -144,10 +153,12 @@ const Engine = (() => {
   function computeMods(s) {
     const M = { groups: {} };
     const add = (k, v) => { M[k] = (M[k] || 0) + v; };
+    // Schwache Staaten setzen Gesetze nur teilweise um
+    const pe = 0.45 + (s.capacity ?? 70) / 100 * 0.7;
     for (const id in s.policies) {
       const p = policyById(id);
       if (!p) continue;
-      for (const k in p.effects) add(k, p.effects[k]);
+      for (const k in p.effects) add(k, p.effects[k] * (['interest', 'capitalGain', 'capacity', 'terror', 'sf'].includes(k) ? 1 : pe));
       for (const g in p.groups) M.groups[g] = (M.groups[g] || 0) + p.groups[g];
     }
     for (const m of s.mods) add(m.key, m.value);
@@ -187,7 +198,7 @@ const Engine = (() => {
     const revenue = taxRevenue + (s.otherRevenue || 0) + oilRevenue;
     let policyCost = 0;
     for (const id in s.policies) { const p = policyById(id); if (p) policyCost += p.upkeep; }
-    const warCost = s.wars.length * 1.5;
+    const warCost = s.wars.length * 1.5 + Math.max(0, (s.readiness ?? 25) - 25) * 0.035;
     const rate = interestRate(s);
     const interest = s.econ.debt * rate / 100;
     let spendSum = 0;
@@ -271,7 +282,16 @@ const Engine = (() => {
       reputation: s0.reputation + (M.reputation || 0) + (countTrue(s.alliance) - s.start.alliance) * 1.5,
       welfare: s0.welfare + (s.spending.social - sp0.social) * 2.5 + (M.welfare || 0) - (e.unemployment - c.unemployment) * 0.8,
     };
-    for (const k in targets) st[k] = clamp(st[k] + (clamp(targets[k], 0, 100) - st[k]) * 0.05, 0, 100);
+    // Staatskapazität begrenzt, wie gut und wie schnell sich ein Land entwickeln kann
+    const capMax = 38 + s.capacity * 0.62, rate = 0.05 * (0.35 + s.capacity / 100 * 0.9);
+    for (const k in targets) {
+      let tg = clamp(targets[k], 0, 100);
+      if (k === 'corruption') tg = Math.max(tg, Math.min(s0[k], 100 - capMax));
+      else if (k !== 'military' && k !== 'reputation') tg = Math.min(tg, Math.max(capMax, s0[k]));
+      st[k] = clamp(st[k] + (tg - st[k]) * rate, 0, 100);
+    }
+    const capT = c.capacity + (st.education - s0.education) * 0.25 - (st.corruption - s0.corruption) * 0.35 + (st.stability - s0.stability) * 0.2 + (M.capacity || 0) - s.wars.length * 5;
+    s.capacity = clamp(s.capacity + (clamp(capT, 2, 98) - s.capacity) * 0.015, 2, 98);
 
     // ── Bevölkerungsgruppen ──
     const d = k => st[k] - s0[k];
@@ -310,6 +330,25 @@ const Engine = (() => {
     // Jedes aktive Gesetz bindet Regierungsarbeit und senkt den Kapitalzuwachs
     const gain = Math.max(0.5, (2 + s.approval / 25 + (M.capitalGain || 0) - Object.keys(s.policies).length * 0.12) * DIFFICULTY[s.difficulty].capital);
     s.capital = clamp(s.capital + gain, 0, 100);
+
+    // ── Mobilisierung ──
+    s.readiness = clamp(s.readiness + clamp(s.readinessTarget - s.readiness, -6, 4), 0, 100);
+    if (s.readiness > 55 && !s.wars.length) { s.groupMood.youth -= (s.readiness - 55) * 0.012; s.groupMood.workers -= (s.readiness - 55) * 0.006; }
+
+    // ── Terrorgefahr & Spezialkräfte ──
+    const tT = 70 - st.security * 0.65 + s.wars.length * 12 + (st.stability < 40 ? 10 : 0) + (M.terror || 0);
+    s.terror = clamp(s.terror + (tT - s.terror) * 0.05 + gauss() * 1.5, 0, 100);
+    const sfMax = Math.max(c.sf.quality, 40 + s.capacity * 0.6);
+    const sfT = clamp(c.sf.quality + (s.spending.military - sp0.military) * 3 + (M.sf || 0), 5, sfMax);
+    s.sf.quality = clamp(s.sf.quality + (sfT - s.sf.quality) * 0.03, 0, 100);
+
+    // ── Atomprogramm ──
+    if (s.nukeProgram && s.month >= s.nukeProgram) {
+      s.nukes = 20; s.nukeProgram = null;
+      s.stats.reputation = clamp(s.stats.reputation - 10, 0, 100);
+      addNews(s, '☢️ Erster erfolgreicher Atomtest – wir sind jetzt eine Atommacht.', 'bad');
+      s.pendingEvents.push(infoEvent('☢️', 'Wir sind Atommacht', 'Das Atomprogramm ist abgeschlossen. Der erste Test war erfolgreich. Die Welt reagiert mit Empörung – aber kaum ein Land wird es noch wagen, uns anzugreifen.'));
+    }
 
     // ── Diplomatie & Krieg ──
     tickDiplomacy(s);
@@ -374,18 +413,26 @@ const Engine = (() => {
 
   function atWarWith(s, id) { return s.wars.some(w => w.enemy === id); }
 
-  function militaryPower(s) {
-    let p = s.stats.military * s.country.milSize;
-    for (const id in s.alliance) if (s.alliance[id] && !atWarWith(s, id)) { const o = byId(id); p += o.stats.military * o.milSize * 0.15 * (s.relations[id] / 100); }
+  // Kriegsbereitschaft: 25 = Frieden, 100 = Generalmobilmachung. Wirkt als Multiplikator auf die Kampfkraft.
+  const readinessFactor = r => 0.5 + r / 100;
+  function militaryPower(s, withAllies = true) {
+    let p = s.stats.military * s.country.milSize * readinessFactor(s.readiness ?? 25);
+    if (withAllies) for (const id in s.alliance) if (s.alliance[id] && !atWarWith(s, id)) { const o = byId(id); p += o.stats.military * o.milSize * 0.15 * Math.max(0, s.relations[id]) / 100; }
     return Math.max(1, p);
   }
-  function enemyPower(id) { const o = byId(id); return o.stats.military * o.milSize; }
+  // Gegner mobilisieren im Krieg Monat für Monat nach
+  function enemyPower(id, w) {
+    const o = byId(id);
+    const r = w ? Math.min(90, 45 + w.months * 6) : 45;
+    return o.stats.military * o.milSize * readinessFactor(r) * (1 - (w && w.attrition || 0));
+  }
+  function warOdds(s, id) { const my = militaryPower(s), en = enemyPower(id, s.wars.find(x => x.enemy === id)); return my / (my + en); }
 
   function startWar(s, id, forced) {
     if (atWarWith(s, id)) return 'Wir befinden uns bereits im Krieg mit diesem Land.';
     if (!forced && s.wars.length) return 'Wir führen bereits einen Krieg – ein zweiter wäre Wahnsinn.';
     const o = byId(id);
-    s.wars.push({ enemy: id, progress: 0, months: 0, forced: !!forced });
+    s.wars.push({ enemy: id, progress: 0, months: 0, forced: !!forced, attrition: 0 });
     s.relations[id] = -100;
     s.trade[id] = false; s.alliance[id] = false;
     if (forced) {
@@ -405,15 +452,25 @@ const Engine = (() => {
   function tickWars(s) {
     for (const w of [...s.wars]) {
       const o = byId(w.enemy);
-      const my = militaryPower(s), en = enemyPower(w.enemy) * rand(0.9, 1.1);
+      const my = militaryPower(s), en = enemyPower(w.enemy, w) * rand(0.9, 1.1);
       let delta = (my / (my + en) - 0.5) * 30 + rand(-6, 6) + (w.boost || 0);
       w.boost = (w.boost || 0) * 0.5;
       if (o.nuclear && delta > 0 && w.progress > 40) delta *= 0.3;
-      if (s.country.nuclear && delta < 0 && w.progress < -40) delta *= 0.3;
+      if (s.nukes > 0 && delta < 0 && w.progress < -40) delta *= 0.3;
       w.progress = clamp(w.progress + delta, -100, 100);
       w.months++;
       s.stats.military = clamp(s.stats.military - 0.4, 0, 100);
       if (w.months > 6) s.approvalMood -= 0.6;
+      // Eine in die Enge getriebene Atommacht kann eskalieren
+      if (o.nuclear && w.progress > 75 && !w.nukeWarned) {
+        w.nukeWarned = true;
+        s.pendingEvents.push(infoEvent('☢️', 'Nukleare Drohung', `${o.name} ist militärisch am Ende und droht offen mit dem Einsatz von Atomwaffen. Deine Berater raten dringend, Frieden anzubieten, statt weiter vorzurücken.`));
+      }
+      if (o.nuclear && w.progress > 85 && Math.random() < (s.nukes > 0 ? 0.03 : 0.1)) {
+        s.gameOver = { won: false, icon: '☢️', title: 'Nukleare Eskalation',
+          text: `In die Enge getrieben, setzt ${o.name} Atomwaffen ein. Der Krieg endet in einer Katastrophe, deine Regierung bricht zusammen. Gegen eine Atommacht gibt es keinen Sieg um jeden Preis.` };
+        return;
+      }
       if (w.progress >= 100) endWar(s, w, 'sieg');
       else if (w.progress <= -100) endWar(s, w, 'niederlage');
       else if (w.progress > 45 && Math.random() < 0.18 && !s.pendingEvents.length) s.pendingEvents.push(peaceOfferEvent(s, w, true));
@@ -563,6 +620,7 @@ const Engine = (() => {
       case 'rival': { const sorted = others.sort((a, b) => s.relations[a] - s.relations[b]); return pick(sorted.slice(0, 3)); }
       case 'ally': { const l = others.filter(id => s.alliance[id]); return l.length ? pick(l) : null; }
       case 'partner': { const l = others.filter(id => s.trade[id]); return l.length ? pick(l) : null; }
+      case 'unsafe': { const l = others.filter(id => !s.alliance[id] && byId(id).stats.security < 60); return l.length ? pick(l) : null; }
       case 'nottrade': { const l = others.filter(id => !s.trade[id] && !s.sanctions[id] && s.relations[id] > 0); return l.length ? pick(l) : null; }
       default: return pick(others);
     }
@@ -570,7 +628,7 @@ const Engine = (() => {
 
   function fill(str, s, land) {
     const o = land ? byId(land) : null;
-    return str.replace(/\{land\}/g, o ? o.name : 'ein Nachbarland').replace(/\{capital\}/g, s.country.capital).replace(/\{country\}/g, s.country.name);
+    return str.replace(/\{sf\}/g, s.country.sf.name).replace(/\{land\}/g, o ? o.name : 'ein Nachbarland').replace(/\{capital\}/g, s.country.capital).replace(/\{country\}/g, s.country.name);
   }
 
   function instantiate(s, def, land) {
@@ -625,12 +683,14 @@ const Engine = (() => {
     if (eff.mods) for (const m of eff.mods) s.mods.push({ ...m });
     if (eff.oil) s.oil = clamp(s.oil + eff.oil, 0.4, 2.6);
     if (eff.campaign) s.campaign += eff.campaign;
+    if (eff.terror) s.terror = clamp(s.terror + eff.terror, 0, 100);
+    if (eff.sfQuality) s.sf.quality = clamp(s.sf.quality + eff.sfQuality, 0, 100);
     if (land && eff.relation) s.relations[land] = clamp(s.relations[land] + eff.relation, -100, 100);
     if (land && eff.trade) { s.trade[land] = true; s.sanctions[land] = false; msgs.push(`Handelsabkommen mit ${byId(land).name} geschlossen.`); }
     if (land && eff.war) { const err = startWar(s, land, eff.forced); if (err) msgs.push(err); }
     if (land && eff.peace) { const w = s.wars.find(x => x.enemy === land); if (w) endWar(s, w, 'frieden'); }
     if (eff.chance) {
-      const ok = Math.random() < eff.chance.p;
+      const ok = Math.random() < chanceP(s, eff.chance);
       const sub = ok ? eff.chance.success : eff.chance.fail;
       if (sub.text) msgs.push((ok ? '✅ ' : '❌ ') + sub.text);
       msgs.push(...applyEffects(s, sub, land));
@@ -670,7 +730,8 @@ const Engine = (() => {
     if (eff.war) sc -= eff.forced ? 2 : 25;
     if (eff.peace) sc += 3;
     if (eff.oil) sc += s.country.oil > 2 ? eff.oil * s.country.oil * 0.5 : -eff.oil * 3;
-    if (eff.chance) sc += eff.chance.p * scoreEffects(s, eff.chance.success) + (1 - eff.chance.p) * scoreEffects(s, eff.chance.fail);
+    if (eff.chance) { const p = chanceP(s, eff.chance); sc += p * scoreEffects(s, eff.chance.success) + (1 - p) * scoreEffects(s, eff.chance.fail); }
+    if (eff.terror) sc -= eff.terror * 0.15;
     return sc;
   }
 
@@ -687,7 +748,7 @@ const Engine = (() => {
     return sc - p.cost * 0.05;
   }
   function recommendedPolicies(s, area, n = 2) {
-    return POLICIES.filter(p => (!area || p.area === area) && !s.policies[p.id] && canEnact(s, p.id).why !== 'Bereits aktiv' && !(p.excludes || []).some(x => s.policies[x]) && !(p.nonNuclearOnly && s.country.nuclear))
+    return POLICIES.filter(p => (!area || p.area === area) && !(p.id in s.policies) && canEnact(s, p.id).why !== 'Bereits aktiv' && !(p.excludes || []).some(x => x in s.policies) && !(p.nonNuclearOnly && (s.nukes > 0 || s.nukeProgram)))
       .map(p => ({ p, sc: scorePolicy(s, p) })).filter(x => x.sc > 2).sort((a, b) => b.sc - a.sc).slice(0, n).map(x => x.p.id);
   }
 
@@ -701,9 +762,9 @@ const Engine = (() => {
   // ─────────────────────────── Gesetze & Maßnahmen ───────────────────────────
   function canEnact(s, id) {
     const p = policyById(id);
-    if (s.policies[id]) return { ok: false, why: 'Bereits aktiv' };
-    if (p.nonNuclearOnly && s.country.nuclear) return { ok: false, why: 'Dein Land besitzt bereits Atomwaffen' };
-    const blocked = (p.excludes || []).find(x => s.policies[x]);
+    if (id in s.policies) return { ok: false, why: 'Bereits aktiv' };
+    if (p.nonNuclearOnly && (s.nukes > 0 || s.nukeProgram)) return { ok: false, why: 'Dein Land besitzt bereits Atomwaffen' };
+    const blocked = (p.excludes || []).find(x => x in s.policies);
     if (blocked) return { ok: false, why: `Unvereinbar mit „${policyById(blocked).name}“` };
     if (s.capital < p.cost) return { ok: false, why: `Benötigt ${p.cost} ⚡ politisches Kapital` };
     return { ok: true };
@@ -714,6 +775,7 @@ const Engine = (() => {
     const p = policyById(id);
     s.capital -= p.cost;
     s.policies[id] = s.month;
+    if (id === 'atomwaffen') { s.nukeProgram = s.month + 30; addNews(s, 'Geheimdienste melden: Wir arbeiten an eigenen Atomwaffen.', 'bad'); }
     s.budget = computeBudget(s);
     addNews(s, `Neues Gesetz beschlossen: ${p.name}.`, 'good');
     return { ok: true };
@@ -721,10 +783,11 @@ const Engine = (() => {
   function repealCost(p) { return Math.round(p.cost / 2); }
   function repealPolicy(s, id) {
     const p = policyById(id);
-    if (!s.policies[id]) return { ok: false, why: 'Nicht aktiv' };
+    if (!(id in s.policies)) return { ok: false, why: 'Nicht aktiv' };
     if (s.capital < repealCost(p)) return { ok: false, why: `Benötigt ${repealCost(p)} ⚡` };
     s.capital -= repealCost(p);
     delete s.policies[id];
+    if (id === 'atomwaffen') s.nukeProgram = null;
     s.budget = computeBudget(s);
     addNews(s, `Gesetz aufgehoben: ${p.name}.`, 'info');
     return { ok: true };
@@ -817,30 +880,160 @@ const Engine = (() => {
   }
 
   // Kriegsmaßnahmen
+  // ─────────────────────────── Kriegsführung ───────────────────────────
   const WAR_ACTIONS = {
-    mobilmachung: { name: 'Generalmobilmachung', icon: '📯', cost: 15, money: 0.5, cd: 6, desc: 'Fortschritt +12, Militärstärke +6, Jugend 😠' },
-    luftschlag:   { name: 'Luftoffensive', icon: '✈️', cost: 8, money: 0.2, cd: 3, desc: 'Fortschritt +8 (riskant: Ansehen −3)' },
-    hilfe_bitte:  { name: 'Verbündete um Hilfe bitten', icon: '📞', cost: 10, cd: 6, desc: 'Nur mit Verbündeten. Fortschritt +10' },
+    bodenoffensive: { name: 'Bodenoffensive', icon: '🪖', cost: 8, money: 0.3, cd: 2, desc: 'Großangriff der Landstreitkräfte. Wirkung hängt stark vom Kräfteverhältnis ab. Verluste: Militärstärke −2, Zustimmung −1' },
+    luftschlaege:   { name: 'Luftschläge', icon: '✈️', cost: 6, money: 0.25, cd: 2, desc: 'Kampfjets und Drohnen greifen militärische Ziele an. Ansehen −2' },
+    seeblockade:    { name: 'Seeblockade', icon: '⚓', cost: 8, money: 0.2, cd: 4, minSize: 1.5, desc: 'Die Marine schneidet den Nachschub ab: Feind dauerhaft −6 % Kampfkraft. Braucht eine große Flotte' },
+    hilfe_bitte:    { name: 'Verbündete um Hilfe bitten', icon: '📞', cost: 10, cd: 6, desc: 'Nur mit Verbündeten. Front +10' },
   };
   function warAction(s, key) {
     const a = WAR_ACTIONS[key], w = s.wars[0];
     if (!w) return { ok: false, why: 'Kein Krieg' };
     if ((s.cooldowns['war:' + key] || 0) > s.month) return { ok: false, why: 'Noch nicht wieder verfügbar' };
     if (s.capital < a.cost) return { ok: false, why: `Benötigt ${a.cost} ⚡` };
+    if (a.minSize && s.country.milSize < a.minSize) return { ok: false, why: 'Unsere Marine ist dafür zu klein' };
     const allies = Object.keys(s.alliance).filter(id => s.alliance[id]);
     if (key === 'hilfe_bitte' && !allies.length) return { ok: false, why: 'Keine Verbündeten' };
     s.capital -= a.cost; s.cooldowns['war:' + key] = s.month + a.cd;
     if (a.money) s.econ.debt += a.money;
-    if (key === 'mobilmachung') { w.boost = (w.boost || 0) + 12; s.stats.military = clamp(s.stats.military + 6, 0, 100); s.groupMood.youth -= 8; }
-    if (key === 'luftschlag') { w.boost = (w.boost || 0) + 8; s.stats.reputation = clamp(s.stats.reputation - 3, 0, 100); }
-    if (key === 'hilfe_bitte') { w.boost = (w.boost || 0) + 10; for (const id of allies) s.relations[id] = clamp(s.relations[id] - 4, -100, 100); }
+    const odds = warOdds(s, w.enemy);
+    const eff = Math.pow(odds * 2, 1.6); // Unterlegene Armeen erreichen mit Offensiven kaum etwas
+    let msg = `${a.name} angeordnet.`;
+    if (key === 'bodenoffensive') {
+      s.stats.military = clamp(s.stats.military - 2, 0, 100); s.approvalMood -= 1;
+      if (Math.random() < 0.15 + odds) { w.boost = (w.boost || 0) + 14 * eff; msg = 'Die Offensive kommt voran – die Front verschiebt sich zu unseren Gunsten.'; }
+      else { w.boost = (w.boost || 0) - 6; s.stats.military = clamp(s.stats.military - 2, 0, 100); msg = 'Die Offensive bleibt stecken. Schwere Verluste.'; }
+    }
+    if (key === 'luftschlaege') { w.boost = (w.boost || 0) + 9 * eff; s.stats.reputation = clamp(s.stats.reputation - 2, 0, 100); msg = 'Luftschläge gegen militärische Ziele durchgeführt.'; }
+    if (key === 'seeblockade') { w.attrition = Math.min(0.5, (w.attrition || 0) + 0.06); msg = 'Die Seeblockade schwächt den Nachschub des Gegners.'; }
+    if (key === 'hilfe_bitte') { w.boost = (w.boost || 0) + Math.min(15, (militaryPower(s) - militaryPower(s, false)) / enemyPower(w.enemy, w) * 25); for (const id of allies) s.relations[id] = clamp(s.relations[id] - 4, -100, 100); msg = 'Verbündete schicken Unterstützung.'; }
     s.budget = computeBudget(s);
-    return { ok: true, msg: `${a.name} angeordnet.` };
+    return { ok: true, msg };
+  }
+
+  // ─────────────────────────── Mobilisierung ───────────────────────────
+  const READINESS_LEVELS = [
+    { value: 25, name: 'Friedensbetrieb', desc: 'Normale Bereitschaft, keine Zusatzkosten' },
+    { value: 50, name: 'Erhöhte Bereitschaft', desc: 'Reserven einberufen, Übungen' },
+    { value: 75, name: 'Teilmobilisierung', desc: 'Truppen an die Grenzen, Rüstungsproduktion hoch' },
+    { value: 100, name: 'Generalmobilmachung', desc: 'Das ganze Land im Kriegsmodus' },
+  ];
+  function setReadiness(s, value) {
+    if (s.readinessTarget === value) return { ok: false, why: 'Bereits eingestellt' };
+    const cost = value > s.readinessTarget ? 5 : 2;
+    if (s.capital < cost) return { ok: false, why: `Benötigt ${cost} ⚡` };
+    s.capital -= cost; s.readinessTarget = value;
+    if (value >= 75) { s.groupMood.military += 4; addNews(s, `Regierung ordnet ${value === 100 ? 'Generalmobilmachung' : 'Teilmobilisierung'} an.`, 'bad'); }
+    s.budget = computeBudget(s);
+    return { ok: true, msg: `Neue Bereitschaftsstufe: ${READINESS_LEVELS.find(l => l.value === value).name}. Die Umstellung dauert einige Monate.` };
+  }
+
+  // ─────────────────────────── Spezialkräfte ───────────────────────────
+  const SF_OPS = {
+    terrorzelle:  { name: 'Terrorzelle ausheben', icon: '🎯', cost: 6, cd: 3, base: 0.35, desc: 'Zugriff auf eine bekannte Zelle im Inland. Erfolg: Terrorgefahr −20, Sicherheit +2' },
+    festnahme:    { name: 'Zielperson im Ausland festnehmen', icon: '🕵️', cost: 12, cd: 6, base: 0.15, desc: 'Ein gesuchter Terroristenführer. Erfolg: Zustimmung +4, Terrorgefahr −15. Belastet die Beziehung zum Gastland' },
+    sabotage:     { name: 'Sabotage hinter feindlichen Linien', icon: '💥', cost: 10, cd: 3, base: 0.2, war: true, desc: 'Nur im Krieg: Feind −5 % Kampfkraft, Front +5' },
+    ausbildung:   { name: 'Intensivtraining', icon: '🏋️', cost: 5, money: 0.03, cd: 6, desc: 'Qualität +5 (begrenzt durch Staatskapazität)' },
+  };
+  function sfChance(s, base) { return clamp(base + s.sf.quality / 130 - (s.terror > 70 ? 0.05 : 0), 0.05, 0.95); }
+  function chanceP(s, ch) { return ch.sf ? sfChance(s, ch.p) : ch.p; }
+  function sfTarget(s) {
+    if (s.sfTarget && s.relations[s.sfTarget] !== undefined && !s.alliance[s.sfTarget]) return s.sfTarget;
+    const l = Object.keys(s.relations).filter(id => !s.alliance[id] && !atWarWith(s, id) && byId(id).stats.security < 60);
+    s.sfTarget = l.length ? pick(l) : pick(Object.keys(s.relations));
+    return s.sfTarget;
+  }
+  function sfOp(s, key) {
+    const a = SF_OPS[key];
+    const cd = (s.cooldowns['sf:' + key] || 0) - s.month;
+    if (cd > 0) return { ok: false, why: `Wieder bereit in ${cd} Mon.` };
+    if (s.capital < a.cost) return { ok: false, why: `Benötigt ${a.cost} ⚡` };
+    if (a.war && !s.wars.length) return { ok: false, why: 'Nur im Krieg möglich' };
+    s.capital -= a.cost; s.cooldowns['sf:' + key] = s.month + a.cd;
+    if (a.money) s.econ.debt += a.money;
+    const sfn = s.country.sf.name;
+    if (key === 'ausbildung') {
+      const max = Math.max(s.country.sf.quality, 40 + s.capacity * 0.6) + 5;
+      s.sf.quality = Math.min(max, s.sf.quality + 5);
+      return { ok: true, msg: `${sfn}: Intensivtraining abgeschlossen.` };
+    }
+    s.sf.missions++;
+    const ok = Math.random() < sfChance(s, a.base);
+    if (ok) s.sf.success++; else { s.sf.quality = clamp(s.sf.quality - 5, 0, 100); s.approvalMood -= 3; }
+    let msg;
+    if (key === 'terrorzelle') {
+      if (ok) { s.terror = clamp(s.terror - 20, 0, 100); s.stats.security = clamp(s.stats.security + 2, 0, 100); s.approvalMood += 1; msg = `✅ ${sfn}: Zugriff erfolgreich, die Zelle ist zerschlagen.`; }
+      else { s.terror = clamp(s.terror - 5, 0, 100); msg = `❌ ${sfn}: Der Zugriff scheitert, die Verdächtigen sind untergetaucht.`; }
+    }
+    if (key === 'festnahme') {
+      const id = sfTarget(s), o = byId(id);
+      if (ok) { s.terror = clamp(s.terror - 15, 0, 100); s.approvalMood += 4; s.relations[id] = clamp(s.relations[id] - 10, -100, 100); s.groupMood.military += 3; msg = `✅ ${sfn}: Zielperson in ${o.name} gefasst und ins Land gebracht!`; }
+      else { s.relations[id] = clamp(s.relations[id] - 25, -100, 100); s.stats.reputation = clamp(s.stats.reputation - 4, 0, 100); msg = `❌ ${sfn}: Einsatz in ${o.name} aufgeflogen – diplomatischer Eklat.`; }
+      s.sfTarget = null;
+    }
+    if (key === 'sabotage') {
+      const w = s.wars[0];
+      if (ok) { w.attrition = Math.min(0.5, (w.attrition || 0) + 0.04); w.boost = (w.boost || 0) + 3; msg = `✅ ${sfn}: Nachschublinien des Gegners sabotiert.`; }
+      else msg = `❌ ${sfn}: Das Kommando wird entdeckt und muss sich zurückziehen.`;
+    }
+    addNews(s, msg.replace(/^[✅❌] /, ''), ok ? 'good' : 'bad');
+    return { ok: true, msg };
+  }
+
+  // ─────────────────────────── Atomwaffen ───────────────────────────
+  function nuclearThreat(s) {
+    const w = s.wars[0];
+    if (!w) return { ok: false, why: 'Kein Krieg' };
+    if (!(s.nukes > 0)) return { ok: false, why: 'Wir besitzen keine Atomwaffen' };
+    if ((s.cooldowns.nukeThreat || 0) > s.month) return { ok: false, why: 'Gerade erst gedroht' };
+    if (s.capital < 20) return { ok: false, why: 'Benötigt 20 ⚡' };
+    s.capital -= 20; s.cooldowns.nukeThreat = s.month + 12;
+    const o = byId(w.enemy);
+    s.stats.reputation = clamp(s.stats.reputation - 12, 0, 100);
+    for (const id in s.relations) s.relations[id] = clamp(s.relations[id] - 8, -100, 100);
+    const p = o.nuclear ? 0.12 : clamp(0.45 + w.progress / 200, 0.15, 0.85);
+    if (Math.random() < p) { endWar(s, w, 'frieden'); s.econ.debt = Math.max(0, s.econ.debt - 1); return { ok: true, msg: `✅ ${o.name} lenkt ein und akzeptiert einen Waffenstillstand zu unseren Bedingungen.` }; }
+    s.stats.stability = clamp(s.stats.stability - 5, 0, 100);
+    return { ok: true, msg: `❌ ${o.name} lässt sich nicht einschüchtern. Die Welt ist alarmiert.` };
+  }
+
+  function nuclearStrike(s) {
+    const w = s.wars[0];
+    if (!w) return { ok: false, why: 'Kein Krieg' };
+    if (!(s.nukes > 0)) return { ok: false, why: 'Wir besitzen keine Atomwaffen' };
+    const o = byId(w.enemy);
+    s.nukeUsed = true;
+    if (o.nuclear && Math.random() < 0.85) {
+      s.gameOver = { won: false, icon: '☢️', title: 'Atomkrieg',
+        text: `${o.name} antwortet mit einem nuklearen Gegenschlag. Beide Länder sind verwüstet, die Weltordnung ist zerbrochen. In diesem Krieg gibt es keine Gewinner.` };
+      return { ok: true, msg: 'Nuklearer Schlagabtausch.' };
+    }
+    s.wars = s.wars.filter(x => x !== w);
+    s.relations[w.enemy] = -100; s.baseRelations[w.enemy] = -100;
+    // Die ganze Welt wendet sich ab
+    s.stats.reputation = 0;
+    for (const id in s.relations) {
+      s.relations[id] = clamp(s.relations[id] - 60, -100, 100);
+      s.baseRelations[id] = clamp(s.baseRelations[id] - 50, -100, 100);
+      s.alliance[id] = false;
+      if (s.relations[id] < 30) { s.sanctions[id] = true; s.trade[id] = false; }
+    }
+    s.approvalMood -= 30;
+    s.stats.stability = clamp(s.stats.stability - 30, 0, 100);
+    s.stats.environment = clamp(s.stats.environment - 20, 0, 100);
+    s.groupMood.greens -= 40; s.groupMood.youth -= 30; s.groupMood.workers -= 10; s.groupMood.retirees -= 10;
+    s.mods.push({ key: 'growth', value: -3, months: 36, label: 'Weltweite Ächtung' });
+    s.nukes = Math.max(0, s.nukes - 1);
+    addNews(s, `☢️ Atomschlag gegen ${o.name}. Der Krieg ist vorbei – die Welt verhängt Sanktionen und bricht die Beziehungen ab.`, 'bad');
+    s.pendingEvents.push(infoEvent('☢️', 'Die Welt steht unter Schock', `${o.name} hat kapituliert. Doch der Preis ist unermesslich: Unzählige Opfer, weltweite Ächtung, Sanktionen fast aller Staaten, und alle Bündnisse sind zerbrochen. Dein Name wird für immer mit dieser Entscheidung verbunden sein.`));
+    s.budget = computeBudget(s);
+    return { ok: true, msg: `Atomschlag gegen ${o.name}.` };
   }
 
   // ─────────────────────────── Berater-Tipps ───────────────────────────
   function bestPoliciesFor(s, group, n = 2) {
-    return POLICIES.filter(p => !s.policies[p.id] && (p.groups[group] || 0) > 0 && canEnact(s, p.id).why !== 'Bereits aktiv')
+    return POLICIES.filter(p => !(p.id in s.policies) && (p.groups[group] || 0) > 0 && canEnact(s, p.id).why !== 'Bereits aktiv')
       .sort((a, b) => b.groups[group] - a.groups[group]).slice(0, n).map(p => p.name);
   }
 
@@ -866,6 +1059,15 @@ const Engine = (() => {
     if (s.groups.military < 30) add('militaer', 'danger', `Das Militär ist unzufrieden (${fmt(s.groups.military, 0)} %). Putschgefahr! Erhöhe das Verteidigungsbudget oder beschließe die Veteranenversorgung.`);
     if (st.security < 40) add('militaer', 'warn', 'Die innere Sicherheit ist schlecht. Mehr Polizei hilft gegen Kriminalität und Terror.');
     if (s.wars.length) { const w = s.wars[0]; add('militaer', w.progress < 0 ? 'danger' : 'info', `Krieg gegen ${byId(w.enemy).name}: Fortschritt ${fmt(w.progress, 0)}. ${w.progress < 0 ? 'Mobilisiere oder biete Frieden an!' : 'Wir sind auf Siegkurs.'}`); }
+    if (s.terror > 60) add('militaer', s.terror > 75 ? 'danger' : 'warn', `Die Terrorgefahr ist hoch (${fmt(s.terror, 0)}). Setze ${c.sf.name} gegen Terrorzellen ein oder stärke die Polizei.`);
+    if (s.readiness > 55 && !s.wars.length) add('militaer', 'info', `Die Mobilisierung kostet ${fmt((s.readiness - 25) * 0.035, 1)} % des BIP pro Jahr und belastet die Bevölkerung.`);
+    if (s.wars.length) {
+      const w = s.wars[0], odds = warOdds(s, w.enemy), o = byId(w.enemy);
+      if (odds < 0.4) add('militaer', 'danger', `Wir sind ${o.name} militärisch klar unterlegen (Kräfteverhältnis ${fmt(odds * 100, 0)} %). Mobilisiere, suche Verbündete oder biete Frieden an.`);
+      if (o.nuclear && w.progress > 55) add('militaer', 'danger', `${o.name} ist eine Atommacht. Drängst du sie zu weit in die Enge, droht nukleare Eskalation!`);
+      if (s.readiness < 60) add('militaer', 'warn', `Unsere Kriegsbereitschaft ist zu niedrig (${fmt(s.readiness, 0)}). Erhöhe die Bereitschaftsstufe, sonst kämpft die Armee mit halber Kraft.`);
+    }
+    if (s.capacity < 35) add('politik', 'info', `Die Staatskapazität ist gering (${fmt(s.capacity, 0)}): Gesetze wirken nur teilweise, Fortschritt braucht Jahrzehnte. Korruptionsbekämpfung und Verwaltungsreformen stärken sie.`);
     const rival = Object.keys(s.relations).sort((a, b) => s.relations[a] - s.relations[b])[0];
     if (rival && s.relations[rival] < -60 && !s.wars.length && enemyPower(rival) > militaryPower(s)) add('militaer', s.relations[rival] < -80 ? 'warn' : 'info', `${byId(rival).name} ist feindselig und militärisch stärker als wir. Rüste auf oder suche Verbündete.`);
     // Politik
@@ -914,6 +1116,7 @@ const Engine = (() => {
     const debtChange = s.econ.debt - c.debt;
     const score = Math.round(s.month * 3 + avgAppr * 4 + gdpGrowth * 6 + quality * 3 - Math.max(0, debtChange) * 2 + (s.gameOver && s.gameOver.won ? 200 : 0));
     let rank = 'Fußnote der Geschichte';
+    if (s.nukeUsed) return { score: Math.min(score, 0) - 500, rank: 'Von der Welt geächtet', avgAppr, gdpGrowth, quality, debtChange };
     if (score > 300) rank = 'Solides Staatsoberhaupt';
     if (score > 600) rank = 'Großer Reformer';
     if (score > 900) rank = 'Vater/Mutter der Nation';
@@ -930,6 +1133,13 @@ const Engine = (() => {
     const s = JSON.parse(str);
     s.country = byId(s.countryId);
     if (!s.country) throw new Error('Unbekanntes Land');
+    // Ältere Spielstände ergänzen
+    const c = s.country;
+    if (s.capacity === undefined) s.capacity = c.capacity;
+    if (s.readiness === undefined) { s.readiness = 25; s.readinessTarget = 25; }
+    if (!s.sf) s.sf = { quality: c.sf.quality, missions: 0, success: 0 };
+    if (s.terror === undefined) s.terror = clamp(75 - s.stats.security * 0.7, 5, 90);
+    if (s.nukes === undefined) { s.nukes = c.nukes; s.nukeProgram = null; s.nukeUsed = false; }
     s.budget = computeBudget(s);
     return s;
   }
@@ -953,7 +1163,8 @@ const Engine = (() => {
     newGame, tick, computeBudget, budgetChangeCost, applyBudget, computeMods, interestRate,
     rollRandomEvent, resolveEvent, applyEffects, scoreEffects, recommend, scorePolicy, recommendedPolicies,
     canEnact, enactPolicy, repealPolicy, repealCost, canDoAction, doAction,
-    dipOptions, dipAction, DIP_ACTIONS, WAR_ACTIONS, warAction, militaryPower, enemyPower, atWarWith,
+    dipOptions, dipAction, DIP_ACTIONS, WAR_ACTIONS, warAction, militaryPower, enemyPower, atWarWith, warOdds,
+    READINESS_LEVELS, setReadiness, SF_OPS, sfOp, sfChance, sfTarget, chanceP, nuclearThreat, nuclearStrike,
     tips, legacy, serialize, deserialize, addNews,
     fmt, fmtSigned, fmtMoney, dateStr, creditRating, byId, policyById, actionById, clamp,
   };

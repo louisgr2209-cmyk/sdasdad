@@ -92,7 +92,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; letter-spacing: 0.01em; }
 .setup-detail h3 { font-size: 24px; }
 .detail-head { display: flex; gap: 14px; align-items: center; }
 .kv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; font-size: 13px; }
-.kv-grid div { display: flex; justify-content: space-between; border-bottom: 1px dashed var(--border); padding: 3px 0; }
+.kv-grid div { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px dashed var(--border); padding: 3px 0; }
 .kv-grid b { font-weight: 600; }
 .form-row { display: flex; flex-direction: column; gap: 5px; }
 .form-row label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
@@ -156,7 +156,7 @@ input[type=text]:focus, select:focus { outline: none; border-color: var(--gold);
 .kpi canvas { position: absolute; right: 8px; bottom: 8px; width: 64px; height: 26px; opacity: .8; }
 
 /* Balken */
-.bar-row { display: grid; grid-template-columns: 130px 1fr 52px; gap: 10px; align-items: center; padding: 5px 0; cursor: help; }
+.bar-row { display: grid; grid-template-columns: 160px 1fr 52px; gap: 10px; align-items: center; padding: 5px 0; cursor: help; }
 .bar-row .lbl { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar-row .num { text-align: right; font-family: var(--mono); font-size: 13px; }
 .bar { height: 8px; background: rgba(255,255,255,.06); border-radius: 99px; overflow: hidden; position: relative; }

@@ -1,6 +1,6 @@
 # 🏛️ PRÄSIDENT – Der Staatssimulator
 
-Ein Präsidentensimulator für den PC: Übernimm eines von **26 echten Ländern**, triff Entscheidungen in Wirtschaft, Sozialpolitik, Militär, Politik und Diplomatie – und überlebe Krisen, Skandale, Kriege und Wahlen.
+Ein Präsidentensimulator für den PC: Übernimm eines von **27 echten Ländern** – von der Schweiz bis zum Sudan, triff Entscheidungen in Wirtschaft, Sozialpolitik, Militär, Politik und Diplomatie – und überlebe Krisen, Skandale, Kriege und Wahlen.
 
 Man muss kein Politik-Profi sein: **Berater** erklären jede Lage, zeigen die Folgen jeder Option als farbige Chips (grün = gut, rot = schlecht) und markieren ihre Empfehlung mit ⭐.
 
@@ -24,17 +24,20 @@ npm run build:win      # erzeugt eine portable .exe im Ordner dist/
 | 💰 **Haushalt** | Einkommen-, Unternehmens- und Mehrwertsteuer + 7 Ausgabenressorts per Schieberegler, Live-Vorschau, „Haushalt ausgleichen“-Vorschlag |
 | 📈 **Wirtschaft** | 14 Gesetze (Mindestlohn, Bürokratieabbau, Schuldenbremse …) und Sofortmaßnahmen (Konjunkturpaket, Sparpaket …) |
 | 🤝 **Soziales** | Bildung, Gesundheit, Rente, Wohnen, Einwanderung, Klima – 16 Gesetze |
-| 🛡️ **Militär** | Wehrpflicht, Cyberabwehr, Atomprogramm, Polizei – plus Kriegsführung mit Frontverlauf |
+| 🛡️ **Militär** | Mobilisierung, Offensiven (Boden, Luft, See), Spezialeinheiten (KSK, Navy SEALs, SAS, GIGN …), Terrorabwehr, Atomwaffen |
 | 🏛️ **Politik** | Korruption, Medien, Notstand, Wahlkampf – und der Countdown zur nächsten Wahl |
-| 🌍 **Diplomatie** | Beziehungen zu 25 Ländern: Staatsbesuche, Handelsabkommen, Bündnisse, Sanktionen, Krieg & Frieden |
+| 🌍 **Diplomatie** | Beziehungen zu 26 Ländern: Staatsbesuche, Handelsabkommen, Bündnisse, Sanktionen, Krieg & Frieden |
 | 📊 **Statistiken** | Verlaufsdiagramme für Zustimmung, Wachstum, Schulden, Inflation u. v. m. |
 | 📰 **Nachrichten** | Eigene Tageszeitung und Newsticker |
 
-- **50 Zufallsereignisse** mit 2–4 Entscheidungsoptionen: Generalstreik, Börsencrash, Pandemie, Terroranschlag, Ölschock, Spionage, Putschgerüchte, WM-Titel …
+- **Realistische Unterschiede:** Die *Staatskapazität* bestimmt, wie gut Reformen wirken – ein schwacher Staat wie Sudan entwickelt sich nur langsam. Kriege brauchen Vorbereitung: Ohne Mobilisierung und Verbündete hat auch Deutschland gegen eine Großmacht keine Chance. Atommächte lassen sich nicht einfach besiegen.
+- **Spezialeinheiten** jedes Landes für Terrorabwehr, Geiselbefreiung und Kommandoeinsätze – der Erfolg hängt von ihrer Ausbildung ab.
+- **Atomwaffen** als letzte, katastrophale Eskalationsstufe: nukleare Drohung oder Atomschlag mit weltweiter Ächtung – gegen Atommächte droht der Gegenschlag.
+- **53 Zufallsereignisse** mit 2–4 Entscheidungsoptionen: Generalstreik, Börsencrash, Pandemie, Terroranschlag, Ölschock, Spionage, Putschgerüchte, WM-Titel …
 - **7 Bevölkerungsgruppen** (Arbeiter, Unternehmer, Rentner, Jugend, Militär, Umweltbewegung, Konservative) – ihre Zufriedenheit ergibt deine Zustimmung.
 - **Politisches Kapital ⚡** als Ressource für Gesetze und Maßnahmen.
 - **Wahlen** alle 4 Jahre (Demokratien) bzw. **Machtproben** (autoritäre Staaten).
-- **Spielende** durch Abwahl, Misstrauensvotum, Revolution, Militärputsch oder Staatsbankrott – oder erfolgreich nach 3 Amtszeiten mit **Vermächtnis-Punkten**. Endlosmodus verfügbar.
+- **Spielende** durch Abwahl, Misstrauensvotum, Revolution, Militärputsch, Staatsbankrott oder nukleare Eskalation – oder erfolgreich nach 3 Amtszeiten mit **Vermächtnis-Punkten**. Endlosmodus verfügbar.
 - 3 Schwierigkeitsgrade, automatisches Speichern, Export/Import von Spielständen, Tastenkürzel.
 
 ## ⌨️ Steuerung

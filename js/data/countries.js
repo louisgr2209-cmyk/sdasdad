@@ -2,9 +2,11 @@
 // Wirtschaft: bip in Mrd. US-$, Raten in %, schulden/defizit in % des BIP.
 // Steuern in %, Ausgaben in % des BIP. Stats 0–100.
 // milSize: Größenfaktor der Streitkräfte (für Kriege), oil: Anteil Öleinnahmen am BIP.
+// capacity: Staatskapazität (0–100) – wie gut der Staat Reformen überhaupt umsetzen kann.
+// sf: Spezialeinheit, nukes: ungefähre Zahl nuklearer Sprengköpfe (öffentliche Schätzungen, gerundet).
 
 const COUNTRIES = [
-  { id: 'DE', name: 'Deutschland', flag: '🇩🇪', capital: 'Berlin', region: 'Europa', gov: 'demokratie', difficulty: 2,
+  { id: 'DE', name: 'Deutschland', flag: '🇩🇪', capital: 'Berlin', region: 'Europa', gov: 'demokratie', difficulty: 2, capacity: 85, sf: { name: 'KSK', quality: 82 }, nukes: 0,
     blurb: 'Exportweltmeister mit starker Industrie, aber schwachem Wachstum, Bürokratie und Investitionsstau.',
     pop: 84, gdp: 4500, growth: 0.3, potential: 1.2, unemployment: 6.0, inflation: 2.2, inflBase: 2.0, debt: 63, deficit: -2.5, ir: 2.5, approval: 42,
     stats: { education: 76, health: 78, security: 74, environment: 66, military: 45, corruption: 18, stability: 74, reputation: 78, welfare: 76 },
@@ -12,7 +14,7 @@ const COUNTRIES = [
     spending: { military: 2.0, education: 4.5, health: 7.5, social: 13, infrastructure: 2.5, police: 1.5, environment: 0.9 },
     milSize: 3, nuclear: false, oil: 0, blocs: ['EU', 'NATO'] },
 
-  { id: 'AT', name: 'Österreich', flag: '🇦🇹', capital: 'Wien', region: 'Europa', gov: 'demokratie', difficulty: 1,
+  { id: 'AT', name: 'Österreich', flag: '🇦🇹', capital: 'Wien', region: 'Europa', gov: 'demokratie', difficulty: 1, capacity: 84, sf: { name: 'Jagdkommando', quality: 72 }, nukes: 0,
     blurb: 'Wohlhabend, stabil und neutral – ideal zum Einstieg. Hohe Steuern und eine alternde Bevölkerung.',
     pop: 9.1, gdp: 520, growth: 0.5, potential: 1.3, unemployment: 5.5, inflation: 3.0, inflBase: 2.0, debt: 78, deficit: -3.0, ir: 2.8, approval: 42,
     stats: { education: 74, health: 79, security: 80, environment: 72, military: 30, corruption: 22, stability: 78, reputation: 72, welfare: 77 },
@@ -20,7 +22,7 @@ const COUNTRIES = [
     spending: { military: 0.9, education: 4.8, health: 7.8, social: 14, infrastructure: 2.2, police: 1.3, environment: 0.9 },
     milSize: 0.6, nuclear: false, oil: 0, blocs: ['EU'] },
 
-  { id: 'CH', name: 'Schweiz', flag: '🇨🇭', capital: 'Bern', region: 'Europa', gov: 'demokratie', difficulty: 1,
+  { id: 'CH', name: 'Schweiz', flag: '🇨🇭', capital: 'Bern', region: 'Europa', gov: 'demokratie', difficulty: 1, capacity: 92, sf: { name: 'AAD 10', quality: 70 }, nukes: 0,
     blurb: 'Reich, stabil, niedrige Schulden. Der leichteste Start – aber kannst du den Erfolg halten?',
     pop: 8.9, gdp: 940, growth: 1.2, potential: 1.5, unemployment: 2.4, inflation: 0.8, inflBase: 1.0, debt: 38, deficit: 0, ir: 1.0, approval: 60,
     stats: { education: 82, health: 84, security: 86, environment: 78, military: 40, corruption: 8, stability: 90, reputation: 85, welfare: 78 },
@@ -28,7 +30,7 @@ const COUNTRIES = [
     spending: { military: 0.8, education: 5.0, health: 6.0, social: 9, infrastructure: 2.5, police: 1.2, environment: 1.0 },
     milSize: 0.6, nuclear: false, oil: 0, blocs: [] },
 
-  { id: 'FR', name: 'Frankreich', flag: '🇫🇷', capital: 'Paris', region: 'Europa', gov: 'demokratie', difficulty: 3,
+  { id: 'FR', name: 'Frankreich', flag: '🇫🇷', capital: 'Paris', region: 'Europa', gov: 'demokratie', difficulty: 3, capacity: 80, sf: { name: 'GIGN', quality: 85 }, nukes: 290,
     blurb: 'Atommacht mit großem Sozialstaat. Hohe Schulden und protestfreudige Bürger.',
     pop: 68, gdp: 3100, growth: 0.8, potential: 1.1, unemployment: 7.4, inflation: 2.0, inflBase: 2.0, debt: 112, deficit: -5.5, ir: 3.2, approval: 33,
     stats: { education: 72, health: 77, security: 66, environment: 66, military: 62, corruption: 26, stability: 60, reputation: 72, welfare: 80 },
@@ -36,7 +38,7 @@ const COUNTRIES = [
     spending: { military: 2.1, education: 5.0, health: 8.5, social: 16, infrastructure: 2.3, police: 1.6, environment: 1.0 },
     milSize: 4, nuclear: true, oil: 0, blocs: ['EU', 'NATO'] },
 
-  { id: 'GB', name: 'Vereinigtes Königreich', flag: '🇬🇧', capital: 'London', region: 'Europa', gov: 'demokratie', difficulty: 2,
+  { id: 'GB', name: 'Vereinigtes Königreich', flag: '🇬🇧', capital: 'London', region: 'Europa', gov: 'demokratie', difficulty: 2, capacity: 82, sf: { name: 'SAS', quality: 92 }, nukes: 225,
     blurb: 'Finanzzentrum und Atommacht. Das Gesundheitssystem ächzt, die Staatskasse ist knapp.',
     pop: 68, gdp: 3500, growth: 1.0, potential: 1.3, unemployment: 4.5, inflation: 3.5, inflBase: 2.0, debt: 100, deficit: -4.5, ir: 4.3, approval: 35,
     stats: { education: 74, health: 70, security: 70, environment: 68, military: 64, corruption: 18, stability: 66, reputation: 74, welfare: 68 },
@@ -44,7 +46,7 @@ const COUNTRIES = [
     spending: { military: 2.3, education: 4.5, health: 8.0, social: 11, infrastructure: 2.5, police: 1.6, environment: 0.8 },
     milSize: 4, nuclear: true, oil: 0.5, blocs: ['NATO'] },
 
-  { id: 'IT', name: 'Italien', flag: '🇮🇹', capital: 'Rom', region: 'Europa', gov: 'demokratie', difficulty: 2,
+  { id: 'IT', name: 'Italien', flag: '🇮🇹', capital: 'Rom', region: 'Europa', gov: 'demokratie', difficulty: 2, capacity: 66, sf: { name: 'GIS', quality: 78 }, nukes: 0,
     blurb: 'Kultur, Tourismus und Industrie im Norden – aber enorme Schulden und schwaches Wachstum.',
     pop: 59, gdp: 2300, growth: 0.6, potential: 0.7, unemployment: 6.5, inflation: 1.8, inflBase: 2.0, debt: 137, deficit: -3.5, ir: 3.6, approval: 44,
     stats: { education: 66, health: 76, security: 62, environment: 60, military: 48, corruption: 42, stability: 58, reputation: 62, welfare: 70 },
@@ -52,7 +54,7 @@ const COUNTRIES = [
     spending: { military: 1.5, education: 4.0, health: 6.5, social: 17, infrastructure: 2.0, police: 1.8, environment: 0.7 },
     milSize: 2.5, nuclear: false, oil: 0, blocs: ['EU', 'NATO'] },
 
-  { id: 'ES', name: 'Spanien', flag: '🇪🇸', capital: 'Madrid', region: 'Europa', gov: 'demokratie', difficulty: 2,
+  { id: 'ES', name: 'Spanien', flag: '🇪🇸', capital: 'Madrid', region: 'Europa', gov: 'demokratie', difficulty: 2, capacity: 72, sf: { name: 'GEO', quality: 74 }, nukes: 0,
     blurb: 'Starkes Wachstum und Tourismusboom, aber die höchste Arbeitslosigkeit der EU.',
     pop: 48, gdp: 1700, growth: 2.5, potential: 1.8, unemployment: 11, inflation: 2.5, inflBase: 2.0, debt: 102, deficit: -3.0, ir: 3.1, approval: 40,
     stats: { education: 68, health: 77, security: 70, environment: 62, military: 42, corruption: 35, stability: 60, reputation: 68, welfare: 68 },
@@ -60,7 +62,7 @@ const COUNTRIES = [
     spending: { military: 1.3, education: 4.2, health: 6.5, social: 14, infrastructure: 2.0, police: 1.8, environment: 0.8 },
     milSize: 2, nuclear: false, oil: 0, blocs: ['EU', 'NATO'] },
 
-  { id: 'PL', name: 'Polen', flag: '🇵🇱', capital: 'Warschau', region: 'Europa', gov: 'demokratie', difficulty: 2,
+  { id: 'PL', name: 'Polen', flag: '🇵🇱', capital: 'Warschau', region: 'Europa', gov: 'demokratie', difficulty: 2, capacity: 70, sf: { name: 'GROM', quality: 84 }, nukes: 0,
     blurb: 'Wachstumsmotor Osteuropas mit massiver Aufrüstung. Große Pläne, knappe Kassen.',
     pop: 37, gdp: 900, growth: 3.0, potential: 3.0, unemployment: 3.0, inflation: 4.0, inflBase: 2.5, debt: 55, deficit: -5.5, ir: 5.3, approval: 45,
     stats: { education: 74, health: 64, security: 74, environment: 52, military: 58, corruption: 32, stability: 66, reputation: 66, welfare: 60 },
@@ -68,7 +70,7 @@ const COUNTRIES = [
     spending: { military: 4.2, education: 4.6, health: 5.0, social: 12, infrastructure: 3.0, police: 1.8, environment: 0.6 },
     milSize: 2.2, nuclear: false, oil: 0, blocs: ['EU', 'NATO'] },
 
-  { id: 'SE', name: 'Schweden', flag: '🇸🇪', capital: 'Stockholm', region: 'Europa', gov: 'demokratie', difficulty: 1,
+  { id: 'SE', name: 'Schweden', flag: '🇸🇪', capital: 'Stockholm', region: 'Europa', gov: 'demokratie', difficulty: 1, capacity: 88, sf: { name: 'SOG', quality: 76 }, nukes: 0,
     blurb: 'Modellstaat mit geringen Schulden, starkem Sozialstaat und grüner Energie.',
     pop: 10.5, gdp: 610, growth: 1.5, potential: 1.8, unemployment: 8.5, inflation: 1.5, inflBase: 2.0, debt: 33, deficit: -1.0, ir: 2.3, approval: 50,
     stats: { education: 80, health: 82, security: 74, environment: 84, military: 46, corruption: 10, stability: 82, reputation: 82, welfare: 82 },
@@ -76,7 +78,7 @@ const COUNTRIES = [
     spending: { military: 2.0, education: 5.5, health: 7.0, social: 15, infrastructure: 2.5, police: 1.3, environment: 1.2 },
     milSize: 0.9, nuclear: false, oil: 0, blocs: ['EU', 'NATO'] },
 
-  { id: 'US', name: 'Vereinigte Staaten', flag: '🇺🇸', capital: 'Washington', region: 'Amerika', gov: 'demokratie', difficulty: 2,
+  { id: 'US', name: 'Vereinigte Staaten', flag: '🇺🇸', capital: 'Washington', region: 'Amerika', gov: 'demokratie', difficulty: 2, capacity: 82, sf: { name: 'Navy SEALs', quality: 96 }, nukes: 5000,
     blurb: 'Supermacht mit stärkster Armee und Wirtschaft – aber gespaltene Gesellschaft und hohes Defizit.',
     pop: 335, gdp: 29000, growth: 2.0, potential: 2.0, unemployment: 4.2, inflation: 2.8, inflBase: 2.0, debt: 122, deficit: -6.5, ir: 4.3, approval: 42,
     stats: { education: 70, health: 64, security: 62, environment: 52, military: 95, corruption: 28, stability: 55, reputation: 66, welfare: 50 },
@@ -84,7 +86,7 @@ const COUNTRIES = [
     spending: { military: 3.4, education: 5.0, health: 8.5, social: 7, infrastructure: 2.5, police: 1.5, environment: 0.4 },
     milSize: 10, nuclear: true, oil: 1, blocs: ['NATO', 'NA'] },
 
-  { id: 'CA', name: 'Kanada', flag: '🇨🇦', capital: 'Ottawa', region: 'Amerika', gov: 'demokratie', difficulty: 1,
+  { id: 'CA', name: 'Kanada', flag: '🇨🇦', capital: 'Ottawa', region: 'Amerika', gov: 'demokratie', difficulty: 1, capacity: 85, sf: { name: 'JTF 2', quality: 80 }, nukes: 0,
     blurb: 'Rohstoffreich, stabil und weltoffen. Wohnungsnot und Abhängigkeit vom großen Nachbarn.',
     pop: 40, gdp: 2200, growth: 1.4, potential: 1.8, unemployment: 6.8, inflation: 2.2, inflBase: 2.0, debt: 107, deficit: -1.5, ir: 3.2, approval: 42,
     stats: { education: 78, health: 74, security: 76, environment: 66, military: 40, corruption: 14, stability: 76, reputation: 80, welfare: 70 },
@@ -92,7 +94,7 @@ const COUNTRIES = [
     spending: { military: 1.4, education: 5.0, health: 8.0, social: 10, infrastructure: 2.6, police: 1.4, environment: 0.8 },
     milSize: 1.5, nuclear: false, oil: 2, blocs: ['NATO', 'NA'] },
 
-  { id: 'MX', name: 'Mexiko', flag: '🇲🇽', capital: 'Mexiko-Stadt', region: 'Amerika', gov: 'demokratie', difficulty: 3,
+  { id: 'MX', name: 'Mexiko', flag: '🇲🇽', capital: 'Mexiko-Stadt', region: 'Amerika', gov: 'demokratie', difficulty: 3, capacity: 42, sf: { name: 'FES', quality: 60 }, nukes: 0,
     blurb: 'Große Industrie und enge Bindung an die USA – aber Kartellgewalt und Korruption.',
     pop: 130, gdp: 1850, growth: 0.8, potential: 2.0, unemployment: 3.0, inflation: 3.8, inflBase: 3.5, debt: 58, deficit: -4.5, ir: 9.0, approval: 60,
     stats: { education: 55, health: 52, security: 30, environment: 48, military: 38, corruption: 65, stability: 50, reputation: 50, welfare: 42 },
@@ -100,7 +102,7 @@ const COUNTRIES = [
     spending: { military: 0.7, education: 4.3, health: 3.0, social: 6, infrastructure: 2.0, police: 1.2, environment: 0.3 },
     milSize: 2, nuclear: false, oil: 3, blocs: ['NA'] },
 
-  { id: 'BR', name: 'Brasilien', flag: '🇧🇷', capital: 'Brasília', region: 'Amerika', gov: 'demokratie', difficulty: 3,
+  { id: 'BR', name: 'Brasilien', flag: '🇧🇷', capital: 'Brasília', region: 'Amerika', gov: 'demokratie', difficulty: 3, capacity: 48, sf: { name: 'BOPE', quality: 64 }, nukes: 0,
     blurb: 'Agrar- und Rohstoffriese mit dem Amazonas. Hohe Zinsen, Ungleichheit und Kriminalität.',
     pop: 213, gdp: 2200, growth: 2.5, potential: 2.0, unemployment: 6.5, inflation: 5.0, inflBase: 4.0, debt: 88, deficit: -7.0, ir: 12, approval: 45,
     stats: { education: 56, health: 56, security: 32, environment: 55, military: 46, corruption: 60, stability: 50, reputation: 55, welfare: 50 },
@@ -108,7 +110,7 @@ const COUNTRIES = [
     spending: { military: 1.1, education: 5.5, health: 4.0, social: 13, infrastructure: 1.5, police: 1.3, environment: 0.4 },
     milSize: 3, nuclear: false, oil: 2, blocs: ['BRICS'] },
 
-  { id: 'AR', name: 'Argentinien', flag: '🇦🇷', capital: 'Buenos Aires', region: 'Amerika', gov: 'demokratie', difficulty: 3,
+  { id: 'AR', name: 'Argentinien', flag: '🇦🇷', capital: 'Buenos Aires', region: 'Amerika', gov: 'demokratie', difficulty: 3, capacity: 46, sf: { name: 'Albatros', quality: 55 }, nukes: 0,
     blurb: 'Reich an Ressourcen, aber gebeutelt von Inflation und Schuldenkrisen. Eine echte Herausforderung.',
     pop: 46, gdp: 640, growth: 4.0, potential: 2.0, unemployment: 7.5, inflation: 35, inflBase: 22, debt: 85, deficit: 0.3, ir: 8, approval: 45,
     stats: { education: 64, health: 64, security: 45, environment: 56, military: 30, corruption: 55, stability: 45, reputation: 45, welfare: 55 },
@@ -116,7 +118,7 @@ const COUNTRIES = [
     spending: { military: 0.5, education: 5.0, health: 6.0, social: 12, infrastructure: 1.5, police: 1.3, environment: 0.3 },
     milSize: 1.0, nuclear: false, oil: 1, blocs: [] },
 
-  { id: 'RU', name: 'Russland', flag: '🇷🇺', capital: 'Moskau', region: 'Eurasien', gov: 'autoritaer', difficulty: 3,
+  { id: 'RU', name: 'Russland', flag: '🇷🇺', capital: 'Moskau', region: 'Eurasien', gov: 'autoritaer', difficulty: 3, capacity: 48, sf: { name: 'Spetsnaz', quality: 85 }, nukes: 5500,
     blurb: 'Riesiges Land mit Atomwaffen und Rohstoffen – aber isoliert durch westliche Sanktionen.',
     pop: 144, gdp: 2100, growth: 1.0, potential: 1.2, unemployment: 2.5, inflation: 8.0, inflBase: 6.0, debt: 22, deficit: -2.0, ir: 16, approval: 70,
     stats: { education: 66, health: 58, security: 55, environment: 42, military: 86, corruption: 72, stability: 60, reputation: 25, welfare: 50 },
@@ -124,7 +126,7 @@ const COUNTRIES = [
     spending: { military: 6.5, education: 3.8, health: 3.5, social: 9, infrastructure: 2.0, police: 2.5, environment: 0.3 },
     milSize: 7, nuclear: true, oil: 8, blocs: ['BRICS'] },
 
-  { id: 'CN', name: 'China', flag: '🇨🇳', capital: 'Peking', region: 'Asien', gov: 'autoritaer', difficulty: 2,
+  { id: 'CN', name: 'China', flag: '🇨🇳', capital: 'Peking', region: 'Asien', gov: 'autoritaer', difficulty: 2, capacity: 70, sf: { name: 'Schneeleoparden', quality: 80 }, nukes: 500,
     blurb: 'Werkbank der Welt und aufstrebende Supermacht. Alternde Bevölkerung und Immobilienkrise.',
     pop: 1410, gdp: 19000, growth: 4.5, potential: 4.0, unemployment: 5.2, inflation: 0.5, inflBase: 1.5, debt: 90, deficit: -7.0, ir: 2.2, approval: 70,
     stats: { education: 70, health: 66, security: 74, environment: 38, military: 84, corruption: 50, stability: 72, reputation: 50, welfare: 55 },
@@ -132,7 +134,7 @@ const COUNTRIES = [
     spending: { military: 1.7, education: 4.0, health: 3.2, social: 8, infrastructure: 5.0, police: 2.0, environment: 0.6 },
     milSize: 8.5, nuclear: true, oil: 0, blocs: ['BRICS'] },
 
-  { id: 'JP', name: 'Japan', flag: '🇯🇵', capital: 'Tokio', region: 'Asien', gov: 'demokratie', difficulty: 3,
+  { id: 'JP', name: 'Japan', flag: '🇯🇵', capital: 'Tokio', region: 'Asien', gov: 'demokratie', difficulty: 3, capacity: 88, sf: { name: 'SFGp', quality: 72 }, nukes: 0,
     blurb: 'Hochtechnologie und Sicherheit – aber Rekordschulden und die älteste Bevölkerung der Welt.',
     pop: 124, gdp: 4100, growth: 0.6, potential: 0.6, unemployment: 2.5, inflation: 2.5, inflBase: 2.0, debt: 235, deficit: -3.0, ir: 1.0, approval: 34,
     stats: { education: 80, health: 86, security: 88, environment: 66, military: 52, corruption: 16, stability: 80, reputation: 80, welfare: 72 },
@@ -140,7 +142,7 @@ const COUNTRIES = [
     spending: { military: 1.4, education: 3.5, health: 9.0, social: 12, infrastructure: 3.0, police: 1.2, environment: 0.6 },
     milSize: 3.2, nuclear: false, oil: 0, blocs: ['PAZ'] },
 
-  { id: 'KR', name: 'Südkorea', flag: '🇰🇷', capital: 'Seoul', region: 'Asien', gov: 'demokratie', difficulty: 2,
+  { id: 'KR', name: 'Südkorea', flag: '🇰🇷', capital: 'Seoul', region: 'Asien', gov: 'demokratie', difficulty: 2, capacity: 80, sf: { name: '707. Sonderbataillon', quality: 82 }, nukes: 0,
     blurb: 'Tech-Gigant mit starker Armee, aber geringer Geburtenrate und ständiger Bedrohung aus dem Norden.',
     pop: 51, gdp: 1800, growth: 1.8, potential: 2.0, unemployment: 2.8, inflation: 2.2, inflBase: 2.0, debt: 52, deficit: -1.5, ir: 3.0, approval: 40,
     stats: { education: 84, health: 80, security: 78, environment: 56, military: 68, corruption: 28, stability: 64, reputation: 70, welfare: 58 },
@@ -148,7 +150,7 @@ const COUNTRIES = [
     spending: { military: 2.8, education: 4.8, health: 5.0, social: 8, infrastructure: 3.0, police: 1.3, environment: 0.6 },
     milSize: 3.5, nuclear: false, oil: 0, blocs: ['PAZ'] },
 
-  { id: 'IN', name: 'Indien', flag: '🇮🇳', capital: 'Neu-Delhi', region: 'Asien', gov: 'demokratie', difficulty: 2,
+  { id: 'IN', name: 'Indien', flag: '🇮🇳', capital: 'Neu-Delhi', region: 'Asien', gov: 'demokratie', difficulty: 2, capacity: 48, sf: { name: 'MARCOS', quality: 76 }, nukes: 170,
     blurb: 'Bevölkerungsreichstes Land mit rasantem Wachstum. Armut, Infrastruktur und Umwelt sind Baustellen.',
     pop: 1440, gdp: 4200, growth: 6.5, potential: 6.5, unemployment: 7.8, inflation: 4.5, inflBase: 4.0, debt: 82, deficit: -7.8, ir: 7.0, approval: 55,
     stats: { education: 52, health: 44, security: 50, environment: 34, military: 70, corruption: 60, stability: 58, reputation: 60, welfare: 35 },
@@ -156,7 +158,7 @@ const COUNTRIES = [
     spending: { military: 2.4, education: 4.1, health: 2.2, social: 4, infrastructure: 4.0, police: 1.4, environment: 0.3 },
     milSize: 6, nuclear: true, oil: 0, blocs: ['BRICS'] },
 
-  { id: 'ID', name: 'Indonesien', flag: '🇮🇩', capital: 'Jakarta', region: 'Asien', gov: 'demokratie', difficulty: 2,
+  { id: 'ID', name: 'Indonesien', flag: '🇮🇩', capital: 'Jakarta', region: 'Asien', gov: 'demokratie', difficulty: 2, capacity: 45, sf: { name: 'Kopassus', quality: 70 }, nukes: 0,
     blurb: 'Inselstaat mit 17.000 Inseln, jungem Volk und solidem Wachstum. Naturkatastrophen sind häufig.',
     pop: 280, gdp: 1400, growth: 5.0, potential: 5.0, unemployment: 4.8, inflation: 2.5, inflBase: 3.0, debt: 40, deficit: -2.5, ir: 6.5, approval: 65,
     stats: { education: 55, health: 50, security: 56, environment: 40, military: 46, corruption: 60, stability: 60, reputation: 58, welfare: 40 },
@@ -164,7 +166,7 @@ const COUNTRIES = [
     spending: { military: 0.8, education: 3.5, health: 1.8, social: 3, infrastructure: 3.0, police: 1.0, environment: 0.3 },
     milSize: 2.5, nuclear: false, oil: 1, blocs: [] },
 
-  { id: 'AU', name: 'Australien', flag: '🇦🇺', capital: 'Canberra', region: 'Ozeanien', gov: 'demokratie', difficulty: 1,
+  { id: 'AU', name: 'Australien', flag: '🇦🇺', capital: 'Canberra', region: 'Ozeanien', gov: 'demokratie', difficulty: 1, capacity: 86, sf: { name: 'SASR', quality: 88 }, nukes: 0,
     blurb: 'Rohstoffreich, stabil und abgelegen. Dürren, Buschbrände und die Nähe zu China prägen die Politik.',
     pop: 27, gdp: 1800, growth: 1.8, potential: 2.2, unemployment: 4.1, inflation: 2.8, inflBase: 2.5, debt: 50, deficit: -1.5, ir: 4.2, approval: 44,
     stats: { education: 78, health: 80, security: 78, environment: 58, military: 50, corruption: 12, stability: 80, reputation: 78, welfare: 68 },
@@ -172,7 +174,7 @@ const COUNTRIES = [
     spending: { military: 2.0, education: 5.0, health: 7.0, social: 9, infrastructure: 3.0, police: 1.4, environment: 0.6 },
     milSize: 1.5, nuclear: false, oil: 0.5, blocs: ['PAZ'] },
 
-  { id: 'TR', name: 'Türkei', flag: '🇹🇷', capital: 'Ankara', region: 'Nahost', gov: 'demokratie', difficulty: 3,
+  { id: 'TR', name: 'Türkei', flag: '🇹🇷', capital: 'Ankara', region: 'Nahost', gov: 'demokratie', difficulty: 3, capacity: 50, sf: { name: 'Bordo Bereliler', quality: 76 }, nukes: 0,
     blurb: 'Brücke zwischen Europa und Asien mit starker Armee – aber galoppierende Inflation.',
     pop: 86, gdp: 1300, growth: 3.2, potential: 3.5, unemployment: 8.5, inflation: 35, inflBase: 22, debt: 30, deficit: -4.0, ir: 12, approval: 45,
     stats: { education: 58, health: 60, security: 55, environment: 42, military: 66, corruption: 55, stability: 48, reputation: 45, welfare: 45 },
@@ -180,7 +182,7 @@ const COUNTRIES = [
     spending: { military: 1.8, education: 3.5, health: 4.5, social: 8, infrastructure: 2.0, police: 2.0, environment: 0.3 },
     milSize: 3.5, nuclear: false, oil: 0, blocs: ['NATO'] },
 
-  { id: 'SA', name: 'Saudi-Arabien', flag: '🇸🇦', capital: 'Riad', region: 'Nahost', gov: 'autoritaer', difficulty: 2,
+  { id: 'SA', name: 'Saudi-Arabien', flag: '🇸🇦', capital: 'Riad', region: 'Nahost', gov: 'autoritaer', difficulty: 2, capacity: 52, sf: { name: 'Spezialkräfte (SSF)', quality: 58 }, nukes: 0,
     blurb: 'Ölmonarchie im Umbruch. Der Ölpreis entscheidet über deinen Haushalt – diversifiziere rechtzeitig!',
     pop: 33, gdp: 1100, growth: 2.0, potential: 3.0, unemployment: 7.0, inflation: 2.0, inflBase: 2.0, debt: 28, deficit: -3.0, ir: 4.5, approval: 65,
     stats: { education: 58, health: 66, security: 70, environment: 30, military: 62, corruption: 45, stability: 70, reputation: 52, welfare: 60 },
@@ -188,7 +190,7 @@ const COUNTRIES = [
     spending: { military: 7.0, education: 5.0, health: 5.0, social: 5, infrastructure: 3.0, police: 2.5, environment: 0.2 },
     milSize: 2.5, nuclear: false, oil: 25, blocs: [] },
 
-  { id: 'EG', name: 'Ägypten', flag: '🇪🇬', capital: 'Kairo', region: 'Afrika', gov: 'autoritaer', difficulty: 3,
+  { id: 'EG', name: 'Ägypten', flag: '🇪🇬', capital: 'Kairo', region: 'Afrika', gov: 'autoritaer', difficulty: 3, capacity: 36, sf: { name: 'Einheit 777', quality: 60 }, nukes: 0,
     blurb: 'Bevölkerungsreich am Nil mit Suezkanal. Hohe Schulden, Inflation und wenig Spielraum.',
     pop: 110, gdp: 390, growth: 4.0, potential: 4.5, unemployment: 6.5, inflation: 15, inflBase: 10, debt: 90, deficit: -7.0, ir: 11, approval: 45,
     stats: { education: 48, health: 50, security: 48, environment: 36, military: 54, corruption: 64, stability: 45, reputation: 45, welfare: 38 },
@@ -196,7 +198,7 @@ const COUNTRIES = [
     spending: { military: 1.2, education: 2.0, health: 1.4, social: 4, infrastructure: 3.0, police: 1.6, environment: 0.2 },
     milSize: 2.5, nuclear: false, oil: 1, blocs: [] },
 
-  { id: 'NG', name: 'Nigeria', flag: '🇳🇬', capital: 'Abuja', region: 'Afrika', gov: 'demokratie', difficulty: 3,
+  { id: 'NG', name: 'Nigeria', flag: '🇳🇬', capital: 'Abuja', region: 'Afrika', gov: 'demokratie', difficulty: 3, capacity: 26, sf: { name: 'Spezialkräfte', quality: 45 }, nukes: 0,
     blurb: 'Afrikas bevölkerungsreichstes Land mit Öl und Potenzial – aber Armut, Korruption und Unsicherheit.',
     pop: 225, gdp: 250, growth: 3.2, potential: 3.5, unemployment: 5.0, inflation: 25, inflBase: 15, debt: 50, deficit: -4.0, ir: 12, approval: 40,
     stats: { education: 38, health: 36, security: 28, environment: 36, military: 34, corruption: 75, stability: 38, reputation: 40, welfare: 25 },
@@ -204,13 +206,21 @@ const COUNTRIES = [
     spending: { military: 0.6, education: 1.2, health: 0.6, social: 1.5, infrastructure: 1.5, police: 0.8, environment: 0.1 },
     milSize: 1.5, nuclear: false, oil: 6, blocs: [] },
 
-  { id: 'ZA', name: 'Südafrika', flag: '🇿🇦', capital: 'Pretoria', region: 'Afrika', gov: 'demokratie', difficulty: 3,
+  { id: 'ZA', name: 'Südafrika', flag: '🇿🇦', capital: 'Pretoria', region: 'Afrika', gov: 'demokratie', difficulty: 3, capacity: 44, sf: { name: 'Recces', quality: 68 }, nukes: 0,
     blurb: 'Wirtschaftskraft Afrikas mit Bodenschätzen, aber extremer Arbeitslosigkeit und Stromkrisen.',
     pop: 63, gdp: 410, growth: 0.8, potential: 1.5, unemployment: 32, inflation: 4.5, inflBase: 4.5, debt: 76, deficit: -5.0, ir: 9.5, approval: 40,
     stats: { education: 50, health: 48, security: 22, environment: 48, military: 36, corruption: 58, stability: 45, reputation: 60, welfare: 42 },
     taxes: { income: 28, corporate: 27, vat: 15 },
     spending: { military: 0.8, education: 6.0, health: 4.5, social: 9, infrastructure: 2.0, police: 2.0, environment: 0.3 },
     milSize: 1.2, nuclear: false, oil: 0, blocs: ['BRICS'] },
+  { id: 'SD', name: 'Sudan', flag: '🇸🇩', capital: 'Khartum', region: 'Afrika', gov: 'autoritaer', difficulty: 4, capacity: 12, sf: { name: 'Spezialkräfte', quality: 30 }, nukes: 0,
+    blurb: 'Extremmodus: Ein vom Bürgerkrieg zerrissener Staat mit Hyperinflation, Armut und kaum funktionierender Verwaltung. Schon das Überleben ist ein Erfolg.',
+    pop: 50, gdp: 30, growth: -5, potential: 2.5, unemployment: 30, inflation: 120, inflBase: 40, debt: 150, deficit: -5.0, ir: 4, approval: 25,
+    stats: { education: 25, health: 18, security: 8, environment: 32, military: 30, corruption: 85, stability: 22, reputation: 12, welfare: 10 },
+    taxes: { income: 10, corporate: 25, vat: 17 },
+    spending: { military: 3.0, education: 1.0, health: 0.5, social: 0.5, infrastructure: 0.5, police: 0.6, environment: 0.1 },
+    milSize: 0.8, nuclear: false, oil: 2, blocs: [],
+    crisis: { label: 'Bürgerkrieg', months: 48, growth: -2.5, stability: -6, security: -8 } },
 ];
 
 // Ausgangsbeziehungen zwischen Blöcken / Ländern (Wert −100 … +100)
@@ -242,5 +252,5 @@ const COUNTRY_COORDS = {
   DE: [51.2, 10.4], AT: [47.6, 14.1], CH: [46.8, 8.2], FR: [46.6, 2.4], GB: [53.5, -1.8], IT: [42.8, 12.6], ES: [40.2, -3.6],
   PL: [52.1, 19.4], SE: [62.5, 16.5], US: [39.5, -98.5], CA: [57, -103], MX: [23.6, -102.5], BR: [-10.8, -52.9], AR: [-35.4, -65.2],
   RU: [61.5, 95], CN: [35.5, 103.8], JP: [36.5, 138.5], KR: [36.4, 127.9], IN: [22.9, 79.6], ID: [-2.2, 117.3], AU: [-25.7, 134.5],
-  TR: [39, 35.2], SA: [24, 45], EG: [26.5, 30.8], NG: [9.6, 8.1], ZA: [-29, 25],
+  TR: [39, 35.2], SA: [24, 45], EG: [26.5, 30.8], NG: [9.6, 8.1], ZA: [-29, 25], SD: [15.5, 30.2],
 };
