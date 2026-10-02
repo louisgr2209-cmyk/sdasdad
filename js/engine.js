@@ -109,6 +109,10 @@ const Engine = (() => {
     s.terror = clamp(75 - c.stats.security * 0.7, 5, 90);
     s.nukes = c.nukes; s.nukeProgram = null; s.nukeUsed = false;
     s.sfTarget = null;
+    s.pacts = {}; s.blocs = [...c.blocs]; s.ownBloc = null;
+    s.worldNukes = {};
+    for (const o of COUNTRIES) if (o.id !== c.id && o.nukes > 0) s.worldNukes[o.id] = o.nukes;
+    s.disarm = { active: false, signed: {}, dismantling: false, done: false };
     if (c.crisis) for (const k of ['growth', 'stability', 'security']) if (c.crisis[k]) s.mods.push({ key: k, value: c.crisis[k], months: c.crisis.months, label: c.crisis.label });
     // Haushalt kalibrieren: sonstige Einnahmen so wählen, dass das reale Defizit herauskommt
     s.taxEff = 1; s.otherRevenue = 0;
@@ -117,7 +121,7 @@ const Engine = (() => {
     const diff = needed - b0.taxRevenue;
     if (diff >= 1) { s.otherRevenue = diff; } else { s.otherRevenue = 1; s.taxEff = (needed - 1) / b0.taxRevenue; }
     s.budget = computeBudget(s);
-    s.start = { trade: countTrue(s.trade), sanctions: countTrue(s.sanctions), alliance: countTrue(s.alliance), balance: s.budget.balance, interestShare: s.budget.interestShare };
+    s.start = { trade: countTrue(s.trade), sanctions: countTrue(s.sanctions), alliance: countTrue(s.alliance), balance: s.budget.balance, interestShare: s.budget.interestShare, blocs: [...s.blocs] };
     recordHistory(s);
     addNews(s, `${s.leader.title} ${s.leader.name} tritt das Amt an – das Land blickt gespannt auf die ersten Entscheidungen.`, 'info');
     return s;
@@ -162,6 +166,21 @@ const Engine = (() => {
       for (const g in p.groups) M.groups[g] = (M.groups[g] || 0) + p.groups[g];
     }
     for (const m of s.mods) add(m.key, m.value);
+    // Verträge
+    for (const id in (s.pacts || {})) {
+      const pc = s.pacts[id];
+      if (pc.forschung) { add('growth', 0.05); add('education', 1); }
+      if (pc.energie) { add('growth', 0.03); add('inflation', -0.05); }
+      if (pc.ruestung) add('reputation', 1);
+    }
+    // Bündnisse (relativ zum Start, damit der Status quo stabil bleibt)
+    if (s.blocs && s.start) {
+      const bonus = list => { const b = {}; for (const k of list) for (const [mk, mv] of Object.entries((BLOCS[k] || {}).mods || {})) b[mk] = (b[mk] || 0) + mv; return b; };
+      const now = bonus(s.blocs), then = bonus(s.start.blocs || []);
+      for (const k of new Set([...Object.keys(now), ...Object.keys(then)])) add(k, (now[k] || 0) - (then[k] || 0));
+    }
+    if (s.ownBloc) { add('security', Math.min(6, s.ownBloc.members.length)); add('reputation', Math.min(5, s.ownBloc.members.length)); }
+    if (s.disarm && s.disarm.done) add('reputation', 10);
     if (s.wars.length) { add('growth', -0.8 * s.wars.length); add('security', -3); add('reputation', -5); }
     // Abnehmender Grenznutzen: viele positive Maßnahmen stapeln sich nicht unbegrenzt
     const soft = (x, k) => x > 0 ? k * (1 - Math.exp(-x / k)) : x;
@@ -392,6 +411,8 @@ const Engine = (() => {
 
   // ─────────────────────────── Diplomatie ───────────────────────────
   function tickDiplomacy(s) {
+    tickDisarm(s);
+    for (const id in s.pacts) if (s.pacts[id].nichtangriff) s.relations[id] = clamp(s.relations[id] + 0.15, -100, 100);
     const repShift = (s.stats.reputation - s.country.stats.reputation) * 0.2;
     for (const id in s.relations) {
       if (atWarWith(s, id)) { s.relations[id] = -100; continue; }
@@ -455,21 +476,25 @@ const Engine = (() => {
       const my = militaryPower(s), en = enemyPower(w.enemy, w) * rand(0.9, 1.1);
       let delta = (my / (my + en) - 0.5) * 30 + rand(-6, 6) + (w.boost || 0);
       w.boost = (w.boost || 0) * 0.5;
-      if (o.nuclear && delta > 0 && w.progress > 40) delta *= 0.3;
+      if (hasNukes(s, w.enemy) && delta > 0 && w.progress > 40) delta *= 0.3;
       if (s.nukes > 0 && delta < 0 && w.progress < -40) delta *= 0.3;
       w.progress = clamp(w.progress + delta, -100, 100);
       w.months++;
       s.stats.military = clamp(s.stats.military - 0.4, 0, 100);
       if (w.months > 6) s.approvalMood -= 0.6;
       // Eine in die Enge getriebene Atommacht kann eskalieren
-      if (o.nuclear && w.progress > 75 && !w.nukeWarned) {
+      if (hasNukes(s, w.enemy) && w.progress > 75 && !w.nukeWarned) {
         w.nukeWarned = true;
         s.pendingEvents.push(infoEvent('☢️', 'Nukleare Drohung', `${o.name} ist militärisch am Ende und droht offen mit dem Einsatz von Atomwaffen. Deine Berater raten dringend, Frieden anzubieten, statt weiter vorzurücken.`));
       }
-      if (o.nuclear && w.progress > 85 && Math.random() < (s.nukes > 0 ? 0.03 : 0.1)) {
-        s.gameOver = { won: false, icon: '☢️', title: 'Nukleare Eskalation',
-          text: `In die Enge getrieben, setzt ${o.name} Atomwaffen ein. Der Krieg endet in einer Katastrophe, deine Regierung bricht zusammen. Gegen eine Atommacht gibt es keinen Sieg um jeden Preis.` };
-        return;
+      // In die Enge getrieben, kann eine Atommacht eine Atomwaffe einsetzen – das Spiel geht aber weiter
+      const pNuke = (s.nukes > 0 ? 0.04 : 0.1) * (s.pacts[w.enemy]?.ruestung ? 0.5 : 1);
+      if (hasNukes(s, w.enemy) && w.progress > 85 && (w.enemyNukeCd || 0) <= w.months && Math.random() < pNuke) {
+        w.enemyNukeCd = w.months + 6;
+        w.progress -= 25;
+        nuclearDamage(s, w.enemy);
+        s.pendingEvents.push(nuclearCrisisEvent(s, w, 'enemy'));
+        continue;
       }
       if (w.progress >= 100) endWar(s, w, 'sieg');
       else if (w.progress <= -100) endWar(s, w, 'niederlage');
@@ -659,7 +684,7 @@ const Engine = (() => {
       for (const p of pool) { r -= p.w; if (r <= 0) { chosen = p; break; } }
       let land = null;
       if (chosen.def.ctx) land = resolveCtx(s, chosen.def.ctx);
-      if (chosen.def.ctx && !land) { pool.splice(pool.indexOf(chosen), 1); total -= chosen.w; continue; }
+      if ((chosen.def.ctx && !land) || (land && chosen.def.skip && chosen.def.skip(s, land))) { pool.splice(pool.indexOf(chosen), 1); total -= chosen.w; continue; }
       s.eventHistory[chosen.def.id] = s.month;
       const ev = instantiate(s, chosen.def, land);
       s.pendingEvents.push(ev);
@@ -684,6 +709,11 @@ const Engine = (() => {
     if (eff.oil) s.oil = clamp(s.oil + eff.oil, 0.4, 2.6);
     if (eff.campaign) s.campaign += eff.campaign;
     if (eff.terror) s.terror = clamp(s.terror + eff.terror, 0, 100);
+    if (eff.ostracize) ostracize(s);
+    if (land && eff.pact) s.pacts[land] = { ...(s.pacts[land] || {}), [eff.pact]: true };
+    if (land && eff.warEnd) { const w = s.wars.find(x => x.enemy === land); if (w) endWar(s, w, eff.warEnd); }
+    if (eff.nukeDamage) nuclearDamage(s, land);
+    if (eff.doom) s.gameOver = { won: false, icon: '☢️', title: 'Atomkrieg', text: 'Die nukleare Eskalation war nicht mehr aufzuhalten. Es gibt keine Gewinner – nur Verlierer. Deine Regierung existiert nicht mehr.' };
     if (eff.sfQuality) s.sf.quality = clamp(s.sf.quality + eff.sfQuality, 0, 100);
     if (land && eff.relation) s.relations[land] = clamp(s.relations[land] + eff.relation, -100, 100);
     if (land && eff.trade) { s.trade[land] = true; s.sanctions[land] = false; msgs.push(`Handelsabkommen mit ${byId(land).name} geschlossen.`); }
@@ -732,6 +762,10 @@ const Engine = (() => {
     if (eff.oil) sc += s.country.oil > 2 ? eff.oil * s.country.oil * 0.5 : -eff.oil * 3;
     if (eff.chance) { const p = chanceP(s, eff.chance); sc += p * scoreEffects(s, eff.chance.success) + (1 - p) * scoreEffects(s, eff.chance.fail); }
     if (eff.terror) sc -= eff.terror * 0.15;
+    if (eff.warEnd) sc += { sieg: 20, frieden: 8, niederlage: -15 }[eff.warEnd];
+    if (eff.nukeDamage) sc -= 40;
+    if (eff.doom) sc -= 1000;
+    if (eff.ostracize) sc -= 80;
     return sc;
   }
 
@@ -764,6 +798,7 @@ const Engine = (() => {
     const p = policyById(id);
     if (id in s.policies) return { ok: false, why: 'Bereits aktiv' };
     if (p.nonNuclearOnly && (s.nukes > 0 || s.nukeProgram)) return { ok: false, why: 'Dein Land besitzt bereits Atomwaffen' };
+    if (p.nonNuclearOnly && s.disarm && (s.disarm.signed[s.countryId] || s.disarm.done || s.disarm.dismantling)) return { ok: false, why: 'Verstößt gegen den Abrüstungsvertrag' };
     const blocked = (p.excludes || []).find(x => x in s.policies);
     if (blocked) return { ok: false, why: `Unvereinbar mit „${policyById(blocked).name}“` };
     if (s.capital < p.cost) return { ok: false, why: `Benötigt ${p.cost} ⚡ politisches Kapital` };
@@ -840,8 +875,6 @@ const Engine = (() => {
     if (war) { opt('frieden', true); return list; }
     opt('besuch', true);
     opt('hilfe', true);
-    if (s.trade[id]) opt('handel_end', true); else opt('handel', r >= 25 && !s.sanctions[id], s.sanctions[id] ? 'Erst Sanktionen aufheben' : 'Beziehung zu schlecht');
-    if (s.alliance[id]) opt('buendnis_end', true); else opt('buendnis', r >= 60, 'Beziehung zu schlecht');
     if (s.sanctions[id]) opt('sanktion_end', true); else opt('sanktion', !s.alliance[id], 'Nicht gegen Verbündete');
     opt('krieg', r <= -40 && !s.alliance[id] && s.wars.length === 0, s.wars.length ? 'Bereits im Krieg' : 'Beziehung nicht feindlich genug');
     return list;
@@ -865,7 +898,9 @@ const Engine = (() => {
       case 'sanktion': s.sanctions[id] = true; s.trade[id] = false; rel(-30); s.baseRelations[id] -= 15;
         s.stats.reputation = clamp(s.stats.reputation + (o.stats.reputation < 40 ? 2 : -2), 0, 100); s.groupMood.conservatives += 2; msg = `Sanktionen gegen ${o.name} verhängt.`; break;
       case 'sanktion_end': s.sanctions[id] = false; rel(10); s.baseRelations[id] += 10; msg = `Sanktionen gegen ${o.name} aufgehoben.`; break;
-      case 'krieg': startWar(s, id, false); msg = `Krieg gegen ${o.name} erklärt!`; break;
+      case 'krieg':
+        if (s.pacts[id]?.nichtangriff) { delete s.pacts[id].nichtangriff; s.stats.reputation = clamp(s.stats.reputation - 10, 0, 100); addNews(s, `Wir brechen den Nichtangriffspakt mit ${o.name}!`, 'bad'); }
+        startWar(s, id, false); msg = `Krieg gegen ${o.name} erklärt!`; break;
       case 'frieden': {
         const w = s.wars.find(x => x.enemy === id);
         const p = clamp(0.25 + w.progress / 150 + w.months * 0.01, 0.05, 0.95);
@@ -992,10 +1027,78 @@ const Engine = (() => {
     const o = byId(w.enemy);
     s.stats.reputation = clamp(s.stats.reputation - 12, 0, 100);
     for (const id in s.relations) s.relations[id] = clamp(s.relations[id] - 8, -100, 100);
-    const p = o.nuclear ? 0.12 : clamp(0.45 + w.progress / 200, 0.15, 0.85);
+    const p = hasNukes(s, w.enemy) ? 0.12 : clamp(0.45 + w.progress / 200, 0.15, 0.85);
     if (Math.random() < p) { endWar(s, w, 'frieden'); s.econ.debt = Math.max(0, s.econ.debt - 1); return { ok: true, msg: `✅ ${o.name} lenkt ein und akzeptiert einen Waffenstillstand zu unseren Bedingungen.` }; }
     s.stats.stability = clamp(s.stats.stability - 5, 0, 100);
     return { ok: true, msg: `❌ ${o.name} lässt sich nicht einschüchtern. Die Welt ist alarmiert.` };
+  }
+
+  function hasNukes(s, id) { return (s.worldNukes?.[id] || 0) > 0; }
+
+  // Weltweite Ächtung nach eigenem Atomwaffeneinsatz
+  function ostracize(s) {
+    s.stats.reputation = 0;
+    for (const id in s.relations) {
+      s.relations[id] = clamp(s.relations[id] - 60, -100, 100);
+      s.baseRelations[id] = clamp(s.baseRelations[id] - 50, -100, 100);
+      s.alliance[id] = false;
+      if (s.relations[id] < 30) { s.sanctions[id] = true; s.trade[id] = false; }
+    }
+    s.blocs = s.blocs.filter(b => !BLOCS[b] || !BLOCS[b].alliance);
+    if (s.ownBloc) s.ownBloc.members = [];
+    s.approvalMood -= 30;
+    s.stats.stability = clamp(s.stats.stability - 30, 0, 100);
+    s.stats.environment = clamp(s.stats.environment - 20, 0, 100);
+    s.groupMood.greens -= 40; s.groupMood.youth -= 30; s.groupMood.workers -= 10; s.groupMood.retirees -= 10;
+    s.mods.push({ key: 'growth', value: -3, months: 36, label: 'Weltweite Ächtung' });
+    if (s.disarm) { s.disarm.signed = {}; s.disarm.dismantling = false; }
+  }
+
+  // Schaden durch einen gegnerischen Atomwaffeneinsatz (abstrakt)
+  function nuclearDamage(s, id) {
+    s.econ.gdp *= 0.9;
+    s.econ.debt += 6;
+    s.stats.stability = clamp(s.stats.stability - 20, 0, 100);
+    s.stats.health = clamp(s.stats.health - 10, 0, 100);
+    s.stats.environment = clamp(s.stats.environment - 12, 0, 100);
+    s.approvalMood -= 10;
+    for (const g in s.groupMood) s.groupMood[g] -= 5;
+    s.mods.push({ key: 'growth', value: -2, months: 24, label: 'Nuklearschaden' });
+    addNews(s, `☢️ ${byId(id).name} setzt eine Atomwaffe gegen uns ein. Das Land steht unter Schock.`, 'bad');
+    s.budget = computeBudget(s);
+  }
+
+  function nuclearCrisisEvent(s, w, origin) {
+    const o = byId(w.enemy);
+    const treatyBonus = s.pacts[w.enemy]?.ruestung ? 0.15 : 0;
+    if (origin === 'own') return {
+      id: '_nuklearkrise', icon: '☢️', cat: 'militaer', land: w.enemy, title: 'Nukleare Krise',
+      text: `${o.name} hat seine Atomstreitkräfte in höchste Alarmbereitschaft versetzt und droht mit einem Gegenschlag. Die Welt hält den Atem an. Jetzt entscheidet sich, ob die Lage noch zu retten ist.`,
+      choices: [
+        { label: 'Heißer Draht: sofortige Deeskalation', desc: 'Direkter Kontakt zur Gegenseite, Angebot eines Waffenstillstands.', effects: { chance: { p: 0.55 + treatyBonus,
+          success: { text: 'Die Deeskalation gelingt. Beide Seiten vereinbaren einen Waffenstillstand.', warEnd: 'frieden' },
+          fail: { text: `${o.name} antwortet mit einem begrenzten Gegenschlag. Der Krieg geht weiter.`, nukeDamage: true } } } },
+        { label: 'UN-Sicherheitsrat einschalten', desc: 'Internationale Vermittlung unter enormem Zeitdruck.', effects: { capital: -15, chance: { p: 0.5 + treatyBonus,
+          success: { text: 'Die Vermittlung gelingt in letzter Minute. Waffenstillstand unter UN-Aufsicht.', warEnd: 'frieden', stats: { reputation: 5 } },
+          fail: { text: 'Die Vermittlung scheitert – es kommt zu einem begrenzten Gegenschlag.', nukeDamage: true } } } },
+        { label: 'Volle Abschreckung: mit Zweitschlag drohen', desc: 'Alles auf eine Karte. Extrem gefährlich.', effects: { chance: { p: 0.45,
+          success: { text: `${o.name} weicht zurück und kapituliert.`, warEnd: 'sieg' },
+          fail: { text: 'Die Eskalation ist nicht mehr aufzuhalten.', doom: true } } } },
+        { label: 'Kapitulieren, um das Schlimmste zu verhindern', effects: { warEnd: 'niederlage' } },
+      ] };
+    const choices = [
+      { label: 'Sofortiger Waffenstillstand', desc: 'Weitere Opfer verhindern – um jeden Preis.', effects: { warEnd: 'frieden', stats: { approval: -5 } } },
+      { label: 'UN-Vermittlung anrufen', effects: { capital: -15, chance: { p: 0.6 + treatyBonus,
+        success: { text: 'Unter internationalem Druck willigt der Gegner in einen Waffenstillstand ein.', warEnd: 'frieden', stats: { reputation: 5 } },
+        fail: { text: 'Die Vermittlung scheitert. Der Krieg geht weiter.' } } } },
+      { label: 'Weiterkämpfen', desc: 'Wir lassen uns nicht erpressen.', effects: { groups: { military: 5, youth: -8 } } },
+    ];
+    if (s.nukes > 0) choices.push({ label: 'Nukleare Vergeltung', desc: 'Antwort mit eigenen Atomwaffen. Höchstes Risiko einer totalen Eskalation.', effects: { ostracize: true, chance: { p: 0.45,
+      success: { text: `${o.name} gibt auf, bevor es zu einer weiteren Eskalation kommt.`, warEnd: 'sieg' },
+      fail: { text: 'Die Spirale der Vergeltung lässt sich nicht mehr stoppen.', doom: true } } } });
+    return { id: '_atomangriff', icon: '☢️', cat: 'militaer', land: w.enemy, title: `${o.name} setzt eine Atomwaffe ein`,
+      text: `In die Enge getrieben, hat ${o.name} eine Atomwaffe gegen militärische Ziele in unserem Land eingesetzt. Die Schäden sind schwer, Wirtschaft und Gesundheitssystem sind schwer getroffen. Die Welt fordert sofortige Deeskalation. Wie reagierst du?`,
+      choices };
   }
 
   function nuclearStrike(s) {
@@ -1004,31 +1107,277 @@ const Engine = (() => {
     if (!(s.nukes > 0)) return { ok: false, why: 'Wir besitzen keine Atomwaffen' };
     const o = byId(w.enemy);
     s.nukeUsed = true;
-    if (o.nuclear && Math.random() < 0.85) {
-      s.gameOver = { won: false, icon: '☢️', title: 'Atomkrieg',
-        text: `${o.name} antwortet mit einem nuklearen Gegenschlag. Beide Länder sind verwüstet, die Weltordnung ist zerbrochen. In diesem Krieg gibt es keine Gewinner.` };
-      return { ok: true, msg: 'Nuklearer Schlagabtausch.' };
+    s.nukes = Math.max(0, s.nukes - 1);
+    ostracize(s);
+    if (hasNukes(s, w.enemy)) {
+      addNews(s, `☢️ Atomschlag gegen ${o.name}. ${o.name} droht mit Vergeltung – die Welt steht am Abgrund.`, 'bad');
+      s.pendingEvents.push(nuclearCrisisEvent(s, w, 'own'));
+      s.budget = computeBudget(s);
+      return { ok: true, msg: 'Nukleare Krise!' };
     }
     s.wars = s.wars.filter(x => x !== w);
     s.relations[w.enemy] = -100; s.baseRelations[w.enemy] = -100;
-    // Die ganze Welt wendet sich ab
-    s.stats.reputation = 0;
-    for (const id in s.relations) {
-      s.relations[id] = clamp(s.relations[id] - 60, -100, 100);
-      s.baseRelations[id] = clamp(s.baseRelations[id] - 50, -100, 100);
-      s.alliance[id] = false;
-      if (s.relations[id] < 30) { s.sanctions[id] = true; s.trade[id] = false; }
-    }
-    s.approvalMood -= 30;
-    s.stats.stability = clamp(s.stats.stability - 30, 0, 100);
-    s.stats.environment = clamp(s.stats.environment - 20, 0, 100);
-    s.groupMood.greens -= 40; s.groupMood.youth -= 30; s.groupMood.workers -= 10; s.groupMood.retirees -= 10;
-    s.mods.push({ key: 'growth', value: -3, months: 36, label: 'Weltweite Ächtung' });
-    s.nukes = Math.max(0, s.nukes - 1);
     addNews(s, `☢️ Atomschlag gegen ${o.name}. Der Krieg ist vorbei – die Welt verhängt Sanktionen und bricht die Beziehungen ab.`, 'bad');
     s.pendingEvents.push(infoEvent('☢️', 'Die Welt steht unter Schock', `${o.name} hat kapituliert. Doch der Preis ist unermesslich: Unzählige Opfer, weltweite Ächtung, Sanktionen fast aller Staaten, und alle Bündnisse sind zerbrochen. Dein Name wird für immer mit dieser Entscheidung verbunden sein.`));
     s.budget = computeBudget(s);
     return { ok: true, msg: `Atomschlag gegen ${o.name}.` };
+  }
+
+  // ─────────────────────────── Verträge ───────────────────────────
+  const TREATIES = {
+    handel:       { name: 'Handelsabkommen', icon: '📜', cost: 10, diff: 15, desc: 'Wachstum +0,12 % · Unternehmer 😊' },
+    buendnis:     { name: 'Militärbündnis', icon: '🛡️', cost: 15, diff: 55, desc: 'Gegenseitiger Beistand im Krieg · Militär 😊' },
+    nichtangriff: { name: 'Nichtangriffspakt', icon: '🤞', cost: 8, diff: -10, desc: 'Dieses Land greift uns nicht an, Beziehung verbessert sich stetig' },
+    forschung:    { name: 'Forschungsabkommen', icon: '🔬', cost: 8, diff: 20, desc: 'Wachstum +0,05 %, Bildung +1' },
+    energie:      { name: 'Energiepartnerschaft', icon: '⚡', cost: 8, diff: 20, desc: 'Wachstum +0,03 %, Inflation −0,05' },
+    ruestung:     { name: 'Rüstungskontrollvertrag', icon: '🕊️', cost: 12, diff: 25, desc: 'Halbiert das Risiko nuklearer Eskalation, erleichtert Abrüstung, Ansehen +1' },
+    beitritt:     { name: 'Beitritt zu deinem Bündnis', icon: '🏳️', cost: 12, diff: 45, desc: 'Wird Mitglied deines Bündnisses (Beistand & Handel)' },
+  };
+  const MONEY_OFFERS = [0, 0.05, 0.15, 0.3];
+
+  function hasTreaty(s, id, type) {
+    if (type === 'handel') return !!s.trade[id];
+    if (type === 'buendnis') return !!s.alliance[id];
+    if (type === 'beitritt') return !!(s.ownBloc && s.ownBloc.members.includes(id));
+    return !!(s.pacts[id] && s.pacts[id][type]);
+  }
+  function treatyBlocked(s, id, type) {
+    if (atWarWith(s, id)) return 'Wir sind im Krieg';
+    if (type === 'handel' && s.sanctions[id]) return 'Erst Sanktionen aufheben';
+    if (type === 'ruestung' && !hasNukes(s, id) && !(s.nukes > 0)) return 'Nur sinnvoll, wenn eine Seite Atomwaffen hat';
+    if (type === 'beitritt' && !s.ownBloc) return 'Gründe zuerst ein eigenes Bündnis';
+    const cd = (s.cooldowns['neg:' + id + ':' + type] || 0) - s.month;
+    if (cd > 0) return `Nach der Absage erst in ${cd} Mon. wieder`;
+    return null;
+  }
+  function negotiationChance(s, id, type, offer = {}) {
+    const t = TREATIES[type], o = byId(id);
+    if (atWarWith(s, id)) return 0;
+    let v = s.relations[id] - t.diff;
+    v += [0, 10, 22, 35][offer.money || 0] * Math.sqrt(clamp(s.econ.gdp / o.gdp, 0.3, 4));
+    if (offer.concession) v += 15;
+    if (offer.tech) v += 12;
+    v += (s.stats.reputation - 50) * 0.2;
+    if (s.sanctions[id]) v -= 25;
+    if (type === 'buendnis' || type === 'beitritt') {
+      const westMe = s.blocs.includes('NATO'), westThem = o.blocs.includes('NATO');
+      if (westMe !== westThem) v -= 20;
+      if (o.gov !== s.country.gov) v -= 10;
+    }
+    return clamp(0.5 + v / 70, 0.03, 0.95);
+  }
+  function negotiate(s, id, type, offer = {}) {
+    const t = TREATIES[type], o = byId(id);
+    if (hasTreaty(s, id, type)) return { ok: false, why: 'Vertrag besteht bereits' };
+    const blocked = treatyBlocked(s, id, type);
+    if (blocked) return { ok: false, why: blocked };
+    if (s.capital < t.cost) return { ok: false, why: `Benötigt ${t.cost} ⚡` };
+    s.capital -= t.cost;
+    const p = negotiationChance(s, id, type, offer);
+    if (Math.random() >= p) {
+      s.cooldowns['neg:' + id + ':' + type] = s.month + 4;
+      s.relations[id] = clamp(s.relations[id] - 3, -100, 100);
+      addNews(s, `${o.name} lehnt unser Angebot für ein${type === 'beitritt' ? 'en Bündnisbeitritt' : ' ' + t.name} ab.`, 'bad');
+      return { ok: true, accepted: false, msg: `❌ ${o.name} lehnt ab.` };
+    }
+    // Angenommen: Gegenleistungen werden fällig
+    s.econ.debt += MONEY_OFFERS[offer.money || 0];
+    if (offer.concession) { s.groupMood.workers -= 3; s.groupMood.conservatives -= 3; }
+    if (offer.tech) { s.groupMood.business -= 3; }
+    if (type === 'handel') { s.trade[id] = true; s.groupMood.business += 3; }
+    else if (type === 'buendnis') { s.alliance[id] = true; s.groupMood.military += 3; }
+    else if (type === 'beitritt') { s.ownBloc.members.push(id); s.alliance[id] = true; if (!s.sanctions[id]) s.trade[id] = true; }
+    else { s.pacts[id] = { ...(s.pacts[id] || {}), [type]: true }; }
+    s.relations[id] = clamp(s.relations[id] + 5, -100, 100);
+    s.baseRelations[id] = clamp(s.baseRelations[id] + 5, -100, 100);
+    s.budget = computeBudget(s);
+    const msg = type === 'beitritt' ? `${o.name} tritt dem ${s.ownBloc.name} bei!` : `${t.name} mit ${o.name} unterzeichnet!`;
+    addNews(s, msg, 'good');
+    return { ok: true, accepted: true, msg: '✅ ' + msg };
+  }
+  function cancelTreaty(s, id, type) {
+    if (!hasTreaty(s, id, type)) return { ok: false, why: 'Kein solcher Vertrag' };
+    const o = byId(id);
+    if (type === 'handel') s.trade[id] = false;
+    else if (type === 'buendnis') s.alliance[id] = false;
+    else if (type === 'beitritt') { s.ownBloc.members = s.ownBloc.members.filter(x => x !== id); s.alliance[id] = false; }
+    else delete s.pacts[id][type];
+    const hit = type === 'buendnis' || type === 'beitritt' ? 25 : type === 'nichtangriff' ? 20 : 10;
+    s.relations[id] = clamp(s.relations[id] - hit, -100, 100);
+    s.baseRelations[id] -= hit / 3;
+    if (type === 'nichtangriff') s.stats.reputation = clamp(s.stats.reputation - 4, 0, 100);
+    s.budget = computeBudget(s);
+    addNews(s, `${TREATIES[type].name} mit ${o.name} gekündigt.`, 'bad');
+    return { ok: true, msg: `${TREATIES[type].name} gekündigt.` };
+  }
+
+  // ─────────────────────────── Bündnisse (Blöcke) ───────────────────────────
+  const BLOCS = {
+    EU:    { name: 'Europäische Union', icon: '⭐', kind: 'Wirtschaft & Politik', desc: 'Binnenmarkt mit allen Mitgliedern, Wachstum +0,2 %', trade: true, mods: { growth: 0.2 },
+             req: s => s.country.region !== 'Europa' ? 'Nur europäische Länder' : s.country.gov !== 'demokratie' ? 'Nur Demokratien' : s.stats.corruption > 45 ? 'Korruption muss unter 45 liegen' : null },
+    NATO:  { name: 'NATO', icon: '🛡️', kind: 'Militärbündnis', desc: 'Beistand aller Mitglieder im Krieg, Sicherheit +3', alliance: true, mods: { security: 3 },
+             req: s => s.country.gov !== 'demokratie' ? 'Nur Demokratien' : s.blocs.includes('BRICS') ? 'Unvereinbar mit BRICS' : null },
+    BRICS: { name: 'BRICS', icon: '🌐', kind: 'Wirtschaftsforum', desc: 'Günstige Kredite und Partner: Zinsen −0,4, Wachstum +0,1 %', mods: { interest: -0.4, growth: 0.1 },
+             req: s => s.blocs.includes('NATO') ? 'Unvereinbar mit NATO' : null },
+    NA:    { name: 'USMCA (Nordamerika)', icon: '🌎', kind: 'Freihandel', desc: 'Freihandel mit den USA, Kanada und Mexiko', trade: true, mods: { growth: 0.1 },
+             req: s => ['US', 'CA', 'MX'].includes(s.countryId) ? null : 'Nur Nordamerika' },
+    PAZ:   { name: 'Pazifik-Partnerschaft', icon: '🌊', kind: 'Freihandel', desc: 'Freihandel rund um den Pazifik, Wachstum +0,1 %', trade: true, mods: { growth: 0.1 },
+             req: s => ['Asien', 'Ozeanien', 'Amerika'].includes(s.country.region) ? null : 'Nur Pazifik-Anrainer' },
+  };
+  const RIVAL_BLOC = { NATO: 'BRICS', BRICS: 'NATO' };
+  function blocMembers(s, key) { return COUNTRIES.filter(c => c.id !== s.countryId && c.blocs.includes(key)).map(c => c.id); }
+  function blocStatus(s, key) {
+    const b = BLOCS[key], members = blocMembers(s, key);
+    const member = s.blocs.includes(key);
+    const avg = members.length ? members.reduce((a, id) => a + s.relations[id], 0) / members.length : 0;
+    const chance = clamp(0.2 + avg / 100 + (s.stats.reputation - 50) / 150, 0.05, 0.92);
+    const cd = Math.max(0, (s.cooldowns['bloc:' + key] || 0) - s.month);
+    let why = member ? null : b.req(s) || (cd ? `Neuer Antrag in ${cd} Mon. möglich` : null) || (s.wars.some(w => members.includes(w.enemy)) ? 'Wir sind im Krieg mit einem Mitglied' : null);
+    return { member, members, chance, why, avg, joinCost: 25, leaveCost: 10 };
+  }
+  function joinBloc(s, key) {
+    const st = blocStatus(s, key), b = BLOCS[key];
+    if (st.member) return { ok: false, why: 'Bereits Mitglied' };
+    if (st.why) return { ok: false, why: st.why };
+    if (s.capital < st.joinCost) return { ok: false, why: `Benötigt ${st.joinCost} ⚡` };
+    s.capital -= st.joinCost;
+    if (Math.random() >= st.chance) {
+      s.cooldowns['bloc:' + key] = s.month + 12;
+      addNews(s, `Beitrittsantrag zur ${b.name} abgelehnt.`, 'bad');
+      return { ok: true, msg: `❌ Die Mitglieder lehnen unseren Beitritt zur ${b.name} ab.` };
+    }
+    s.blocs.push(key);
+    for (const id of st.members) {
+      if (b.trade && !s.sanctions[id]) s.trade[id] = true;
+      if (b.alliance) s.alliance[id] = true;
+      s.relations[id] = clamp(s.relations[id] + 10, -100, 100);
+      s.baseRelations[id] = clamp(s.baseRelations[id] + 10, -100, 100);
+    }
+    if (RIVAL_BLOC[key]) for (const id of blocMembers(s, RIVAL_BLOC[key])) s.relations[id] = clamp(s.relations[id] - 15, -100, 100);
+    s.budget = computeBudget(s);
+    addNews(s, `Historischer Schritt: Wir sind jetzt Mitglied der ${b.name}!`, 'good');
+    return { ok: true, msg: `✅ Willkommen in der ${b.name}!` };
+  }
+  function leaveBloc(s, key) {
+    const st = blocStatus(s, key), b = BLOCS[key];
+    if (!st.member) return { ok: false, why: 'Kein Mitglied' };
+    if (s.capital < st.leaveCost) return { ok: false, why: `Benötigt ${st.leaveCost} ⚡` };
+    s.capital -= st.leaveCost;
+    s.blocs = s.blocs.filter(x => x !== key);
+    const still = (id, prop) => s.blocs.some(k => BLOCS[k]?.[prop] && blocMembers(s, k).includes(id));
+    for (const id of st.members) {
+      if (b.trade && !still(id, 'trade')) s.trade[id] = false;
+      if (b.alliance && !still(id, 'alliance')) s.alliance[id] = false;
+      s.relations[id] = clamp(s.relations[id] - 15, -100, 100);
+      s.baseRelations[id] = clamp(s.baseRelations[id] - 10, -100, 100);
+    }
+    s.budget = computeBudget(s);
+    addNews(s, `Wir treten aus der ${b.name} aus.`, 'bad');
+    return { ok: true, msg: `Austritt aus der ${b.name} vollzogen.` };
+  }
+  function foundBloc(s, name) {
+    if (s.ownBloc) return { ok: false, why: 'Du hast bereits ein Bündnis gegründet' };
+    if (s.stats.reputation < 30) return { ok: false, why: 'Dein Ansehen ist zu gering (mind. 30)' };
+    if (s.capital < 30) return { ok: false, why: 'Benötigt 30 ⚡' };
+    s.capital -= 30;
+    s.ownBloc = { name: (name || '').trim().slice(0, 40) || `${s.country.name}-Pakt`, members: [], founded: s.month };
+    addNews(s, `${s.leader.title} ${s.leader.name} gründet das Bündnis „${s.ownBloc.name}“.`, 'good');
+    return { ok: true, msg: `✅ „${s.ownBloc.name}“ gegründet. Lade jetzt Länder per Vertrag ein!` };
+  }
+  function dissolveBloc(s) {
+    if (!s.ownBloc) return { ok: false, why: 'Kein eigenes Bündnis' };
+    for (const id of s.ownBloc.members) { s.alliance[id] = false; s.relations[id] = clamp(s.relations[id] - 15, -100, 100); }
+    addNews(s, `Das Bündnis „${s.ownBloc.name}“ wird aufgelöst.`, 'bad');
+    s.ownBloc = null;
+    return { ok: true, msg: 'Bündnis aufgelöst.' };
+  }
+
+  // ─────────────────────────── Atomwaffenfreie Welt ───────────────────────────
+  function nuclearHolders(s) {
+    const l = Object.keys(s.worldNukes).filter(id => s.worldNukes[id] > 0);
+    if (s.nukes > 0 || s.nukeProgram) l.push(s.countryId);
+    return l;
+  }
+  function disarmChance(s, id) {
+    if (atWarWith(s, id)) return 0;
+    const signed = Object.keys(s.disarm.signed).length;
+    const selfOpen = (s.nukes > 0 || s.nukeProgram) && !s.disarm.signed[s.countryId];
+    return clamp(0.1 + s.relations[id] / 160 + (s.stats.reputation - 50) / 200 + signed * 0.07 + (s.pacts[id]?.ruestung ? 0.15 : 0) - (selfOpen ? 0.25 : 0), 0.02, 0.85);
+  }
+  function startDisarm(s) {
+    if (s.disarm.active) return { ok: false, why: 'Initiative läuft bereits' };
+    if (s.nukeUsed) return { ok: false, why: 'Nach deinem Atomschlag glaubt dir niemand' };
+    if (s.stats.reputation < 45) return { ok: false, why: 'Ansehen mindestens 45 nötig' };
+    if (s.capital < 20) return { ok: false, why: 'Benötigt 20 ⚡' };
+    s.capital -= 20;
+    s.disarm.active = true;
+    s.stats.reputation = clamp(s.stats.reputation + 3, 0, 100);
+    s.groupMood.greens += 6; s.groupMood.youth += 4;
+    addNews(s, `${s.leader.title} ${s.leader.name} startet eine Weltinitiative für die Abschaffung aller Atomwaffen.`, 'good');
+    return { ok: true, msg: '✅ Abrüstungsinitiative gestartet. Überzeuge jetzt jede Atommacht einzeln.' };
+  }
+  function persuadeDisarm(s, id) {
+    if (!s.disarm.active) return { ok: false, why: 'Starte zuerst die Initiative' };
+    if (s.disarm.signed[id]) return { ok: false, why: 'Hat bereits unterzeichnet' };
+    const cd = (s.cooldowns['disarm:' + id] || 0) - s.month;
+    if (cd > 0) return { ok: false, why: `Erst in ${cd} Mon. wieder` };
+    if (s.capital < 12) return { ok: false, why: 'Benötigt 12 ⚡' };
+    s.capital -= 12;
+    s.cooldowns['disarm:' + id] = s.month + 6;
+    const o = byId(id);
+    if (Math.random() < disarmChance(s, id)) {
+      s.disarm.signed[id] = true;
+      s.relations[id] = clamp(s.relations[id] + 5, -100, 100);
+      addNews(s, `${o.name} unterzeichnet den Vertrag über die Abschaffung von Atomwaffen!`, 'good');
+      return { ok: true, msg: `✅ ${o.name} unterzeichnet!` };
+    }
+    s.relations[id] = clamp(s.relations[id] - 2, -100, 100);
+    return { ok: true, msg: `❌ ${o.name} lehnt (noch) ab.` };
+  }
+  function pledgeDisarm(s) {
+    if (!s.disarm.active) return { ok: false, why: 'Starte zuerst die Initiative' };
+    if (!(s.nukes > 0 || s.nukeProgram)) return { ok: false, why: 'Wir besitzen keine Atomwaffen' };
+    if (s.disarm.signed[s.countryId]) return { ok: false, why: 'Bereits unterzeichnet' };
+    if (s.capital < 10) return { ok: false, why: 'Benötigt 10 ⚡' };
+    s.capital -= 10;
+    s.disarm.signed[s.countryId] = true;
+    if (s.nukeProgram) { s.nukeProgram = null; delete s.policies.atomwaffen; }
+    s.groupMood.military -= 10; s.groupMood.conservatives -= 5; s.groupMood.greens += 10;
+    s.stats.reputation = clamp(s.stats.reputation + 5, 0, 100);
+    addNews(s, 'Wir verpflichten uns, unser eigenes Atomarsenal abzubauen.', 'good');
+    return { ok: true, msg: '✅ Wir haben unterzeichnet – das macht uns glaubwürdig.' };
+  }
+  function tickDisarm(s) {
+    const d = s.disarm;
+    if (!d || !d.active || d.done) return;
+    // Unterzeichner können wieder abspringen
+    for (const id in d.signed) {
+      if (id === s.countryId) continue;
+      if (atWarWith(s, id) || (s.relations[id] < -40 && Math.random() < 0.05)) {
+        delete d.signed[id];
+        if (d.dismantling) { d.dismantling = false; addNews(s, `${byId(id).name} stoppt die Abrüstung – der Prozess gerät ins Stocken!`, 'bad'); }
+        else addNews(s, `${byId(id).name} zieht seine Unterschrift unter den Abrüstungsvertrag zurück.`, 'bad');
+      }
+    }
+    const holders = nuclearHolders(s);
+    const allSigned = holders.every(id => d.signed[id]);
+    if (!d.dismantling && allSigned && holders.length) {
+      d.dismantling = true;
+      s.stats.reputation = clamp(s.stats.reputation + 15, 0, 100);
+      s.approvalMood += 6;
+      addNews(s, '🕊️ Alle Atommächte haben unterzeichnet – die Abrüstung beginnt!', 'good');
+      s.pendingEvents.push(infoEvent('🕊️', 'Historischer Abrüstungsvertrag', 'Alle Atommächte der Welt haben den Vertrag unterzeichnet. Unter internationaler Aufsicht werden die Arsenale in den nächsten Jahren Schritt für Schritt vernichtet. Die Welt feiert dich als Friedensstifter.'));
+    }
+    if (d.dismantling) {
+      for (const id in s.worldNukes) s.worldNukes[id] = Math.max(0, Math.floor(s.worldNukes[id] * 0.94 - 5));
+      if (s.nukes > 0) s.nukes = Math.max(0, Math.floor(s.nukes * 0.94 - 5));
+      if (!nuclearHolders(s).length) {
+        d.done = true; d.dismantling = false; s.flags.nukeFree = true;
+        s.approvalMood += 8;
+        addNews(s, '🕊️ Die letzte Atomwaffe der Welt ist vernichtet!', 'good');
+        s.pendingEvents.push(infoEvent('🏅', 'Eine Welt ohne Atomwaffen', 'Die letzte Atomwaffe ist vernichtet. Zum ersten Mal seit 1945 lebt die Menschheit ohne die Gefahr eines Atomkriegs. Dir wird der Friedensnobelpreis verliehen.'));
+      }
+    }
   }
 
   // ─────────────────────────── Berater-Tipps ───────────────────────────
@@ -1064,7 +1413,7 @@ const Engine = (() => {
     if (s.wars.length) {
       const w = s.wars[0], odds = warOdds(s, w.enemy), o = byId(w.enemy);
       if (odds < 0.4) add('militaer', 'danger', `Wir sind ${o.name} militärisch klar unterlegen (Kräfteverhältnis ${fmt(odds * 100, 0)} %). Mobilisiere, suche Verbündete oder biete Frieden an.`);
-      if (o.nuclear && w.progress > 55) add('militaer', 'danger', `${o.name} ist eine Atommacht. Drängst du sie zu weit in die Enge, droht nukleare Eskalation!`);
+      if (hasNukes(s, w.enemy) && w.progress > 55) add('militaer', 'danger', `${o.name} ist eine Atommacht. Drängst du sie zu weit in die Enge, droht nukleare Eskalation!`);
       if (s.readiness < 60) add('militaer', 'warn', `Unsere Kriegsbereitschaft ist zu niedrig (${fmt(s.readiness, 0)}). Erhöhe die Bereitschaftsstufe, sonst kämpft die Armee mit halber Kraft.`);
     }
     if (s.capacity < 35) add('politik', 'info', `Die Staatskapazität ist gering (${fmt(s.capacity, 0)}): Gesetze wirken nur teilweise, Fortschritt braucht Jahrzehnte. Korruptionsbekämpfung und Verwaltungsreformen stärken sie.`);
@@ -1114,8 +1463,9 @@ const Engine = (() => {
     for (const k of ['education', 'health', 'security', 'environment', 'welfare', 'reputation']) quality += s.stats[k] - c.stats[k];
     quality -= (s.stats.corruption - c.stats.corruption);
     const debtChange = s.econ.debt - c.debt;
-    const score = Math.round(s.month * 3 + avgAppr * 4 + gdpGrowth * 6 + quality * 3 - Math.max(0, debtChange) * 2 + (s.gameOver && s.gameOver.won ? 200 : 0));
+    const score = Math.round(s.month * 3 + avgAppr * 4 + gdpGrowth * 6 + quality * 3 - Math.max(0, debtChange) * 2 + (s.gameOver && s.gameOver.won ? 200 : 0) + (s.flags.nukeFree ? 400 : 0));
     let rank = 'Fußnote der Geschichte';
+    if (s.flags.nukeFree && !s.nukeUsed) return { score, rank: 'Friedensnobelpreisträger', avgAppr, gdpGrowth, quality, debtChange };
     if (s.nukeUsed) return { score: Math.min(score, 0) - 500, rank: 'Von der Welt geächtet', avgAppr, gdpGrowth, quality, debtChange };
     if (score > 300) rank = 'Solides Staatsoberhaupt';
     if (score > 600) rank = 'Großer Reformer';
@@ -1140,6 +1490,12 @@ const Engine = (() => {
     if (!s.sf) s.sf = { quality: c.sf.quality, missions: 0, success: 0 };
     if (s.terror === undefined) s.terror = clamp(75 - s.stats.security * 0.7, 5, 90);
     if (s.nukes === undefined) { s.nukes = c.nukes; s.nukeProgram = null; s.nukeUsed = false; }
+    if (!s.pacts) s.pacts = {};
+    if (!s.blocs) s.blocs = [...c.blocs];
+    if (!s.start.blocs) s.start.blocs = [...c.blocs];
+    if (s.ownBloc === undefined) s.ownBloc = null;
+    if (!s.worldNukes) { s.worldNukes = {}; for (const o of COUNTRIES) if (o.id !== c.id && o.nukes > 0) s.worldNukes[o.id] = o.nukes; }
+    if (!s.disarm) s.disarm = { active: false, signed: {}, dismantling: false, done: false };
     s.budget = computeBudget(s);
     return s;
   }
@@ -1164,6 +1520,9 @@ const Engine = (() => {
     rollRandomEvent, resolveEvent, applyEffects, scoreEffects, recommend, scorePolicy, recommendedPolicies,
     canEnact, enactPolicy, repealPolicy, repealCost, canDoAction, doAction,
     dipOptions, dipAction, DIP_ACTIONS, WAR_ACTIONS, warAction, militaryPower, enemyPower, atWarWith, warOdds,
+    hasNukes, TREATIES, MONEY_OFFERS, hasTreaty, treatyBlocked, negotiationChance, negotiate, cancelTreaty,
+    BLOCS, blocMembers, blocStatus, joinBloc, leaveBloc, foundBloc, dissolveBloc,
+    nuclearHolders, disarmChance, startDisarm, persuadeDisarm, pledgeDisarm,
     READINESS_LEVELS, setReadiness, SF_OPS, sfOp, sfChance, sfTarget, chanceP, nuclearThreat, nuclearStrike,
     tips, legacy, serialize, deserialize, addNews,
     fmt, fmtSigned, fmtMoney, dateStr, creditRating, byId, policyById, actionById, clamp,

@@ -26,18 +26,19 @@ npm run build:win      # erzeugt eine portable .exe im Ordner dist/
 | 🤝 **Soziales** | Bildung, Gesundheit, Rente, Wohnen, Einwanderung, Klima – 16 Gesetze |
 | 🛡️ **Militär** | Mobilisierung, Offensiven (Boden, Luft, See), Spezialeinheiten (KSK, Navy SEALs, SAS, GIGN …), Terrorabwehr, Atomwaffen |
 | 🏛️ **Politik** | Korruption, Medien, Notstand, Wahlkampf – und der Countdown zur nächsten Wahl |
-| 🌍 **Diplomatie** | Beziehungen zu 26 Ländern: Staatsbesuche, Handelsabkommen, Bündnisse, Sanktionen, Krieg & Frieden |
+| 🌍 **Diplomatie** | Beziehungen zu 26 Ländern, **Vertragsverhandlungen** mit eigenen Angeboten (Handel, Militärbündnis, Nichtangriffspakt, Forschung, Energie, Rüstungskontrolle), **Bündnisse** (EU, NATO, BRICS, USMCA, Pazifik-Partnerschaft) beitreten/verlassen oder **eigenes Bündnis gründen**, **Initiative für eine atomwaffenfreie Welt**, Sanktionen, Krieg & Frieden |
 | 📊 **Statistiken** | Verlaufsdiagramme für Zustimmung, Wachstum, Schulden, Inflation u. v. m. |
 | 📰 **Nachrichten** | Eigene Tageszeitung und Newsticker |
 
 - **Realistische Unterschiede:** Die *Staatskapazität* bestimmt, wie gut Reformen wirken – ein schwacher Staat wie Sudan entwickelt sich nur langsam. Kriege brauchen Vorbereitung: Ohne Mobilisierung und Verbündete hat auch Deutschland gegen eine Großmacht keine Chance. Atommächte lassen sich nicht einfach besiegen.
 - **Spezialeinheiten** jedes Landes für Terrorabwehr, Geiselbefreiung und Kommandoeinsätze – der Erfolg hängt von ihrer Ausbildung ab.
-- **Atomwaffen** als letzte, katastrophale Eskalationsstufe: nukleare Drohung oder Atomschlag mit weltweiter Ächtung – gegen Atommächte droht der Gegenschlag.
-- **53 Zufallsereignisse** mit 2–4 Entscheidungsoptionen: Generalstreik, Börsencrash, Pandemie, Terroranschlag, Ölschock, Spionage, Putschgerüchte, WM-Titel …
+- **Atomwaffen** als letzte, katastrophale Eskalationsstufe: nukleare Drohung oder Atomschlag mit weltweiter Ächtung. Gegen Atommächte folgt eine **nukleare Krise**, die sich mit Deeskalation, UN-Vermittlung oder Kapitulation noch entschärfen lässt – nur bei totaler Eskalation endet das Spiel.
+- **Atomwaffenfreie Welt:** Überzeuge jede Atommacht einzeln, gehe selbst mit gutem Beispiel voran – dann werden alle Arsenale abgebaut (Friedensnobelpreis inklusive).
+- **54 Zufallsereignisse** mit 2–4 Entscheidungsoptionen: Generalstreik, Börsencrash, Pandemie, Terroranschlag, Ölschock, Spionage, Putschgerüchte, WM-Titel …
 - **7 Bevölkerungsgruppen** (Arbeiter, Unternehmer, Rentner, Jugend, Militär, Umweltbewegung, Konservative) – ihre Zufriedenheit ergibt deine Zustimmung.
 - **Politisches Kapital ⚡** als Ressource für Gesetze und Maßnahmen.
 - **Wahlen** alle 4 Jahre (Demokratien) bzw. **Machtproben** (autoritäre Staaten).
-- **Spielende** durch Abwahl, Misstrauensvotum, Revolution, Militärputsch, Staatsbankrott oder nukleare Eskalation – oder erfolgreich nach 3 Amtszeiten mit **Vermächtnis-Punkten**. Endlosmodus verfügbar.
+- **Spielende** durch Abwahl, Misstrauensvotum, Revolution, Militärputsch, Staatsbankrott oder Atomkrieg – oder erfolgreich nach 3 Amtszeiten mit **Vermächtnis-Punkten**. Endlosmodus verfügbar.
 - 3 Schwierigkeitsgrade, automatisches Speichern, Export/Import von Spielständen, Tastenkürzel.
 
 ## ⌨️ Steuerung

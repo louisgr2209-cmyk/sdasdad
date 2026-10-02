@@ -346,12 +346,20 @@ const EVENTS = [
 
   // ═════════════ MILITÄR & DIPLOMATIE ═════════════
   { id: 'grenzzwischenfall', icon: '⚔️', cat: 'militaer', title: 'Grenzzwischenfall mit {land}', ctx: 'rival',
-    cond: s => !s.wars.length, weight: s => s._rivalRel < -20 ? 1.2 : 0.2,
+    cond: s => !s.wars.length, weight: s => s._rivalRel < -20 ? 1.2 : 0.2, skip: (s, land) => !!s.pacts[land]?.nichtangriff,
     text: 'Soldaten aus {land} haben die Grenze überschritten. Es gab einen Schusswechsel. Die Lage ist angespannt.',
     choices: [
       { label: 'Diplomatische Lösung suchen', effects: { capital: -10, relation: 10 } },
       { label: 'Truppen an die Grenze verlegen', effects: { money: 0.2, relation: -15, groups: { military: 6, conservatives: 4 } } },
       { label: 'Krieg erklären!', desc: 'Nur bei sehr schlechten Beziehungen sinnvoll – ein Krieg ist teuer und riskant.', effects: { war: true } },
+    ] },
+
+  { id: 'paktangebot', icon: '🤞', cat: 'diplomatie', title: '{land} schlägt einen Nichtangriffspakt vor', ctx: 'rival',
+    weight: s => s._rivalRel < -20 ? 0.8 : 0.2, skip: (s, land) => !!s.pacts[land]?.nichtangriff,
+    text: 'Die Spannungen mit {land} sind hoch. Überraschend schlägt die Regierung dort einen Nichtangriffspakt vor.',
+    choices: [
+      { label: 'Pakt unterzeichnen', effects: { pact: 'nichtangriff', relation: 15, groups: { military: -2 }, stats: { reputation: 2 } } },
+      { label: 'Ablehnen', effects: { relation: -5, groups: { conservatives: 2 } } },
     ] },
 
   { id: 'handelsangebot', icon: '📜', cat: 'diplomatie', title: '{land} bietet ein Handelsabkommen an', ctx: 'nottrade',
@@ -426,7 +434,7 @@ const EVENTS = [
     ] },
 
   { id: 'angriff', icon: '🔥', cat: 'militaer', title: '{land} greift an!', ctx: 'rival',
-    cond: s => s._rivalRel < -70 && !s.wars.length, weight: 0.5, cooldown: 60,
+    cond: s => s._rivalRel < -70 && !s.wars.length, weight: 0.5, cooldown: 60, skip: (s, land) => !!s.pacts[land]?.nichtangriff,
     text: 'Truppen aus {land} sind über die Grenze vorgerückt. Dein Land wird angegriffen!',
     choices: [
       { label: 'Das Land verteidigen!', effects: { war: true, forced: true } },

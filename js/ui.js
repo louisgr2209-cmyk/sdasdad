@@ -10,6 +10,8 @@ const UI = (() => {
   let autoTimer = null;
   let prev = null;              // Werte vor dem letzten Monat (für Trends)
   let setupSel = 'DE', setupFilter = 'Alle';
+  let dipTab = 'laender';
+  let neg = null; // laufende Vertragsverhandlung
   let setupOpts = { name: '', title: 'Präsident', difficulty: 'normal', mode: 'klassisch' };
   let startAnim = null;
   const prefs = loadPrefs();
@@ -335,6 +337,11 @@ const UI = (() => {
     if (eff.oil) { const exp = S.country.oil > 2; out.push(chip(`🛢️ Ölpreis ${FS(eff.oil * 100, 0)} %`, (eff.oil > 0) === exp ? 'good' : 'bad')); }
     if (eff.campaign) out.push(signedChip('📣 Wahlkampf', eff.campaign, false, 0));
     if (eff.terror) out.push(signedChip('💣 Terrorgefahr', eff.terror, true, 0));
+    if (eff.warEnd) out.push(chip({ sieg: '🏆 Sieg', frieden: '🕊️ Waffenstillstand', niederlage: '🏳️ Kapitulation' }[eff.warEnd], eff.warEnd === 'niederlage' ? 'bad' : 'good'));
+    if (eff.nukeDamage) out.push(chip('☢️ Nuklearer Schaden', 'bad'));
+    if (eff.doom) out.push(chip('💀 Atomkrieg – Spielende', 'bad'));
+    if (eff.ostracize) out.push(chip('🌍 Weltweite Ächtung', 'bad'));
+    if (eff.pact && L) out.push(chip(`🤞 Nichtangriffspakt mit ${L.name}`, 'good'));
     if (eff.sfQuality) out.push(signedChip(`🥷 ${S.country.sf.name}`, eff.sfQuality, false, 0));
     let html = `<div class="chips">${out.join('')}</div>`;
     if (eff.chance) {
@@ -591,7 +598,7 @@ const UI = (() => {
     const rows = Object.keys(S.relations).sort((a, b) => S.relations[a] - S.relations[b]).slice(0, 4).map(id => {
       const o = Engine.byId(id), p = Engine.enemyPower(id), odds = my / (my + p);
       return `<div class="bs-line" data-tip="Kräfteverhältnis: Unter 40 % ist ein Krieg aussichtslos, über 60 % gut gewinnbar."><span>${flag(id)} ${esc(o.name)} <span class="muted">(Beziehung ${F(S.relations[id], 0)})</span></span>
-        <span class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}">${F(p, 0)}${o.nuclear ? ' ☢️' : ''} · ${F(odds * 100, 0)} %</span></div>`;
+        <span class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}">${F(p, 0)}${Engine.hasNukes(S, o.id) ? ' ☢️' : ''} · ${F(odds * 100, 0)} %</span></div>`;
     }).join('');
 
     // ── Aktiver Krieg ──
@@ -606,13 +613,13 @@ const UI = (() => {
       }).join('');
       const nuke = S.nukes > 0 ? `<div class="panel" style="margin-top:12px;border-color:rgba(255,93,108,.6);background:rgba(255,93,108,.06)">
           <div class="panel-title" style="color:var(--bad)">☢️ Atomare Optionen <span class="right muted">Arsenal: ~${F(S.nukes, 0)} Sprengköpfe</span></div>
-          <p class="muted" style="font-size:12.5px;margin:0 0 10px">${o.nuclear ? `<b class="bad">${esc(o.name)} ist selbst Atommacht.</b> Ein Atomschlag führt fast sicher zum nuklearen Gegenschlag – und damit zum Ende.` : 'Ein Atomschlag beendet den Krieg sofort – aber dein Land wird weltweit geächtet: Sanktionen, zerbrochene Bündnisse, Wirtschaftseinbruch und Massenproteste.'}</p>
+          <p class="muted" style="font-size:12.5px;margin:0 0 10px">${Engine.hasNukes(S, o.id) ? `<b class="bad">${esc(o.name)} ist selbst Atommacht.</b> Ein Atomschlag löst eine nukleare Krise aus – nur mit kühlem Kopf (Deeskalation, UN-Vermittlung) lässt sich ein Atomkrieg noch verhindern.` : 'Ein Atomschlag beendet den Krieg sofort – aber dein Land wird weltweit geächtet: Sanktionen, zerbrochene Bündnisse, Wirtschaftseinbruch und Massenproteste.'}</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-sm" data-action="nuke-threat" ${S.capital < 20 || (S.cooldowns.nukeThreat || 0) > S.month ? 'disabled' : ''} data-tip="Drohung mit Atomwaffen: Der Gegner lenkt vielleicht ein. Ansehen −12, alle Beziehungen −8.">⚠️ Nukleare Drohung (20 ⚡)</button>
             <button class="btn btn-sm btn-danger" data-action="nuke-strike">☢️ Atomschlag befehlen</button>
           </div></div>` : '';
       war = `<div class="panel war-panel" style="margin-top:14px"><div class="panel-title">⚔️ Krieg gegen ${flag(o.id)} ${esc(o.name)} <span class="right">${w.months} Monate</span></div>
-        <div class="power-cmp"><div><div class="muted">Wir</div><div class="p good">${F(my, 0)}</div></div><div><div class="muted">Kräfteverhältnis</div><div class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}" style="font-size:18px;font-weight:800">${F(odds * 100, 0)} %</div></div><div><div class="muted">${esc(o.name)}</div><div class="p bad">${F(p, 0)}${o.nuclear ? ' ☢️' : ''}</div></div></div>
+        <div class="power-cmp"><div><div class="muted">Wir</div><div class="p good">${F(my, 0)}</div></div><div><div class="muted">Kräfteverhältnis</div><div class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}" style="font-size:18px;font-weight:800">${F(odds * 100, 0)} %</div></div><div><div class="muted">${esc(o.name)}</div><div class="p bad">${F(p, 0)}${Engine.hasNukes(S, o.id) ? ' ☢️' : ''}</div></div></div>
         <div class="war-track"><i style="left:0;width:${pos}%;background:linear-gradient(90deg,#1d6b4a,var(--good))"></i><i style="left:${pos}%;right:0;background:linear-gradient(90deg,var(--bad),#6b1d26)"></i></div>
         <div style="display:flex;justify-content:space-between" class="muted"><span>◀ Niederlage</span><b class="${w.progress >= 0 ? 'good' : 'bad'}">Frontverlauf ${FS(w.progress, 0)}</b><span>Sieg ▶</span></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">${acts}
@@ -697,21 +704,34 @@ const UI = (() => {
   }
 
   function viewDiplomacy() {
+    const tips = Engine.tips(S).filter(t => t.area === 'diplomatie');
+    const tabs = [['laender', '🏳️ Länder & Verträge'], ['buendnisse', '🤝 Bündnisse'], ['abruestung', '☮️ Atomwaffenfreie Welt']]
+      .map(([k, l]) => `<button class="btn ${dipTab === k ? 'active' : ''}" data-action="dip-tab" data-t="${k}">${l}</button>`).join('');
+    const body = dipTab === 'buendnisse' ? viewBlocs() : dipTab === 'abruestung' ? viewDisarm() : viewCountries();
+    return `
+      <div class="view-head"><h2>🌍 Diplomatie</h2><span class="sub">Verträge, Bündnisse, Abrüstung – und im Notfall Krieg.</span></div>
+      ${advisorBlock('diplomatie', tips)}
+      <div class="chart-tabs" style="margin-top:14px">${tabs}</div>
+      ${body}`;
+  }
+
+  function treatyBadges(id) {
+    const p = S.pacts[id] || {};
+    return (S.trade[id] ? '📜' : '') + (S.alliance[id] ? '🛡️' : '') + (p.nichtangriff ? '🤞' : '') + (p.forschung ? '🔬' : '') + (p.energie ? '⚡' : '') + (p.ruestung ? '🕊️' : '')
+      + (S.sanctions[id] ? '🚫' : '') + (Engine.atWarWith(S, id) ? '⚔️' : '') + (Engine.hasNukes(S, id) ? '☢️' : '');
+  }
+
+  function viewCountries() {
     const ids = Object.keys(S.relations).sort((a, b) => S.relations[b] - S.relations[a]);
-    if (!selCountry || !S.relations[selCountry] && S.relations[selCountry] !== 0) selCountry = ids[0];
+    if (!selCountry || S.relations[selCountry] === undefined) selCountry = ids[0];
     const list = ids.map(id => {
       const o = Engine.byId(id), r = S.relations[id];
-      const badges = (S.trade[id] ? '📜' : '') + (S.alliance[id] ? '🤝' : '') + (S.sanctions[id] ? '🚫' : '') + (Engine.atWarWith(S, id) ? '⚔️' : '');
-      return `<div class="dip-row ${id === selCountry ? 'sel' : ''}" data-action="dip-select" data-id="${id}">${flag(id)}<span>${esc(o.name)}</span>${relBar(r)}<span class="badges">${badges || '<span class="muted">' + F(r, 0) + '</span>'}</span></div>`;
+      return `<div class="dip-row ${id === selCountry ? 'sel' : ''}" data-action="dip-select" data-id="${id}">${flag(id)}<span>${esc(o.name)}</span>${relBar(r)}<span class="badges">${treatyBadges(id) || '<span class="muted">' + F(r, 0) + '</span>'}</span></div>`;
     }).join('');
-    const tips = Engine.tips(S).filter(t => t.area === 'diplomatie');
-    return `
-      <div class="view-head"><h2>🌍 Diplomatie</h2><span class="sub">Beziehungen, Handel, Bündnisse – und im Notfall Krieg.</span></div>
-      ${advisorBlock('diplomatie', tips)}
-      <div class="dip-layout" style="margin-top:14px">
+    return `<div class="dip-layout">
         <div>
           <div class="panel"><div class="panel-title">🗺️ Weltkarte</div><div class="map-wrap"><canvas data-map="1"></canvas></div>${mapLegend()}</div>
-          <div class="panel" style="margin-top:14px"><div class="panel-title">🏳️ Länder <span class="right muted">📜 Handel · 🤝 Bündnis · 🚫 Sanktion · ⚔️ Krieg</span></div><div class="dip-list">${list}</div></div>
+          <div class="panel" style="margin-top:14px"><div class="panel-title">🏳️ Länder <span class="right muted">📜 Handel · 🛡️ Bündnis · 🤞 Nichtangriff · 🔬 Forschung · ⚡ Energie · 🕊️ Rüstungskontrolle · ☢️ Atommacht</span></div><div class="dip-list">${list}</div></div>
         </div>
         <div class="panel" id="dip-detail">${dipDetail(selCountry)}</div>
       </div>`;
@@ -720,21 +740,122 @@ const UI = (() => {
   function dipDetail(id) {
     const o = Engine.byId(id), r = S.relations[id];
     const odds = Engine.warOdds(S, id);
+    const nuc = Engine.hasNukes(S, id);
     const opts = Engine.dipOptions(S, id).map(a => `
-      <div class="dip-act"><span style="font-size:20px">${a.icon}</span><div class="t"><b>${a.name}</b><small>${esc(a.desc)}${a.money ? ' · Kosten ' + moneyText(a.money) : ''}${a.key === 'krieg' ? ` · Kräfteverhältnis <b class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}">${F(odds * 100, 0)} %</b>${o.nuclear ? ' · <b class="bad">Atommacht!</b>' : ''}` : ''}</small>${!a.ok ? `<small class="bad"> · ${esc(a.why)}</small>` : ''}</div>
+      <div class="dip-act"><span style="font-size:20px">${a.icon}</span><div class="t"><b>${a.name}</b><small>${esc(a.desc)}${a.money ? ' · Kosten ' + moneyText(a.money) : ''}${a.key === 'krieg' ? ` · Kräfteverhältnis <b class="${odds < 0.4 ? 'bad' : odds < 0.55 ? 'warn' : 'good'}">${F(odds * 100, 0)} %</b>${nuc ? ' · <b class="bad">Atommacht!</b>' : ''}${S.pacts[id]?.nichtangriff ? ' · <b class="bad">Bricht den Nichtangriffspakt!</b>' : ''}` : ''}</small>${!a.ok ? `<small class="bad"> · ${esc(a.why)}</small>` : ''}</div>
         <button class="btn btn-sm ${a.key === 'krieg' ? 'btn-danger' : 'btn-primary'}" data-action="dip-act" data-id="${id}" data-key="${a.key}" ${a.ok ? '' : 'disabled'}>${a.cost ? a.cost + ' ⚡' : 'Los'}</button></div>`).join('');
-    const tr = [S.trade[id] && '📜 Handelsabkommen', S.alliance[id] && '🤝 Bündnis', S.sanctions[id] && '🚫 Sanktionen', Engine.atWarWith(S, id) && '⚔️ Krieg'].filter(Boolean);
+    const active = Object.keys(Engine.TREATIES).filter(t => Engine.hasTreaty(S, id, t));
+    const tr = active.map(t => `<span class="treaty">${Engine.TREATIES[t].icon} ${Engine.TREATIES[t].name} <a class="x" data-action="treaty-cancel" data-id="${id}" data-t="${t}" data-tip="Vertrag kündigen (verschlechtert die Beziehung)">✕</a></span>`);
+    if (S.sanctions[id]) tr.push('<span class="treaty">🚫 Sanktionen</span>');
+    if (Engine.atWarWith(S, id)) tr.push('<span class="treaty">⚔️ Krieg</span>');
+    const blocs = o.blocs.map(b => Engine.BLOCS[b] ? `${Engine.BLOCS[b].icon} ${Engine.BLOCS[b].name}` : b).join(', ');
     const my = Engine.militaryPower(S), their = Engine.enemyPower(id);
     return `<div class="detail-head">${flag(id, 'flag flag-xl')}<div><h3>${esc(o.name)}</h3><div class="muted">${esc(o.capital)} · ${o.region} · ${o.gov === 'demokratie' ? 'Demokratie' : 'Autoritär'}</div></div></div>
       <div style="margin:14px 0 6px;display:flex;justify-content:space-between"><span>Beziehung: <b style="color:${relColor(r)}">${relWord(r)}</b></span><b style="font-family:var(--mono)">${FS(r, 0)}</b></div>
       ${relBar(r)}
-      <div class="treaties" style="margin:12px 0">${tr.length ? tr.map(t => `<span class="treaty">${t}</span>`).join('') : '<span class="muted" style="font-size:12.5px">Keine Verträge</span>'}</div>
+      <div class="treaties" style="margin:12px 0">${tr.length ? tr.join('') : '<span class="muted" style="font-size:12.5px">Keine Verträge</span>'}</div>
       <div class="kv-grid" style="margin-bottom:14px">
         <div><span>BIP</span><b>${FM(o.gdp)}</b></div><div><span>Einwohner</span><b>${F(o.pop, o.pop < 20 ? 1 : 0)} Mio.</b></div>
-        <div><span>Kampfkraft</span><b class="${their > my ? 'bad' : 'good'}">${F(their, 0)}${o.nuclear ? ' ☢️' : ''}</b></div><div><span>Ansehen</span><b>${o.stats.reputation}</b></div>
+        <div><span>Kampfkraft</span><b class="${their > my ? 'bad' : 'good'}">${F(their, 0)}</b></div><div><span>Atomwaffen</span><b>${nuc ? '☢️ ~' + F(S.worldNukes[id], 0) : 'keine'}</b></div>
+        <div style="grid-column:1/-1"><span>Bündnisse</span><b>${blocs || '–'}</b></div>
       </div>
+      ${Engine.atWarWith(S, id) ? '' : `<button class="btn btn-primary" style="width:100%;margin-bottom:12px" data-action="neg-open" data-id="${id}">📝 Vertrag aushandeln</button>`}
       <div class="panel-title">Aktionen <span class="right">⚡ ${F(S.capital, 0)} verfügbar</span></div>
       <div class="dip-actions">${opts}</div>`;
+  }
+
+  // ── Verhandlungsfenster ──
+  function showNegotiation() {
+    const o = Engine.byId(neg.id);
+    const types = Object.entries(Engine.TREATIES).map(([k, t]) => {
+      const has = Engine.hasTreaty(S, neg.id, k), bl = has ? 'Besteht bereits' : Engine.treatyBlocked(S, neg.id, k);
+      return `<button class="choice ${neg.type === k ? 'recommended' : ''}" data-action="neg-type" data-t="${k}" ${bl ? 'disabled style="opacity:.45;cursor:not-allowed"' : ''}>
+        <div class="c-top"><span style="font-size:18px">${t.icon}</span><span class="c-label">${k === 'beitritt' && S.ownBloc ? 'Beitritt zum ' + esc(S.ownBloc.name) : t.name}</span><span class="cost" style="margin-left:auto;color:var(--gold);font-family:var(--mono)">${t.cost} ⚡</span></div>
+        <div class="c-desc">${esc(t.desc)}${bl ? ` · <b>${esc(bl)}</b>` : ''}</div></button>`;
+    }).join('');
+    const moneyBtns = Engine.MONEY_OFFERS.map((m, i) => `<button class="${neg.money === i ? 'active' : ''}" data-action="neg-money" data-v="${i}">${i === 0 ? 'Nichts' : F(m, 2) + ' % BIP'}</button>`).join('');
+    const p = neg.type ? Engine.negotiationChance(S, neg.id, neg.type, neg) : 0;
+    const cost = neg.type ? Engine.TREATIES[neg.type].cost : 0;
+    const pc = p >= 0.6 ? 'var(--good)' : p >= 0.35 ? 'var(--warn)' : 'var(--bad)';
+    openModal(`
+      <div class="modal-head"><div class="big-ico">📝</div><div><div class="cat">Verhandlung · Beziehung ${FS(S.relations[neg.id], 0)}</div><h3>Vertrag mit ${esc(o.name)}</h3></div><div style="margin-left:auto">${flag(o.id, 'flag flag-lg')}</div></div>
+      <div class="modal-body">
+        <div class="panel-title">1. Welchen Vertrag willst du?</div>
+        <div class="choices" style="max-height:290px;overflow-y:auto;padding-right:4px">${types}</div>
+        <div class="panel-title" style="margin-top:16px">2. Was bietest du an?</div>
+        <div class="form-row"><label>Finanzielle Unterstützung (nur bei Annahme fällig${neg.money ? ' · ' + moneyText(Engine.MONEY_OFFERS[neg.money]) : ''})</label><div class="seg">${moneyBtns}</div></div>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <button class="btn btn-sm ${neg.concession ? 'btn-good' : ''}" data-action="neg-toggle" data-k="concession" data-tip="Politische Zugeständnisse und Marktöffnung. Bei Annahme: Arbeiter & Konservative leicht verärgert.">${neg.concession ? '☑' : '☐'} Politische Zugeständnisse</button>
+          <button class="btn btn-sm ${neg.tech ? 'btn-good' : ''}" data-action="neg-toggle" data-k="tech" data-tip="Teilen von Technologie und Know-how. Bei Annahme: Unternehmer leicht verärgert.">${neg.tech ? '☑' : '☐'} Technologietransfer</button>
+        </div>
+        <div class="panel-title" style="margin-top:16px">3. Chance auf Zustimmung</div>
+        ${neg.type ? `<div class="bar" style="height:14px"><i style="width:${p * 100}%;background:${pc}"></i></div>
+          <div style="display:flex;justify-content:space-between;margin-top:6px"><b style="color:${pc};font-size:18px;font-family:var(--mono)">${F(p * 100, 0)} %</b><span class="muted" style="font-size:12.5px">Bei Ablehnung: Beziehung −3, erst nach 4 Monaten erneut möglich</span></div>`
+        : '<p class="muted">Wähle zuerst einen Vertrag.</p>'}
+      </div>
+      <div class="modal-foot"><button class="btn" data-action="modal-close">Abbrechen</button>
+        <button class="btn btn-primary" data-action="neg-send" ${!neg.type || S.capital < cost ? 'disabled' : ''}>Angebot senden (${cost} ⚡)</button></div>`, { closable: true, wide: true, update: neg.open });
+    neg.open = true;
+  }
+
+  // ── Bündnisse ──
+  function viewBlocs() {
+    const cards = Object.entries(Engine.BLOCS).map(([k, b]) => {
+      const st = Engine.blocStatus(S, k);
+      const members = st.members.map(id => `<span data-tip="${esc(Engine.byId(id).name)}">${flag(id)}</span>`).join(' ');
+      const btn = st.member
+        ? `<button class="btn btn-sm btn-danger" data-action="bloc-leave" data-k="${k}" ${S.capital < st.leaveCost ? 'disabled' : ''}>Austreten (${st.leaveCost} ⚡)</button>`
+        : `<button class="btn btn-sm btn-good" data-action="bloc-join" data-k="${k}" ${st.why || S.capital < st.joinCost ? 'disabled' : ''}>Beitritt beantragen (${st.joinCost} ⚡)</button>`;
+      return `<div class="card ${st.member ? 'active' : st.why ? 'locked' : ''}">
+        <div class="card-head"><div class="ico">${b.icon}</div><div>${st.member ? '<div class="tag">✔ Mitglied</div>' : ''}<h4>${b.name}</h4><div class="muted" style="font-size:12px">${b.kind}</div></div></div>
+        <div class="desc">${esc(b.desc)}</div>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">${members || '<span class="muted">keine Mitglieder</span>'}</div>
+        <div class="card-foot"><span class="why">${st.member ? '' : st.why ? `<span class="bad">${esc(st.why)}</span>` : `Aufnahmechance <b>${F(st.chance * 100, 0)} %</b>`}</span>${btn}</div></div>`;
+    }).join('');
+    const ob = S.ownBloc;
+    const own = ob ? `<div class="card active">
+        <div class="card-head"><div class="ico">🏳️</div><div><div class="tag">Dein Bündnis</div><h4>${esc(ob.name)}</h4><div class="muted" style="font-size:12px">gegründet ${Engine.dateStr(S, ob.founded)}</div></div></div>
+        <div class="desc">Militärischer Beistand und Freihandel unter allen Mitgliedern. Jedes Mitglied steigert Sicherheit und Ansehen.</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${ob.members.length ? ob.members.map(id => `<span class="treaty">${flag(id)} ${esc(Engine.byId(id).name)}</span>`).join('') : '<span class="muted">Noch keine Mitglieder – lade Länder über „Vertrag aushandeln“ ein.</span>'}</div>
+        <div class="card-foot"><span class="why">${ob.members.length} Mitglieder</span><button class="btn btn-sm btn-danger" data-action="bloc-dissolve">Auflösen</button></div></div>`
+      : `<div class="card">
+        <div class="card-head"><div class="ico">🏳️</div><div><h4>Eigenes Bündnis gründen</h4><div class="muted" style="font-size:12px">Benötigt Ansehen ≥ 30</div></div></div>
+        <div class="desc">Schmiede deine eigene Allianz! Danach lädst du Länder einzeln per Vertragsverhandlung („Beitritt zu deinem Bündnis“) ein.</div>
+        <div class="form-row"><label>Name des Bündnisses</label><input type="text" id="inp-bloc" maxlength="40" placeholder="${esc(S.country.name)}-Pakt"></div>
+        <div class="card-foot"><span class="cost">30 ⚡</span><button class="btn btn-sm btn-primary" data-action="bloc-found" ${S.capital < 30 || S.stats.reputation < 30 ? 'disabled' : ''}>Gründen</button></div></div>`;
+    return `<div class="cards">${cards}${own}</div>
+      <p class="muted" style="font-size:12.5px;margin-top:12px">Militärbündnisse wie die NATO verpflichten zum Beistand und verbessern deine Kampfkraft im Krieg. Gegnerische Blöcke (NATO ↔ BRICS) reagieren verärgert auf einen Beitritt.</p>`;
+  }
+
+  // ── Atomwaffenfreie Welt ──
+  function viewDisarm() {
+    const d = S.disarm, holders = Engine.nuclearHolders(S);
+    const totalNow = Object.values(S.worldNukes).reduce((a, b) => a + b, 0) + (S.nukes || 0);
+    const signed = holders.filter(id => d.signed[id]).length;
+    const rows = holders.map(id => {
+      const self = id === S.countryId, o = Engine.byId(id);
+      const count = self ? S.nukes : S.worldNukes[id];
+      const cd = (S.cooldowns['disarm:' + id] || 0) - S.month;
+      let action;
+      if (d.signed[id]) action = '<span class="good">✔ unterzeichnet</span>';
+      else if (!d.active) action = '<span class="muted">–</span>';
+      else if (self) action = `<button class="btn btn-sm btn-good" data-action="disarm-pledge" ${S.capital < 10 ? 'disabled' : ''} data-tip="Wir verpflichten uns selbst – das erhöht unsere Glaubwürdigkeit stark. Militär & Konservative 😠">Selbst unterzeichnen (10 ⚡)</button>`;
+      else action = `<span class="muted" style="font-size:12px;margin-right:8px">Chance ${F(Engine.disarmChance(S, id) * 100, 0)} %</span><button class="btn btn-sm btn-primary" data-action="disarm-persuade" data-id="${id}" ${cd > 0 || S.capital < 12 ? 'disabled' : ''}>${cd > 0 ? `in ${cd} Mon.` : 'Überzeugen (12 ⚡)'}</button>`;
+      return `<div class="dip-act">${flag(id)}<div class="t"><b>${esc(o.name)}${self ? ' (wir)' : ''}</b><small>☢️ ~${F(count, 0)} Sprengköpfe${S.pacts[id]?.ruestung ? ' · 🕊️ Rüstungskontrollvertrag' : ''}</small></div>${action}</div>`;
+    }).join('');
+    const status = d.done ? '<div class="tip good"><span class="ti">🏅</span><span><b>Die Welt ist frei von Atomwaffen.</b> Ein historischer Erfolg.</span></div>'
+      : d.dismantling ? `<div class="tip good"><span class="ti">🕊️</span><span><b>Abrüstung läuft:</b> Alle Atommächte haben unterzeichnet. Noch ~${F(totalNow, 0)} Sprengköpfe weltweit.</span></div>`
+      : d.active ? `<div class="tip info"><span class="ti">📋</span><span>Die Initiative läuft: <b>${signed} von ${holders.length}</b> Atommächten haben unterzeichnet. Sobald alle unterschrieben haben, beginnt der Abbau.</span></div>`
+      : `<div class="tip"><span class="ti">☮️</span><span>Starte eine weltweite Initiative zur Abschaffung aller Atomwaffen. Gute Beziehungen, hohes Ansehen und Rüstungskontrollverträge erhöhen die Chancen. Besitzt du selbst Atomwaffen, musst du mit gutem Beispiel vorangehen.</span></div>`;
+    return `<div class="grid g2">
+      <div class="panel"><div class="panel-title">☮️ Initiative für eine atomwaffenfreie Welt</div>${status}
+        ${!d.active && !d.done ? `<button class="btn btn-primary" style="width:100%;margin-top:6px" data-action="disarm-start" ${S.capital < 20 || S.stats.reputation < 45 || S.nukeUsed ? 'disabled' : ''}>Initiative starten (20 ⚡${S.stats.reputation < 45 ? ' · Ansehen ≥ 45 nötig' : ''})</button>` : ''}
+        <div class="bs-line" style="margin-top:12px"><span>Atomsprengköpfe weltweit</span><b>~${F(totalNow, 0)}</b></div>
+        <div class="bs-line"><span>Unser Ansehen</span><b>${F(S.stats.reputation, 0)}</b></div>
+        <p class="muted" style="font-size:12px">Unterzeichner können wieder abspringen, wenn die Beziehung stark sinkt oder du mit ihnen Krieg führst. Erst wenn alle unterschrieben haben, wird abgerüstet.</p></div>
+      <div class="panel"><div class="panel-title">☢️ Atommächte <span class="right muted">${signed}/${holders.length} unterzeichnet</span></div>
+        <div class="dip-actions">${rows || '<span class="muted">Es gibt keine Atomwaffen mehr.</span>'}</div></div>
+    </div>`;
   }
 
   // ─────────────────────────── Ansicht: Statistik ───────────────────────────
@@ -911,6 +1032,8 @@ const UI = (() => {
   // ─────────────────────────── Modals ───────────────────────────
   function openModal(html, opts = {}) {
     hideTip();
+    const existing = $('#modal-root .modal');
+    if (opts.update && existing) { const sc = existing.scrollTop; existing.innerHTML = html; existing.scrollTop = sc; return; }
     $('#modal-root').innerHTML = `<div class="modal-bg" ${opts.closable ? 'data-action="modal-bg"' : ''}><div class="modal ${opts.wide ? 'modal-wide' : ''}">${html}</div></div>`;
     afterRender();
   }
@@ -1062,7 +1185,7 @@ const UI = (() => {
         if (id) {
           const o = Engine.byId(id);
           html = id === S.countryId ? `<b>${esc(o.name)}</b><br>Dein Land` :
-            `<b>${esc(o.name)}</b><br>Beziehung: ${relWord(S.relations[id])} (${FS(S.relations[id], 0)})${S.trade[id] ? '<br>📜 Handelsabkommen' : ''}${S.alliance[id] ? '<br>🤝 Bündnis' : ''}${S.sanctions[id] ? '<br>🚫 Sanktionen' : ''}${Engine.atWarWith(S, id) ? '<br>⚔️ Krieg!' : ''}`;
+            `<b>${esc(o.name)}</b><br>Beziehung: ${relWord(S.relations[id])} (${FS(S.relations[id], 0)})${S.trade[id] ? '<br>📜 Handelsabkommen' : ''}${S.alliance[id] ? '<br>🛡️ Bündnis' : ''}${S.pacts[id]?.nichtangriff ? '<br>🤞 Nichtangriffspakt' : ''}${Engine.hasNukes(S, id) ? '<br>☢️ Atommacht' : ''}${S.sanctions[id] ? '<br>🚫 Sanktionen' : ''}${Engine.atWarWith(S, id) ? '<br>⚔️ Krieg!' : ''}`;
         }
       }
       if (!html) { tip.classList.remove('show'); return; }
@@ -1130,11 +1253,36 @@ const UI = (() => {
       }
       case 'nuke-strike': {
         const o = Engine.byId(S.wars[0].enemy);
-        if (!confirm(`ATOMSCHLAG gegen ${o.name}?\n\nDeine Berater warnen eindringlich: ${o.nuclear ? 'Es droht ein nuklearer Gegenschlag und damit das Ende deines Landes.' : 'Dein Land wird weltweit geächtet – Sanktionen, Bündnisbruch, Wirtschaftseinbruch.'}`)) return;
+        if (!confirm(`ATOMSCHLAG gegen ${o.name}?\n\nDeine Berater warnen eindringlich: ${Engine.hasNukes(S, o.id) ? 'Es droht eine nukleare Krise mit möglichem Gegenschlag.' : 'Dein Land wird weltweit geächtet – Sanktionen, Bündnisbruch, Wirtschaftseinbruch.'}`)) return;
         if (!confirm('Letzte Bestätigung: Diese Entscheidung kann nicht rückgängig gemacht werden.')) return;
         sfx('war');
         const r = Engine.nuclearStrike(S); result({ ok: r.ok, why: r.why }); break;
       }
+      case 'dip-tab': dipTab = el.dataset.t; renderView(); break;
+      case 'neg-open': neg = { id, type: null, money: 0, concession: false, tech: false }; showNegotiation(); break;
+      case 'neg-type': neg.type = el.dataset.t; showNegotiation(); break;
+      case 'neg-money': neg.money = +el.dataset.v; showNegotiation(); break;
+      case 'neg-toggle': neg[el.dataset.k] = !neg[el.dataset.k]; showNegotiation(); break;
+      case 'neg-send': {
+        const r = Engine.negotiate(S, neg.id, neg.type, neg);
+        if (!r.ok) { toast(esc(r.why), 'bad'); break; }
+        closeModal(); sfx(r.accepted ? 'good' : 'bad'); toast(esc(r.msg), r.accepted ? 'good' : 'bad', 4500);
+        save(); renderAll(); break;
+      }
+      case 'treaty-cancel': {
+        if (!confirm(`${Engine.TREATIES[el.dataset.t].name} mit ${Engine.byId(id).name} wirklich kündigen?`)) return;
+        result(Engine.cancelTreaty(S, id, el.dataset.t)); break;
+      }
+      case 'bloc-join': { const r = Engine.joinBloc(S, el.dataset.k); if (r.ok) toast(esc(r.msg), r.msg.startsWith('✅') ? 'good' : 'bad', 4500); result({ ok: r.ok, why: r.why }); break; }
+      case 'bloc-leave': {
+        if (!confirm(`Wirklich aus der ${Engine.BLOCS[el.dataset.k].name} austreten?`)) return;
+        const r = Engine.leaveBloc(S, el.dataset.k); if (r.ok) toast(esc(r.msg), 'bad'); result({ ok: r.ok, why: r.why }); break;
+      }
+      case 'bloc-found': { const r = Engine.foundBloc(S, $('#inp-bloc')?.value); if (r.ok) toast(esc(r.msg), 'good', 4500); result({ ok: r.ok, why: r.why }); break; }
+      case 'bloc-dissolve': { if (!confirm('Dein Bündnis wirklich auflösen?')) return; result(Engine.dissolveBloc(S)); break; }
+      case 'disarm-start': { const r = Engine.startDisarm(S); if (r.ok) toast(esc(r.msg), 'good', 4500); result({ ok: r.ok, why: r.why }); break; }
+      case 'disarm-persuade': { const r = Engine.persuadeDisarm(S, id); if (r.ok) toast(esc(r.msg), r.msg.startsWith('✅') ? 'good' : 'bad', 4000); result({ ok: r.ok, why: r.why }); break; }
+      case 'disarm-pledge': { const r = Engine.pledgeDisarm(S); if (r.ok) toast(esc(r.msg), 'good'); result({ ok: r.ok, why: r.why }); break; }
       case 'chart': chartMetric = el.dataset.m; renderView(); break;
       case 'choice': choose(+el.dataset.i); break;
       case 'end-continue': continueEndless(); break;
