@@ -2,7 +2,7 @@
 // Aufruf: node tools/sim-test.js [monate] [durchläufe] [strategie: none|advisor]
 const fs = require('fs'), vm = require('vm'), path = require('path');
 const root = path.join(__dirname, '..');
-const files = ['js/data/worldmap.js', 'js/data/countries.js', 'js/data/policies.js', 'js/data/events.js', 'js/engine.js'];
+const files = ['js/data/worldmap.js', 'js/data/countries.js', 'js/data/provinces.js', 'js/data/policies.js', 'js/data/events.js', 'js/engine.js'];
 const code = files.map(f => fs.readFileSync(path.join(root, f), 'utf8')).join('\n') + '\n;({ Engine, COUNTRIES, POLICIES, ACTIONS })';
 const ctx = vm.createContext({ console, Math, JSON });
 const { Engine, COUNTRIES } = vm.runInContext(code, ctx);

@@ -81,8 +81,9 @@ const Engine = (() => {
       capital: 0,
       treasury: c.gdp * 0.02, fund: 0, fundRate: 4, discretionary: 0.5,
       uses: {},
-      auto: opts.autopilot ? { finanzen: true, wirtschaft: true, soziales: true, militaer: true, diplomatie: true, politik: true, ereignisse: true }
-        : { finanzen: false, wirtschaft: false, soziales: false, militaer: false, diplomatie: false, politik: false, ereignisse: false },
+      // Politik, Gesetze und kleine Ereignisse erledigen die Minister immer selbst
+      auto: opts.autopilot ? { finanzen: true, wirtschaft: true, militaer: true, diplomatie: true, politik: true, ereignisse: true }
+        : { finanzen: false, wirtschaft: false, militaer: false, diplomatie: false, politik: true, ereignisse: true },
       orders: [],
       cabinet: [],
       conflicts: [], conflictSeq: 0,
@@ -122,6 +123,7 @@ const Engine = (() => {
     s.disarm = { active: false, signed: {}, dismantling: false, done: false };
     s.annexed = {}; s.puppets = {}; s.casusBelli = {}; s.popExtra = 0;
     s.forces = initForces(c); s.forcesBase = unitPower(s.forces);
+    s.prov = {}; s.gdp0 = c.gdp; initProvinces(s, c.id, 0);
     initConflicts(s);
     if (c.readiness) { s.readiness = c.readiness; s.readinessTarget = c.readiness; }
     if (c.startWar && s.relations[c.startWar] !== undefined) {
@@ -278,12 +280,14 @@ const Engine = (() => {
     s.oil = clamp(s.oil + (1 - s.oil) * 0.04 + gauss() * 0.04, 0.4, 2.6);
     s.global = clamp(s.global * 0.95 + gauss() * 0.12, -1.5, 1.2);
 
+    tickProvinces(s);
     const M = computeMods(s);
     const e = s.econ, st = s.stats, t0 = c.taxes, sp0 = c.spending;
+    const PE = provinceEffects(s);
     const b = computeBudget(s);
 
     // ── Wachstum ──
-    let gT = c.potential + s.global + (M.growth || 0);
+    let gT = c.potential + s.global + (M.growth || 0) + PE.growth;
     gT -= (s.taxes.income - t0.income) * 0.035 + (s.taxes.corporate - t0.corporate) * 0.05 + (s.taxes.vat - t0.vat) * 0.04;
     gT += (s.spending.infrastructure - sp0.infrastructure) * 0.3 + (st.education - c.stats.education) * 0.03;
     gT += (s.start.balance - b.balance) * 0.08; // Konjunkturimpuls durch Defizit
@@ -296,11 +300,11 @@ const Engine = (() => {
     e.growth = clamp(e.growth + (gT - e.growth) * 0.12 + gauss() * 0.08, -15, 15);
 
     // ── Arbeitslosigkeit ──
-    const uT = c.unemployment - (e.growth - c.potential) * 0.5 + (M.unemployment || 0);
+    const uT = c.unemployment - (e.growth - c.potential - PE.growth) * 0.5 + (M.unemployment || 0) + PE.unemployment;
     e.unemployment = clamp(e.unemployment + (uT - e.unemployment) * 0.07 + gauss() * 0.04, 0.5, 50);
 
     // ── Inflation ──
-    let iT = c.inflBase + (M.inflation || 0) + Math.max(0, -b.balance - 3) * 0.25 + (e.growth - c.potential) * 0.3;
+    let iT = c.inflBase + (M.inflation || 0) + Math.max(0, -b.balance - 3) * 0.25 + (e.growth - c.potential - PE.growth) * 0.3 + PE.inflation;
     iT += (s.taxes.vat - t0.vat) * 0.05 + (s.oil - 1) * 1.5;
     e.inflation = clamp(e.inflation + (iT - e.inflation) * 0.1 + gauss() * 0.1, -5, 300);
 
@@ -322,7 +326,7 @@ const Engine = (() => {
       education: s0.education + (s.spending.education - sp0.education) * 7 + (M.education || 0),
       health: s0.health + (s.spending.health - sp0.health) * 4 + (M.health || 0),
       security: s0.security + (s.spending.police - sp0.police) * 12 + (M.security || 0) + (st.stability - s0.stability) * 0.15,
-      environment: s0.environment + (s.spending.environment - sp0.environment) * 12 + (M.environment || 0) - (e.growth - c.potential) * 0.5,
+      environment: s0.environment + (s.spending.environment - sp0.environment) * 12 + (M.environment || 0) - (e.growth - c.potential - PE.growth) * 0.5 + PE.environment,
       military: s0.military + (s.spending.military - sp0.military) * 7 + (M.military || 0),
       corruption: s0.corruption + (M.corruption || 0) - (s.spending.police - sp0.police) * 2,
       reputation: s0.reputation + (M.reputation || 0) + (countTrue(s.alliance) - s.start.alliance) * 1.5,
@@ -336,7 +340,7 @@ const Engine = (() => {
       else if (k !== 'military' && k !== 'reputation') tg = Math.min(tg, Math.max(capMax, s0[k]));
       st[k] = clamp(st[k] + (tg - st[k]) * rate, 0, 100);
     }
-    const capT = c.capacity + (st.education - s0.education) * 0.25 - (st.corruption - s0.corruption) * 0.35 + (st.stability - s0.stability) * 0.2 + (M.capacity || 0) - s.wars.length * 5;
+    const capT = c.capacity + (st.education - s0.education) * 0.25 - (st.corruption - s0.corruption) * 0.35 + (st.stability - s0.stability) * 0.2 + (M.capacity || 0) + PE.capacity - s.wars.length * 5;
     s.capacity = clamp(s.capacity + (clamp(capT, 2, 98) - s.capacity) * 0.015, 2, 98);
 
     // ── Bevölkerungsgruppen ──
@@ -362,14 +366,13 @@ const Engine = (() => {
     let apT = 0;
     for (const g in GROUPS) apT += s.groups[g] * GROUPS[g].weight;
     apT += s.approvalMood + s.honeymoon + (M.approval || 0) + DIFFICULTY[s.difficulty].approval;
-    apT -= (s.terms - 1) * 3; // Amtsmüdigkeit: Wähler wollen irgendwann Veränderung
     s.approval = clamp(s.approval + (apT - s.approval) * 0.35, 0, 100);
     s.approvalMood *= 0.92;
     s.honeymoon *= 0.9;
 
     // ── Stabilität ──
     const stT = s0.stability + (s.approval - c.approval) * 0.4 + d('security') * 0.3 - (e.unemployment - c.unemployment) * 1.0
-      - Math.max(0, e.inflation - Math.max(c.inflation, c.inflBase) - 5) * 0.5 - s.wars.length * 5 - d('corruption') * 0.3 + (M.stability || 0);
+      - Math.max(0, e.inflation - Math.max(c.inflation, c.inflBase) - 5) * 0.5 - s.wars.length * 5 - d('corruption') * 0.3 + (M.stability || 0) + PE.stability;
     st.stability = clamp(st.stability + (clamp(stT, 0, 100) - st.stability) * 0.08, 0, 100);
 
     // ── Politisches Kapital ──
@@ -632,53 +635,12 @@ const Engine = (() => {
   }
 
   // ─────────────────────────── Wahlen & Krisen ───────────────────────────
+  // Keine Wahlen mehr: Im klassischen Modus endet das Spiel nach 12 Jahren mit der Bilanz.
   function checkSchedule(s) {
-    const demo = s.country.gov === 'demokratie';
-    const finalTerm = s.mode === 'klassisch' && s.terms >= 3;
-    if (demo && !finalTerm && s.month === s.nextElection - 3) s.pendingEvents.push(campaignEvent(s));
-    if (s.month !== s.nextElection) return;
-
-    if (finalTerm) {
-      s.gameOver = { won: true, icon: '🏅', title: 'Amtszeit erfolgreich beendet!',
-        text: `Nach ${s.terms * 4} Jahren übergibst du das Amt geordnet an deine Nachfolge. Die Geschichtsbücher werden über dich schreiben.` };
-      return;
+    if (s.mode === 'klassisch' && s.month >= TERM_MONTHS * 3) {
+      s.gameOver = { won: true, icon: '🏅', title: '12 Jahre an der Spitze!',
+        text: `Nach 12 Jahren übergibst du das Amt geordnet an deine Nachfolge. Die Geschichtsbücher werden über dich schreiben.` };
     }
-    if (demo) {
-      const vote = clamp(s.approval * 0.85 + 9 + s.campaign + rand(-3, 3), 3, 97);
-      const opp = clamp((100 - vote) * rand(0.7, 0.85), 1, 100);
-      const others = Math.max(0, 100 - vote - opp);
-      const won = vote >= 50;
-      s.campaign = 0;
-      s.pendingEvents.push({ id: '_wahl', type: 'election', icon: '🗳️', cat: 'politik', title: won ? 'Wahlsieg!' : 'Wahlniederlage',
-        text: won ? `Die Bürger haben gesprochen: Du bleibst im Amt! Eine neue Amtszeit beginnt.` : `Die Opposition gewinnt die Wahl. Deine Amtszeit ist vorbei.`,
-        result: { vote, opp, others, won }, choices: [{ label: won ? 'Auf in die nächste Amtszeit!' : 'Abschied nehmen', effects: {} }] });
-      if (won) {
-        s.terms++; s.nextElection += TERM_MONTHS; s.honeymoon = 6;
-        addNews(s, `Wahlsieg mit ${vote.toFixed(1)} %! ${s.leader.title} ${s.leader.name} regiert weiter.`, 'good');
-      } else {
-        s.gameOver = { won: false, icon: '🗳️', title: 'Abgewählt', text: `Mit nur ${vote.toFixed(1)} % der Stimmen hast du die Wahl verloren. Die Opposition übernimmt die Regierung.` };
-      }
-    } else {
-      const ok = (s.stats.stability >= 30 && s.groups.military >= 30) || Math.random() < 0.3;
-      if (ok) {
-        s.terms++; s.nextElection += TERM_MONTHS;
-        s.pendingEvents.push(infoEvent('🏛️', 'Machtprobe bestanden', 'Der Parteikongress bestätigt dich einstimmig im Amt. Deine Macht ist für weitere vier Jahre gesichert.'));
-        addNews(s, `Parteikongress bestätigt ${s.leader.name} im Amt.`, 'good');
-      } else {
-        s.gameOver = { won: false, icon: '🎭', title: 'Entmachtet', text: 'Bei der Machtprobe stellen sich Militär und Parteielite gegen dich. Du wirst in den Ruhestand gezwungen.' };
-      }
-    }
-  }
-
-  function campaignEvent(s) {
-    return { id: '_wahlkampf', icon: '📣', cat: 'politik', title: 'Der Wahlkampf beginnt!',
-      text: `In drei Monaten wird gewählt. Deine aktuelle Zustimmung liegt bei ${s.approval.toFixed(0)} %. Wie willst du in den Wahlkampf ziehen?`,
-      choices: [
-        { label: 'Positive Kampagne', desc: 'Erfolge betonen, Zukunft versprechen.', effects: { money: 0.05, campaign: 3 } },
-        { label: 'Teure Medienoffensive', desc: 'Werbung auf allen Kanälen.', effects: { money: 0.3, campaign: 4 } },
-        { label: 'Negativkampagne gegen die Opposition', desc: 'Riskant, aber wirkungsvoll.', effects: { chance: { p: 0.65, success: { text: 'Die Angriffe sitzen!', campaign: 5 }, fail: { text: 'Die Schmutzkampagne geht nach hinten los.', campaign: -3, stats: { reputation: -2 } } } } },
-        { label: 'Keine besondere Kampagne', effects: {} },
-      ] };
   }
 
   function checkCrises(s) {
@@ -707,14 +669,6 @@ const Engine = (() => {
       s.pendingEvents.push(infoEvent('⚠️', 'Warnung: Pleite droht!', 'Deine Finanzministerin schlägt Alarm: Die Zinslast wird erdrückend. Wenn du nicht sofort sparst oder Steuern erhöhst, droht der Staatsbankrott!'));
     }
     if (s.budget.interestShare < shareLimit - 0.18 && s.econ.debt < limit - 45) s.flags.bankruptWarn = false;
-    // Misstrauensvotum
-    if (c.gov === 'demokratie') {
-      if (s.approval < 18) s.lowAppr++; else s.lowAppr = 0;
-      if (s.lowAppr === 3) s.pendingEvents.push(infoEvent('📉', 'Misstrauensvotum droht', 'Deine Zustimmung ist katastrophal. Das Parlament droht mit einem Misstrauensvotum, wenn sich nichts ändert!'));
-      if (s.lowAppr >= 6) {
-        s.gameOver = { won: false, icon: '🏛️', title: 'Misstrauensvotum', text: 'Das Parlament hat dir das Vertrauen entzogen. Eine neue Regierung übernimmt.' };
-      }
-    }
   }
 
   // ─────────────────────────── Ereignisse ───────────────────────────
@@ -1308,6 +1262,7 @@ const Engine = (() => {
     s.econ.gdp += o.gdp * 0.6;            // Kriegsschäden: nur ein Teil der Wirtschaftskraft bleibt
     s.popExtra = (s.popExtra || 0) + o.pop;
     s.annexed[id] = s.month;
+    initProvinces(s, id, 1);
     if (hasNukes(s, id)) { s.nukes += s.worldNukes[id]; delete s.worldNukes[id]; }
     removeCountry(s, id);
     s.stats.stability = clamp(s.stats.stability - 12, 0, 100);
@@ -1775,15 +1730,110 @@ const Engine = (() => {
     return { ok: true, msgs, msg: `${p.icon} ${p.name} gestartet (${fmtMoney(x * s.econ.gdp / 100)}).` };
   }
 
+
+  // ─────────────────────────── Provinzen & Ausbau ───────────────────────────
+  const BUILDINGS = {
+    industrie:     { name: 'Industrie', icon: '🏭', desc: 'Fabriken und Betriebe: viel Wachstum und Jobs, aber Umweltbelastung. Braucht Energie und Infrastruktur.',
+      eff: { growth: 0.32, unemployment: -0.45, environment: -2.2 } },
+    infrastruktur: { name: 'Infrastruktur', icon: '🛣️', desc: 'Straßen, Bahn, Häfen, Netz: Wachstum, Staatskapazität und Stabilität. Grundlage für Industrie.',
+      eff: { growth: 0.14, capacity: 2.5, stability: 1.5, unemployment: -0.15 } },
+    energie:       { name: 'Energie', icon: '⚡', desc: 'Kraftwerke und Netze: senkt die Inflation und versorgt die Industrie.',
+      eff: { growth: 0.1, inflation: -0.35, environment: -0.4 } },
+  };
+  const MAX_LEVEL = 10;
+  function provLevelBase(c) { return clamp(Math.round(c.capacity / 21), 1, 5); }
+  function initProvinces(s, cid, damage) {
+    const c = byId(cid), base = provLevelBase(c);
+    for (const p of (PROVINCES.byCountry[cid] || [])) {
+      let h = 0; for (const ch of p.id) h = (h * 31 + ch.charCodeAt(0)) % 9973;
+      const lv = clamp(base + (p.capital ? 1 : 0) - (p.share < 0.09 ? 1 : 0) - damage, 0, MAX_LEVEL);
+      const L = { industrie: lv, infrastruktur: lv, energie: lv };
+      const t = ['industrie', 'infrastruktur', 'energie'][h % 3]; L[t] = clamp(L[t] + (h % 2 ? 1 : -1), 0, MAX_LEVEL);
+      if (c.oil > 2) L.energie = clamp(L.energie + 1, 0, MAX_LEVEL);
+      s.prov[p.id] = { ...L, l0: { ...L }, b: null };
+    }
+  }
+  function ownsProvince(s, pid) { const p = PROVINCES.byId(pid); return !!p && !!s.prov[pid] && (p.country === s.countryId || (s.annexed && s.annexed[p.country] !== undefined)); }
+  function ownProvinces(s) { return PROVINCES.list.filter(p => s.prov[p.id] && (p.country === s.countryId || (s.annexed && s.annexed[p.country] !== undefined))); }
+  function provWeight(s, p) { return p.country === s.countryId ? p.share : p.share * byId(p.country).gdp * 0.6 / (s.gdp0 || s.country.gdp); }
+  // Engpässe: Industrie arbeitet nur so weit, wie Energie und Infrastruktur sie versorgen (+2 Stufen Spielraum)
+  function effLevels(L) { return { industrie: Math.min(L.industrie, L.energie + 2, L.infrastruktur + 2), infrastruktur: L.infrastruktur, energie: L.energie }; }
+  function provBottleneck(L) { const e = effLevels(L); return L.industrie - e.industrie > 0 ? (L.energie + 2 < L.infrastruktur + 2 ? 'energie' : 'infrastruktur') : null; }
+  function provinceEffects(s) {
+    const out = { growth: 0, unemployment: 0, inflation: 0, environment: 0, capacity: 0, stability: 0 };
+    for (const p of ownProvinces(s)) {
+      const pr = s.prov[p.id], now = effLevels(pr), then = effLevels(pr.l0), w = provWeight(s, p);
+      for (const t in BUILDINGS) { const d = now[t] - then[t]; if (d) for (const k in BUILDINGS[t].eff) out[k] += BUILDINGS[t].eff[k] * d * w; }
+    }
+    // abnehmender Grenznutzen
+    const soft = (x, k) => x > 0 ? k * (1 - Math.exp(-x / k)) : x;
+    out.growth = soft(out.growth, 3.5);
+    for (const k of ['capacity', 'stability']) out[k] = soft(out[k], 15);
+    return out;
+  }
+  function provGdp(s, p) { return s.econ.gdp * provWeight(s, p); }
+  function buildCost(s, pid, type) {
+    const p = PROVINCES.byId(pid), lv = s.prov[pid][type];
+    return Math.max(0.3, provGdp(s, p) * 0.006 * (1 + 0.5 * lv) * (type === 'infrastruktur' ? 0.9 : type === 'energie' ? 0.8 : 1));
+  }
+  function buildMonths(s, pid, type) { return Math.max(2, Math.round((3 + s.prov[pid][type] * 0.6) * (1.45 - s.capacity / 180))); }
+  function canBuild(s, pid, type) {
+    if (!ownsProvince(s, pid)) return { ok: false, reason: 'Nicht unsere Provinz.' };
+    const pr = s.prov[pid];
+    if (pr.b) return { ok: false, reason: `Hier wird schon gebaut (${BUILDINGS[pr.b.type].name}).` };
+    if (pr[type] >= MAX_LEVEL) return { ok: false, reason: 'Höchste Stufe erreicht.' };
+    return { ok: true };
+  }
+  function startBuild(s, pid, type) {
+    const ck = canBuild(s, pid, type);
+    if (!ck.ok) return { ok: false, msg: ck.reason };
+    const cost = buildCost(s, pid, type), m = buildMonths(s, pid, type), p = PROVINCES.byId(pid);
+    pay(s, cost);
+    s.prov[pid].b = { type, done: s.month + m, cost };
+    return { ok: true, msg: `${BUILDINGS[type].icon} ${BUILDINGS[type].name} in ${p.name} wird auf Stufe ${s.prov[pid][type] + 1} ausgebaut (${fmtMoney(cost)}, fertig in ${m} Monaten).` };
+  }
+  function cancelBuild(s, pid) {
+    const pr = s.prov[pid];
+    if (!pr || !pr.b) return { ok: false };
+    s.treasury += pr.b.cost * 0.5; pr.b = null;
+    return { ok: true, msg: 'Bauprojekt abgebrochen – die Hälfte der Kosten kommt zurück.' };
+  }
+  function tickProvinces(s) {
+    for (const pid in s.prov) {
+      const pr = s.prov[pid];
+      if (pr.b && s.month >= pr.b.done) {
+        pr[pr.b.type] = Math.min(MAX_LEVEL, pr[pr.b.type] + 1);
+        const p = PROVINCES.byId(pid);
+        if (ownsProvince(s, pid)) addNews(s, `${BUILDINGS[pr.b.type].icon} Fertig: ${BUILDINGS[pr.b.type].name} in ${p.name} ist jetzt Stufe ${pr[pr.b.type]}.`, 'good');
+        pr.b = null;
+      }
+    }
+  }
+  // Wachstumsgewinn eines Ausbaus (inkl. freigeschalteter Industrie bei Engpässen)
+  function buildGain(s, pid, type) {
+    const p = PROVINCES.byId(pid), pr = s.prov[pid], w = provWeight(s, p);
+    const before = effLevels(pr), after = effLevels({ ...pr, [type]: pr[type] + 1 });
+    let g = 0, env = 0;
+    for (const t in BUILDINGS) { const d = after[t] - before[t]; g += (BUILDINGS[t].eff.growth || 0) * d * w; env += (BUILDINGS[t].eff.environment || 0) * d * w; }
+    return { growth: g, environment: env };
+  }
+  function buildAdvice(s, n = 3) {
+    const out = [];
+    for (const p of ownProvinces(s)) for (const type in BUILDINGS) {
+      if (!canBuild(s, p.id, type).ok) continue;
+      const g = buildGain(s, p.id, type).growth;
+      if (g <= 0) continue;
+      out.push({ pid: p.id, type, gain: g, score: g / buildCost(s, p.id, type) });
+    }
+    return out.sort((a, b) => b.score - a.score).slice(0, n);
+  }
+
   // ─────────────────────────── Minister-Autopilot ───────────────────────────
   const AUTO_AREAS = {
     finanzen:   { name: 'Finanzen', icon: '💰', desc: 'Hält den Haushalt im Rahmen, tilgt Schulden mit Überschüssen.' },
-    wirtschaft: { name: 'Wirtschaft', icon: '📈', desc: 'Beschließt sinnvolle Wirtschaftsgesetze und reagiert auf Krisen.' },
-    soziales:   { name: 'Soziales', icon: '🤝', desc: 'Beschließt empfohlene Sozial-, Bildungs- und Umweltgesetze.' },
+    wirtschaft: { name: 'Provinzausbau', icon: '🏗️', desc: 'Baut automatisch die lohnendsten Projekte in den Provinzen, solange Geld auf dem Konto ist.' },
     militaer:   { name: 'Militär', icon: '🛡️', desc: 'Hält das Militär zufrieden, bekämpft Terror, führt laufende Kriege.' },
     diplomatie: { name: 'Diplomatie', icon: '🌍', desc: 'Pflegt Beziehungen und schließt vorteilhafte Handelsabkommen.' },
-    politik:    { name: 'Politik', icon: '🏛️', desc: 'Stabilisiert das Land in Krisen und beschließt Reformen.' },
-    ereignisse: { name: 'Kleine Ereignisse', icon: '📨', desc: 'Das Kabinett entscheidet kleine Ereignisse selbst – große landen bei dir.' },
   };
   const MAJOR_EVENTS = new Set(['angriff', 'grenzzwischenfall', 'putschgeruecht', 'pandemie', 'boersencrash', 'geiselnahme', 'fluechtlinge', 'demonstration', 'olympia', 'rohstoffe', 'oelschock', 'terrorfuehrer', 'bundeshilfe']);
   function isMajor(ev) {
@@ -1828,21 +1878,29 @@ const Engine = (() => {
       }
       s.budget = b = computeBudget(s);
     }
-    // Gesetze: jeder Bereich kommt alle 6 Monate an die Reihe
+    // Gesetze: beschließen die Minister immer selbst (Militärgesetze nur mit Militär-Autopilot)
     const turn = { wirtschaft: 1, soziales: 3, militaer: 5, politik: 0 };
     for (const area in turn) {
-      if (!A[area] || s.month % 6 !== turn[area]) continue;
+      if ((area === 'militaer' && !A.militaer) || s.month % 12 !== turn[area] * 2) continue;
       if (b.balance < -6 && s.treasury < gdp * 0.01) continue;
       const rec = recommendedPolicies(s, area, 1)[0];
       if (rec) { enactPolicy(s, rec); log(area, `Gesetz beschlossen: ${policyById(rec).name}.`); }
     }
-    // Wirtschaft in der Krise
-    if (A.wirtschaft) {
+    // Provinzausbau
+    if (A.wirtschaft && s.treasury > gdp * 0.012) {
+      const best = buildAdvice(s)[0];
+      if (best && buildCost(s, best.pid, best.type) < s.treasury - gdp * 0.005) {
+        const r = startBuild(s, best.pid, best.type);
+        if (r.ok) log('wirtschaft', r.msg);
+      }
+    }
+    // Wirtschaft in der Krise (macht das Kabinett immer)
+    {
       if (s.econ.growth < 0 && !recentUses(s, 'act:konjunktur', 12)) { doAction(s, 'konjunktur'); log('wirtschaft', 'Rezession: Konjunkturpaket gestartet.'); }
       if (s.econ.inflation > Math.max(c.inflBase, c.inflation) + 3 && !recentUses(s, 'act:zentralbank', 12)) { doAction(s, 'zentralbank'); log('wirtschaft', 'Hohe Inflation: Gespräch mit der Zentralbank geführt.'); }
     }
     // Politik
-    if (A.politik && s.stats.stability < 40 && !recentUses(s, 'act:rede', 6)) { doAction(s, 'rede'); log('politik', 'Rede an die Nation gehalten, um das Land zu beruhigen.'); }
+    if (s.stats.stability < 40 && !recentUses(s, 'act:rede', 6)) { doAction(s, 'rede'); log('politik', 'Rede an die Nation gehalten, um das Land zu beruhigen.'); }
     // Militär
     if (A.militaer) {
       if (s.groups.military < 35 && s.spending.military < c.spending.military + 1.5) { s.spending.military = Math.round((s.spending.military + 0.1) * 10) / 10; log('militaer', 'Militär unzufrieden: Verteidigungsbudget leicht erhöht.'); }
@@ -2071,9 +2129,6 @@ const Engine = (() => {
     if (st.stability < 25) add('politik', 'danger', `Die Stabilität ist kritisch (${fmt(st.stability, 0)}). Revolutionsgefahr! Eine Rede an die Nation oder der Ausnahmezustand helfen kurzfristig.`);
     else if (st.stability < 45) add('politik', 'warn', 'Die Stabilität sinkt. Achte auf Arbeitslosigkeit, Sicherheit und Zustimmung.');
     if (st.corruption > 55) add('politik', 'warn', `Hohe Korruption (${fmt(st.corruption, 0)}) kostet dich Steuereinnahmen. Eine Antikorruptionsbehörde hilft.`);
-    const toElection = s.nextElection - s.month;
-    if (c.gov === 'demokratie' && toElection <= 12 && s.approval < 50 && !(s.mode === 'klassisch' && s.terms >= 3))
-      add('politik', s.approval < 42 ? 'danger' : 'warn', `Wahl in ${toElection} Monaten – du liegst bei ${fmt(s.approval, 0)} % Zustimmung. Du brauchst etwa 48 % für einen Sieg.`);
     if (s.treasury > s.econ.gdp * 0.06) add('wirtschaft', 'info', `Auf dem Staatskonto liegen ${fmtMoney(s.treasury)}. Investiere sie in Sonderprojekte oder tilge Schulden.`);
     for (const c of (s.conflicts || [])) if (c.intensity > 70 && !c.peacekeepers) { add('diplomatie', 'info', `${c.name} eskaliert. Du könntest vermitteln, helfen oder eine Friedenstruppe schicken.`); break; }
     for (const g in GROUPS) if (s.groups[g] < 30 && g !== 'military') {
@@ -2150,12 +2205,14 @@ const Engine = (() => {
     if (s.treasury === undefined) { s.treasury = s.econ.gdp * 0.02; s.fund = 0; s.fundRate = 4; }
     if (s.discretionary === undefined) s.discretionary = 0.5;
     if (!s.uses) s.uses = {};
-    if (!s.auto) s.auto = { finanzen: true, wirtschaft: true, soziales: true, militaer: true, diplomatie: true, politik: true, ereignisse: true };
+    if (!s.auto) s.auto = { finanzen: true, wirtschaft: true, militaer: true, diplomatie: true, politik: true, ereignisse: true };
     if (!s.cabinet) s.cabinet = [];
     if (!s.conflicts) initConflicts(s);
     for (const w of s.wars || []) ensureWarData(w);
     if (!s.forces) { s.forces = initForces(c); s.forcesBase = unitPower(s.forces); s.orders = []; }
     if (!s.annexed) { s.annexed = {}; s.puppets = {}; s.casusBelli = {}; s.popExtra = 0; }
+    if (!s.prov) { s.prov = {}; s.gdp0 = c.gdp; initProvinces(s, c.id, 0); for (const id in s.annexed) initProvinces(s, id, 1); }
+    s.auto.politik = true; s.auto.ereignisse = true; delete s.auto.soziales;
     s.budget = computeBudget(s);
     return s;
   }
@@ -2188,6 +2245,7 @@ const Engine = (() => {
     nuclearHolders, disarmChance, startDisarm, persuadeDisarm, pledgeDisarm,
     WAR_TARGETS, WEAPONS, STRATEGIES, warStrike, weaponStatus, setStrategy, targetFactor,
     READINESS_LEVELS, setReadiness, SF_OPS, sfOp, sfChance, sfTarget, chanceP, nuclearThreat, nuclearStrike,
+    BUILDINGS, MAX_LEVEL, ownProvinces, ownsProvince, provWeight, provGdp, effLevels, provBottleneck, provinceEffects, buildCost, buildMonths, canBuild, startBuild, cancelBuild, buildGain, buildAdvice,
     tips, legacy, serialize, deserialize, addNews,
     fmt, fmtSigned, fmtMoney, dateStr, creditRating, byId, policyById, actionById, clamp,
   };

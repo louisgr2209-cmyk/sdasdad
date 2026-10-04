@@ -10,7 +10,6 @@ const UI = (() => {
   let prev = null;              // Werte vor dem letzten Monat (für Trends)
   let setupSel = 'DE', setupFilter = 'Alle', setupSearch = '';
   let dipTab = 'konflikte';
-  let govFilter = 'alle';
   let selConflict = null;
   let mapMode = 'konflikte';
   const projAmt = {};
@@ -20,6 +19,8 @@ const UI = (() => {
   let setupOpts = { name: '', title: 'Präsident', difficulty: 'normal', mode: 'klassisch', autopilot: 'aus' };
   let countryModal = null; // { id, tab }
   let startAnim = null;
+  let selProv = null, provLayer = 'gesamt', provFocused = false;
+  let mapDrag = null, mapDragged = false;
   const prefs = loadPrefs();
 
   const $ = sel => document.querySelector(sel);
@@ -30,13 +31,13 @@ const UI = (() => {
 
   const NAV = [
     { id: 'overview', icon: '🧭', name: 'Übersicht' },
-    { id: 'regierung', icon: '🏛️', name: 'Regierung' },
+    { id: 'wirtschaft', icon: '🏗️', name: 'Wirtschaft' },
     { id: 'finanzen', icon: '💰', name: 'Finanzen' },
     { id: 'welt', icon: '🌍', name: 'Welt' },
     { id: 'militaer', icon: '🛡️', name: 'Militär' },
     { id: 'chronik', icon: '📊', name: 'Chronik' },
   ];
-  const NAV_OF_AREA = { wirtschaft: 'regierung', soziales: 'regierung', politik: 'regierung', militaer: 'militaer', diplomatie: 'welt' };
+  const NAV_OF_AREA = { wirtschaft: 'wirtschaft', soziales: 'wirtschaft', politik: 'wirtschaft', militaer: 'militaer', diplomatie: 'welt' };
   const TITLES = ['Präsident', 'Präsidentin', 'Kanzler', 'Kanzlerin', 'Premierminister', 'Premierministerin', 'Staatsoberhaupt'];
   const LABELS = {
     approval: 'Zustimmung', stability: 'Stabilität', growth: 'Wachstum', unemployment: 'Arbeitslosigkeit', inflation: 'Inflation',
@@ -142,9 +143,9 @@ const UI = (() => {
       <div class="form-row"><label>Dein Name</label><input type="text" id="inp-name" maxlength="28" placeholder="z. B. Alex Muster" value="${esc(setupOpts.name)}"></div>
       <div class="form-row"><label>Dein Titel</label><select id="inp-title">${titleOpts}</select></div>
       <div class="form-row"><label>Schwierigkeit</label>${seg('difficulty', [['leicht', 'Leicht'], ['normal', 'Normal'], ['schwer', 'Schwer']])}</div>
-      <div class="form-row"><label>Spielmodus</label>${seg('mode', [['klassisch', '3 Amtszeiten'], ['endlos', 'Endlos']])}</div>
-      <div class="form-row"><label>Minister-Autopilot</label>${seg('autopilot', [['aus', 'Aus – ich entscheide alles'], ['an', 'An – Minister helfen']])}</div>
-      <p class="muted" style="font-size:12px;margin:0">${c.gov === 'demokratie' ? 'Alle 4 Jahre wird gewählt – du brauchst die Mehrheit.' : 'Keine freien Wahlen – aber alle 4 Jahre eine Machtprobe. Achte auf Stabilität und Militär!'}</p>
+      <div class="form-row"><label>Spielmodus</label>${seg('mode', [['klassisch', '12 Jahre'], ['endlos', 'Endlos']])}</div>
+      <div class="form-row"><label>Minister-Autopilot</label>${seg('autopilot', [['aus', 'Aus – Wirtschaft & Militär selbst'], ['an', 'An – Minister helfen']])}</div>
+      <p class="muted" style="font-size:12px;margin:0">Wirtschafts- und Militärspiel: Politik und Gesetze laufen automatisch, keine Wahlen. Du baust Provinzen aus, führst die Streitkräfte und schließt Bündnisse.</p>
       <button class="btn btn-primary btn-lg" data-action="start-game" style="min-width:0">Amt antreten ▶</button>`;
   }
 
@@ -240,9 +241,8 @@ const UI = (() => {
   function renderTopbar() {
     if (!S) return;
     const b = S.budget, demo = S.country.gov === 'demokratie';
-    const toE = S.nextElection - S.month;
-    const finalTerm = S.mode === 'klassisch' && S.terms >= 3;
-    const elText = finalTerm ? `Amtsende in ${toE} Mon.` : demo ? `Wahl in ${toE} Mon.` : `Machtprobe in ${toE} Mon.`;
+    const toE = S.mode === 'klassisch' ? 144 - S.month : 99;
+    const elText = S.mode === 'klassisch' ? `Jahr ${Math.floor(S.month / 12) + 1} von 12` : 'Endlosmodus';
     const flow = (b.discretionary + Math.max(0, b.balance)) * S.econ.gdp / 1200;
     const stat = (cls, l, v, tip, nav) => `<div class="tb-stat ${cls}" data-tip="${esc(tip)}" ${nav ? `data-action="nav" data-view="${nav}"` : ''}><div class="l">${l}</div><div class="v">${v}</div></div>`;
     const apCls = S.approval >= 50 ? 'good' : S.approval >= 40 ? 'warn' : 'bad';
@@ -266,14 +266,14 @@ const UI = (() => {
     const tips = Engine.tips(S);
     const danger = new Set(tips.filter(t => t.level === 'danger').map(t => NAV_OF_AREA[t.area]));
     if (S.wars.length) danger.add('militaer');
-    const autoOn = Object.values(S.auto || {}).filter(Boolean).length, autoAll = Object.keys(Engine.AUTO_AREAS).length;
+    const autoOn = Object.keys(Engine.AUTO_AREAS).filter(k => S.auto[k]).length, autoAll = Object.keys(Engine.AUTO_AREAS).length;
     $('#sidebar').innerHTML = NAV.map((n, i) => `
       <div class="nav-item ${view === n.id ? 'active' : ''}" data-action="nav" data-view="${n.id}">
         <span class="ico">${n.icon}</span><span class="lbl">${n.name}</span><span class="key">${i + 1}</span>
         ${danger.has(n.id) ? '<span class="alert pulse"></span>' : ''}
       </div>`).join('') + `
       <div class="side-foot">
-        <div class="auto-badge" data-action="nav" data-view="regierung" data-tip="Deine Minister kümmern sich automatisch um ihre Bereiche. Einstellbar unter Regierung.">🤖 <span class="lbl">Autopilot ${autoOn}/${autoAll}</span></div>
+        <div class="auto-badge" data-action="nav" data-view="wirtschaft" data-tip="Politik, Gesetze und kleine Ereignisse erledigen deine Minister immer selbst. Zusätzlich kannst du Finanzen, Provinzausbau, Militär und Diplomatie abgeben.">🤖 <span class="lbl">Autopilot ${autoOn}/${autoAll}</span></div>
         <button class="btn btn-sm" data-action="menu">☰ <span class="lbl">Menü</span></button>
       </div>`;
   }
@@ -288,7 +288,7 @@ const UI = (() => {
     const v = $('#view');
     const scroll = v.dataset.view === view ? v.scrollTop : 0;
     v.dataset.view = view;
-    const fn = { overview: viewOverview, regierung: viewGovernment, finanzen: viewFinance, welt: viewWorld, militaer: viewMilitary, chronik: viewChronik }[view] || viewOverview;
+    const fn = { overview: viewOverview, wirtschaft: viewEconomy, finanzen: viewFinance, welt: viewWorld, militaer: viewMilitary, chronik: viewChronik }[view] || viewOverview;
     v.innerHTML = fn();
     v.scrollTop = scroll;
     afterRender();
@@ -296,7 +296,7 @@ const UI = (() => {
 
   function afterRender() {
     document.querySelectorAll('canvas[data-spark]').forEach(c => drawSpark(c, S.history[c.dataset.spark], c.dataset.color));
-    document.querySelectorAll('canvas[data-map]').forEach(c => drawMap(c));
+    document.querySelectorAll('canvas[data-map]').forEach(c => { if (c.dataset.map === 'prov' && !provFocused) { focusOwn(c); provFocused = true; } drawMap(c); });
     document.querySelectorAll('canvas[data-chart]').forEach(c => drawChart(c, c.dataset.chart));
     document.querySelectorAll('.vote-bar i[data-w]').forEach(i => requestAnimationFrame(() => { i.style.width = i.dataset.w + '%'; }));
   }
@@ -386,28 +386,26 @@ const UI = (() => {
     if (!tips.length) return '<div class="tip good"><span class="ti">✅</span><span>Keine Probleme in diesem Bereich.</span></div>';
     const icon = { danger: '🚨', warn: '⚠️', info: '💡', good: '✅' };
     return tips.slice(0, max).map(t => `<div class="tip ${t.level}"><span class="ti">${icon[t.level]}</span><span>${esc(t.text)}</span>
-      ${t.area && view === 'overview' ? `<button class="btn btn-sm go" data-action="nav" data-view="${t.area}">${AREAS[t.area].icon}</button>` : ''}</div>`).join('');
+      ${t.area && view === 'overview' ? `<button class="btn btn-sm go" data-action="nav" data-view="${NAV_OF_AREA[t.area] || t.area}">${AREAS[t.area].icon}</button>` : ''}</div>`).join('');
   }
 
   function mood(v) { return v >= 65 ? '😄' : v >= 50 ? '🙂' : v >= 35 ? '😐' : v >= 20 ? '🙁' : '😠'; }
 
   function viewOverview() {
     const e = S.econ, b = S.budget, c = S.country, st = S.stats;
-    const toE = S.nextElection - S.month, demo = c.gov === 'demokratie';
-    const est = Engine.clamp(S.approval * 0.85 + 9 + S.campaign, 0, 100);
     const lvl = (good, warn) => good ? 'good' : warn ? 'warn' : 'bad';
     const war = S.wars[0];
+    const builds = Engine.ownProvinces(S).filter(p => S.prov[p.id].b).length;
     const lights = [
-      ['📈', 'Wirtschaft', lvl(e.growth >= c.potential - 0.3 && e.unemployment <= c.unemployment + 1, e.growth >= 0), `Wachstum ${F(e.growth, 1)} % · Arbeitslose ${F(e.unemployment, 1)} %`, 'regierung'],
+      ['📈', 'Wirtschaft', lvl(e.growth >= c.potential - 0.3 && e.unemployment <= c.unemployment + 1, e.growth >= 0), `Wachstum ${F(e.growth, 1)} % · Arbeitslose ${F(e.unemployment, 1)} %`, 'wirtschaft'],
       ['💰', 'Finanzen', lvl(b.balance >= -2, b.balance >= -5), `Konto ${FM(S.treasury)} · ${b.balance >= 0 ? 'Überschuss' : 'Defizit'} ${F(Math.abs(b.balance), 1)} %`, 'finanzen'],
-      ['👥', 'Gesellschaft', lvl(S.approval >= 50 && st.stability >= 50, S.approval >= 38 && st.stability >= 30), `Zustimmung ${F(S.approval, 0)} % · Stabilität ${F(st.stability, 0)}`, 'regierung'],
+      ['👥', 'Gesellschaft', lvl(S.approval >= 50 && st.stability >= 50, S.approval >= 38 && st.stability >= 30), `Zustimmung ${F(S.approval, 0)} % · Stabilität ${F(st.stability, 0)} · läuft automatisch`, 'wirtschaft'],
       ['🛡️', 'Sicherheit', war ? 'bad' : lvl(S.terror < 40 && st.security >= 50, S.terror < 65), war ? `Krieg gegen ${Engine.byId(war.enemy).name} (Front ${FS(war.progress, 0)})` : `Terrorgefahr ${F(S.terror, 0)} · Sicherheit ${F(st.security, 0)}`, 'militaer'],
       ['🌍', 'Ausland', lvl(st.reputation >= 55, st.reputation >= 35), `Ansehen ${F(st.reputation, 0)} · ${S.conflicts.length} Krisenherde weltweit`, 'welt'],
-      ['🗳️', demo ? 'Nächste Wahl' : 'Machtprobe', S.mode === 'klassisch' && S.terms >= 3 ? 'good' : demo ? lvl(est >= 53, est >= 48) : lvl(st.stability >= 45 && S.groups.military >= 40, st.stability >= 30 && S.groups.military >= 30),
-        `in ${toE} Monaten · ${demo ? `Prognose ${F(est, 0)} %` : `Militär ${F(S.groups.military, 0)} %`}`, 'regierung'],
+      ['🏗️', 'Provinzen', builds ? 'good' : S.treasury > S.econ.gdp * 0.01 ? 'warn' : 'good', `${builds} Baustellen · Ausbau bringt ${FS(Engine.provinceEffects(S).growth, 2)} % Wachstum`, 'wirtschaft'],
     ].map(([ic, name, l, txt, nav]) => `<div class="light ${l}" data-action="nav" data-view="${nav}"><span class="dot"></span><span class="li-ico">${ic}</span><div><b>${name}</b><small>${esc(txt)}</small></div></div>`).join('');
     const cab = (S.cabinet || []).length ? S.cabinet.map(x => `<div class="cab-line">${Engine.AUTO_AREAS[x.area]?.icon || '🧑‍💼'} ${esc(x.text)}</div>`).join('')
-      : '<div class="muted" style="font-size:13px">Diesen Monat keine Entscheidungen. Schalte unter „Regierung“ den Autopiloten deiner Minister ein oder aus.</div>';
+      : '<div class="muted" style="font-size:13px">Diesen Monat keine Entscheidungen des Kabinetts.</div>';
     const tips = Engine.tips(S).filter(t => t.level === 'danger' || t.level === 'warn').slice(0, 3);
     const important = tips.length ? adviceList(tips, 3) : '<div class="tip good"><span class="ti">✅</span><span>Keine akuten Probleme.</span></div>';
     const groups = Object.keys(GROUPS).map(g => `<div class="gpill" data-tip="<b>${GROUPS[g].name}</b> (${Math.round(GROUPS[g].weight * 100)} % der Wähler)<br>Wichtig: ${GROUPS[g].likes}">
@@ -417,7 +415,7 @@ const UI = (() => {
     return `
       <div class="view-head"><h2>🧭 Übersicht</h2><span class="sub">${esc(S.leader.title)} ${esc(S.leader.name)} · ${Engine.dateStr(S)}</span></div>
       <div class="grid g-main">
-        <div class="panel">${mapPanelHead()}<div class="map-wrap"><canvas data-map="1"></canvas></div>${mapLegend()}
+        <div class="panel">${mapPanelHead()}${mapBox('1')}${mapLegend()}
           ${confl ? `<div class="conf-row">${confl}</div>` : ''}</div>
         <div class="grid" style="align-content:start">
           <div class="panel"><div class="panel-title">🚦 Lage der Nation</div><div class="lights">${lights}</div></div>
@@ -518,27 +516,77 @@ const UI = (() => {
     return `<div class="panel advisor"><div class="avatar">${a.avatar}</div><div class="bubble"><div class="who"><b>${a.advisor}</b> · ${a.role}</div>${body}</div></div>`;
   }
 
-  function viewGovernment() {
-    const filters = [['alle', 'Alle'], ['wirtschaft', '📈 Wirtschaft'], ['soziales', '🤝 Soziales'], ['militaer', '🛡️ Sicherheit'], ['politik', '🏛️ Politik']]
-      .map(([k, l]) => `<button class="btn btn-sm ${govFilter === k ? 'active' : ''}" data-action="gov-filter" data-k="${k}">${l}</button>`).join('');
-    const inArea = x => govFilter === 'alle' || x.area === govFilter;
-    const actions = ACTIONS.filter(inArea).map(actionCard).join('');
-    const recs = new Set(['wirtschaft', 'soziales', 'militaer', 'politik'].flatMap(a => Engine.recommendedPolicies(S, a, 1)));
-    const rank = p => (p.id in S.policies) ? 0 : recs.has(p.id) ? 1 : Engine.canEnact(S, p.id).ok ? 2 : 3;
-    const pols = POLICIES.filter(inArea).sort((x, y) => rank(x) - rank(y)).map(p => policyCard(p, recs.has(p.id))).join('');
-    const activeCount = POLICIES.filter(p => inArea(p) && (p.id in S.policies)).length;
+  function mapBox(key) {
+    return `<div class="map-wrap"><canvas data-map="${key}"></canvas><div class="map-zoom">
+      <button data-action="map-zoom" data-k="${key}" data-f="1.6" data-tip="Hineinzoomen (Mausrad)">+</button>
+      <button data-action="map-zoom" data-k="${key}" data-f="0.625" data-tip="Herauszoomen (Mausrad)">−</button>
+      <button data-action="map-zoom" data-k="${key}" data-f="0" data-tip="${key === 'prov' ? 'Auf dein Land zoomen' : 'Ganze Welt'}">⟲</button></div>
+      <div class="map-hint">🖱️ Mausrad = Zoom · Ziehen = Verschieben</div></div>`;
+  }
+
+  // ─────────────────────────── Ansicht: Wirtschaft & Provinzen ───────────────────────────
+  function viewEconomy() {
+    const own = Engine.ownProvinces(S);
+    if (!selProv || !Engine.ownsProvince(S, selProv)) selProv = (own.find(p => p.capital && p.country === S.countryId) || own[0] || {}).id || null;
+    const B = Engine.BUILDINGS, pe = Engine.provinceEffects(S);
+    const layers = [['gesamt', '📊 Gesamt'], ...Object.entries(B).map(([k, b]) => [k, `${b.icon} ${b.name}`])]
+      .map(([k, l]) => `<button class="${provLayer === k ? 'active' : ''}" data-action="prov-layer" data-k="${k}">${l}</button>`).join('');
+    const legend = `<div class="map-legend"><span>Ausbaustufe:</span>${[0, 2, 4, 6, 8, 10].map(l => `<span><i style="background:${LEVEL_COLORS[l]}"></i>${l}</span>`).join('')}<span>🏗️ Baustelle</span></div>`;
+    // ausgewählte Provinz
+    let detail = '<div class="muted">Klicke auf eine deiner Provinzen.</div>';
+    if (selProv) {
+      const p = PROVINCES.byId(selProv), pr = S.prov[selProv], eff = Engine.effLevels(pr), bn = Engine.provBottleneck(pr);
+      const rows = Object.entries(B).map(([k, b]) => {
+        const ck = Engine.canBuild(S, selProv, k), cost = Engine.buildCost(S, selProv, k), gain = Engine.buildGain(S, selProv, k);
+        const pips = Array.from({ length: Engine.MAX_LEVEL }, (_, i) => `<i class="${i < pr[k] ? (k === 'industrie' && i >= eff.industrie ? 'idle' : 'on') : ''}"></i>`).join('');
+        return `<div class="bld-row">
+          <div class="bld-name" data-tip="${esc(b.desc)}">${b.icon} <b>${b.name}</b> <span class="muted">Stufe ${pr[k]}</span></div>
+          <div class="pips">${pips}</div>
+          <div class="bld-act">${ck.ok ? `<button class="btn btn-sm btn-good" data-action="prov-build" data-id="${selProv}" data-k="${k}" data-tip="${esc(`Kosten ${FM(cost)} · Bauzeit ${Engine.buildMonths(S, selProv, k)} Monate<br>Wachstum ${FS(gain.growth, 3)} %${gain.environment ? ` · Umwelt ${FS(gain.environment, 2)}` : ''}`)}">▲ ${shortMoney(cost)}</button>` : `<span class="muted" style="font-size:12px">${esc(ck.reason)}</span>`}</div></div>`;
+      }).join('');
+      const cons = pr.b ? `<div class="tip info"><span class="ti">🏗️</span><span>Im Bau: <b>${B[pr.b.type].name}</b> Stufe ${pr[pr.b.type] + 1} – fertig in ${pr.b.done - S.month} Monaten.</span><button class="btn btn-sm" data-action="prov-cancel" data-id="${selProv}" data-tip="Abbrechen – die Hälfte der Kosten kommt zurück">✖</button></div>` : '';
+      const warn = bn ? `<div class="tip warn"><span class="ti">⚠️</span><span>Engpass: Die Industrie läuft nur auf Stufe ${eff.industrie}, weil ${bn === 'energie' ? 'Energie' : 'Infrastruktur'} fehlt. Baue zuerst ${bn === 'energie' ? '⚡ Energie' : '🛣️ Infrastruktur'} aus.</span></div>` : '';
+      detail = `<div class="prov-head">${flag(p.country)}<div><h3>${esc(p.name)}</h3><div class="muted" style="font-size:12px">${esc(Engine.byId(p.country).name)}${p.capital ? ' · Hauptstadtregion' : ''}${p.country !== S.countryId ? ' · annektiert' : ''} · Wirtschaftskraft ≈ ${FM(Engine.provGdp(S, p))}/Jahr</div></div></div>
+        ${rows}${cons}${warn}`;
+    }
+    const adv = Engine.buildAdvice(S, 4).map(a => {
+      const p = PROVINCES.byId(a.pid), b = B[a.type];
+      return `<div class="adv-line"><span>${b.icon} <b>${esc(p.name)}</b> → ${b.name} ${S.prov[a.pid][a.type] + 1}</span><span class="muted">${FS(a.gain, 3)} % · ${shortMoney(Engine.buildCost(S, a.pid, a.type))}</span>
+        <button class="btn btn-sm btn-good" data-action="prov-build" data-id="${a.pid}" data-k="${a.type}">Bauen</button></div>`;
+    }).join('') || '<div class="muted">Alles im Bau oder ausgebaut.</div>';
+    const table = own.map(p => {
+      const pr = S.prov[p.id], bn = Engine.provBottleneck(pr);
+      return `<tr class="${p.id === selProv ? 'sel' : ''}" data-action="prov-sel" data-id="${p.id}">
+        <td>${p.country !== S.countryId ? flag(p.country) + ' ' : ''}${esc(p.name)}</td><td class="num">${pr.industrie}</td><td class="num">${pr.infrastruktur}</td><td class="num">${pr.energie}</td>
+        <td class="num">${F(Engine.provWeight(S, p) * 100, 0)} %</td>
+        <td>${pr.b ? `🏗️ ${B[pr.b.type].icon} ${pr.b.done - S.month} Mon.` : bn ? `<span class="warn">⚠️ ${bn === 'energie' ? 'Energie' : 'Infrastr.'} fehlt</span>` : '<span class="muted">–</span>'}</td></tr>`;
+    }).join('');
+    const pols = Object.keys(S.policies).map(id => Engine.policyById(id)).filter(Boolean);
+    const cab = (S.cabinet || []).length ? S.cabinet.map(x => `<div class="cab-line">${Engine.AUTO_AREAS[x.area]?.icon || '🧑‍💼'} ${esc(x.text)}</div>`).join('') : '<div class="muted" style="font-size:13px">Diesen Monat keine Entscheidungen.</div>';
+    const effChips = [signedChip('📈 Wachstum', pe.growth, false, 2, ' %'), signedChip('👷 Arbeitslose', pe.unemployment, true, 2, ' %'), signedChip('💹 Inflation', pe.inflation, true, 2, ' %'),
+      signedChip('🌳 Umwelt', pe.environment, false, 1), signedChip('🏛️ Staatskapazität', pe.capacity, false, 1), signedChip('⚖️ Stabilität', pe.stability, false, 1)].join('') || '<span class="muted">Noch nichts ausgebaut.</span>';
     const toggles = Object.keys(Engine.AUTO_AREAS).map(autoToggle).join('');
     return `
-      <div class="view-head"><h2>🏛️ Regierung</h2><span class="sub">Entscheide selbst – oder lass deine Minister arbeiten.</span></div>
-      <details class="panel" ${Object.values(S.auto).some(Boolean) ? 'open' : ''}><summary class="panel-title" style="cursor:pointer;margin:0">🤖 Minister-Autopilot (optional) <span class="right muted">${Object.values(S.auto).filter(Boolean).length} von ${Object.keys(Engine.AUTO_AREAS).length} aktiv · aufklappen</span></summary>
-        <div style="margin:12px 0 8px"><button class="btn btn-sm" data-action="auto-all" data-v="1">Alle an</button> <button class="btn btn-sm" data-action="auto-all" data-v="0">Alle aus</button></div>
-        <div class="auto-grid">${toggles}</div>
-        <p class="muted" style="font-size:12px;margin:10px 0 0">Eingeschaltete Minister beschließen sinnvolle Gesetze, halten den Haushalt im Rahmen und entscheiden kleine Ereignisse. Was sie getan haben, steht im Kabinettsbericht. Große Entscheidungen (Kriege, Wahlen, Krisen) triffst immer du.</p></details>
-      <div class="chart-tabs" style="margin-top:16px">${filters}</div>
-      <div class="section-title">⚡ Sofortmaßnahmen <span class="count">sofort wirksam · bezahlt vom Staatskonto · Wiederholungen wirken schwächer</span></div>
-      <div class="cards">${actions || '<span class="muted">Keine Maßnahmen in diesem Bereich.</span>'}</div>
-      <div class="section-title">📜 Gesetze <span class="count">${activeCount} in Kraft · wirken dauerhaft</span></div>
-      <div class="cards">${pols}</div>`;
+      <div class="view-head"><h2>🏗️ Wirtschaft & Provinzen</h2><span class="sub">Baue Industrie, Infrastruktur und Energie in deinen Provinzen aus – bezahlt vom Staatskonto (${FM(S.treasury)}).</span></div>
+      <div class="grid g-main">
+        <div class="panel"><div class="panel-title">🗺️ Deine Provinzen <span class="right"><span class="seg seg-sm">${layers}</span></span></div>${mapBox('prov')}${legend}</div>
+        <div class="grid" style="align-content:start">
+          <div class="panel prov-detail">${detail}</div>
+          <div class="panel"><div class="panel-title">⭐ Beste Investitionen <span class="right muted">Wachstum pro Geld</span></div>${adv}</div>
+        </div>
+      </div>
+      <div class="grid g2" style="margin-top:14px">
+        <div class="panel"><div class="panel-title">📋 Alle Provinzen <span class="right muted">${own.length} Provinzen · ${own.filter(p => S.prov[p.id].b).length} Baustellen</span></div>
+          <div class="prov-table-wrap"><table class="prov-table"><thead><tr><th>Provinz</th><th>🏭</th><th>🛣️</th><th>⚡</th><th>BIP-Anteil</th><th>Status</th></tr></thead><tbody>${table}</tbody></table></div>
+          <div class="section-title" style="margin-top:12px">Wirkung des Ausbaus <span class="count">gegenüber Spielstart</span></div><div class="chips">${effChips}</div></div>
+        <div class="grid" style="align-content:start">
+          <div class="panel"><div class="panel-title">🧑‍💼 Kabinett <span class="right muted">Politik läuft automatisch</span></div>
+            <p class="muted" style="font-size:12px;margin:0 0 8px">Gesetze, Innenpolitik und kleine Ereignisse erledigen deine Minister. Es gibt keine Wahlen – du konzentrierst dich auf Wirtschaft, Militär und Bündnisse.</p>
+            <div class="cab-box">${cab}</div>
+            ${pols.length ? `<details style="margin-top:8px"><summary class="muted" style="cursor:pointer;font-size:12px">📜 ${pols.length} Gesetze in Kraft</summary><div class="chips" style="margin-top:6px">${pols.map(p => chip(`${p.icon || ''} ${esc(p.name)}`)).join('')}</div></details>` : ''}</div>
+          <div class="panel"><div class="panel-title">🤖 Was dürfen die Minister zusätzlich?</div><div class="auto-grid">${toggles}</div></div>
+        </div>
+      </div>`;
   }
 
   function forcesPanel() {
@@ -715,7 +763,7 @@ const UI = (() => {
     const body = dipTab === 'buendnisse' ? viewBlocs() : dipTab === 'abruestung' ? viewDisarm() : dipTab === 'laender' ? viewCountries() : viewConflicts();
     return `
       <div class="view-head"><h2>🌍 Welt</h2><span class="sub">Konflikte, Verträge, Bündnisse – klicke auf die Karte.</span></div>
-      <div class="panel">${mapPanelHead()}<div class="map-wrap"><canvas data-map="1"></canvas></div>${mapLegend()}</div>
+      <div class="panel">${mapPanelHead()}${mapBox('1')}${mapLegend()}</div>
       ${tips.length ? `<div style="margin-top:14px">${advisorBlock('diplomatie', tips)}</div>` : ''}
       <div style="margin-top:14px">${autoToggle('diplomatie')}</div>
       <div class="chart-tabs" style="margin-top:14px">${tabs}</div>
@@ -1009,31 +1057,92 @@ const UI = (() => {
     }
     return null;
   }
+  // ── Zoom & Verschieben: Ansicht pro Karte (normierte Koordinaten 0..1) ──
+  const mapViews = {};
+  function getView(c) {
+    const k = c.dataset.map || 'start';
+    if (k === 'start' || c.id === 'start-map') return { z: 1, x: 0, y: 0 };
+    return mapViews[k] || (mapViews[k] = { z: 1, x: 0, y: 0 });
+  }
+  function clampView(v) {
+    v.z = Engine.clamp(v.z, 1, 14);
+    v.x = Engine.clamp(v.x, 0, 1 - 1 / v.z); v.y = Engine.clamp(v.y, 0, 1 - 1 / v.z);
+    return v;
+  }
+  function zoomAt(c, factor, fx, fy) { // fx/fy: Position im Canvas (0..1)
+    const v = getView(c), nx = v.x + fx / v.z, ny = v.y + fy / v.z;
+    v.z = Engine.clamp(v.z * factor, 1, 14);
+    v.x = nx - fx / v.z; v.y = ny - fy / v.z;
+    clampView(v);
+  }
+  function focusOwn(c) {
+    prepMap();
+    const own = new Set(Engine.ownProvinces(S).map(p => PROVINCES.list.indexOf(p)));
+    const W = WORLD_MAP.width, H = WORLD_MAP.height, g = PROVINCES.grid;
+    const xs = [], ys = [];
+    for (let i = 0; i < g.length; i++) if (g[i] >= 0 && own.has(g[i])) { xs.push(i % W); ys.push((i / W) | 0); }
+    if (!xs.length) return;
+    // Perzentile statt Min/Max: einzelne Außenposten (z. B. jenseits der Datumsgrenze) ignorieren
+    xs.sort((a, b) => a - b); ys.sort((a, b) => a - b);
+    const q = (a, f) => a[Math.min(a.length - 1, Math.floor(a.length * f))];
+    const x0 = q(xs, 0.015), x1 = q(xs, 0.985) + 1, y0 = q(ys, 0.01), y1 = q(ys, 0.99) + 1;
+    const v = getView(c), bw = (x1 - x0) / W, bh = (y1 - y0) / H;
+    v.z = Math.max(1, Math.min(1 / (bw * 1.25), 1 / (bh * 1.25), 14));
+    v.x = (x0 + x1) / 2 / W - 0.5 / v.z; v.y = (y0 + y1) / 2 / H - 0.5 / v.z;
+    clampView(v);
+  }
+  // Welt-Pixel (ungezoomt) → Bildschirm
+  function viewXY(V, w, h) { return (x, y) => [(x / w - V.x) * w * V.z, (y / h - V.y) * h * V.z]; }
+  const LEVEL_COLORS = ['#3a2430', '#5a2d3a', '#7a3b3b', '#9a5a36', '#b8822f', '#c9a531', '#a9c13a', '#6fc44a', '#3ec27a', '#2ab7a9', '#38a8ff'];
+  function provLevel(pr, layer) {
+    if (layer === 'gesamt') return (pr.industrie + pr.infrastruktur + pr.energie) / 3;
+    return pr[layer];
+  }
   const mapCache = {};
-  function baseLayer(w, h, opts) {
-    const key = [opts.start ? 'start' : mapMode, w, h, opts.start ? setupSel : '', S ? S.month : '', S ? Object.keys(S.policies).length : '', selCountry, view, S ? S.conflicts.map(k => k.id).join() + S.wars.length + JSON.stringify(S.ownBloc && S.ownBloc.members) + S.blocs.join() : ''].join('|');
+  function baseLayer(w, h, opts, V, mapKey) {
+    const provMode = mapKey === 'prov';
+    const key = [mapKey, opts.start ? 'start' : provMode ? provLayer + selProv : mapMode, w, h, V.z, V.x, V.y, opts.start ? setupSel : '', S ? S.month : '', S ? Object.keys(S.policies).length : '', selCountry, view,
+      S ? S.conflicts.map(k => k.id).join() + S.wars.length + JSON.stringify(S.ownBloc && S.ownBloc.members) + S.blocs.join() + Object.keys(S.annexed || {}).join() : '',
+      provMode && S ? Object.values(S.prov).map(p => p.industrie + p.infrastruktur * 11 + p.energie * 121 + (p.b ? 'b' : '')).join() : ''].join('|');
     const dpr = window.devicePixelRatio || 1;
-    if (mapCache.key === key && mapCache.canvas) return mapCache.canvas;
-    const cv = document.createElement('canvas'); cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
-    const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const cw = w / WORLD_MAP.width, chh = h / WORLD_MAP.height, rad = Math.max(0.8, Math.min(cw, chh) * 0.36);
+    const cache = mapCache[mapKey] || (mapCache[mapKey] = {});
+    if (cache.key === key && cache.canvas) return cache.canvas;
+    const cv = cache.canvas && cache.canvas.width === Math.round(w * dpr) && cache.canvas.height === Math.round(h * dpr) ? cache.canvas : document.createElement('canvas');
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+    const cw = w / WORLD_MAP.width * V.z, chh = h / WORLD_MAP.height * V.z, rad = Math.max(0.6, Math.min(cw, chh) * 0.4);
+    const x0 = V.x * WORLD_MAP.width - 1, x1 = (V.x + 1 / V.z) * WORLD_MAP.width + 1, y0 = V.y * WORLD_MAP.height - 1, y1 = (V.y + 1 / V.z) * WORLD_MAP.height + 1;
+    const square = rad < 1.4;
+    const grid = PROVINCES.grid, W = WORLD_MAP.width;
     for (const d of mapDots) {
+      if (d.x < x0 || d.x > x1 || d.y < y0 || d.y > y1) continue;
       const id = keyToId[d.ch];
       let col = 'rgba(110,130,180,0.22)', r = rad;
       if (id) {
         if (opts.start) col = id === setupSel ? '#f5b942' : 'rgba(120,160,240,0.55)';
+        else if (provMode) {
+          const pi = grid[d.y * W + d.x], p = pi >= 0 ? PROVINCES.list[pi] : null;
+          if (p && Engine.ownsProvince(S, p.id)) {
+            col = LEVEL_COLORS[Math.round(Engine.clamp(provLevel(S.prov[p.id], provLayer), 0, 10))];
+            // Provinzgrenzen: Punkte am Rand einer Provinz etwas dunkler
+            const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => { const q = grid[(d.y + dy) * W + d.x + dx]; return q !== undefined && q !== pi; });
+            if (p.id === selProv) { col = edge ? '#ffffff' : col; r = rad * 1.15; }
+            else if (edge) r = rad * 0.7;
+          } else col = S.relations[id] !== undefined && Engine.atWarWith(S, id) ? 'rgba(255,32,64,.45)' : 'rgba(140,155,195,.28)';
+        }
         else if (id === S.countryId || (S.annexed && S.annexed[id] !== undefined)) col = '#f5b942';
         else if (S.puppets && S.puppets[id] !== undefined) col = 'rgba(245,185,66,.55)';
         else if (Engine.atWarWith(S, id)) col = '#ff2040';
         else if (mapMode === 'beziehungen') col = relColor(S.relations[id]);
         else if (mapMode === 'buendnisse') col = blocColor(id);
         else { const cs = conflictStateOf(id); col = cs === 'war' ? '#ff4d5e' : cs === 'civil' ? '#ff9f43' : S.alliance[id] ? 'rgba(120,170,255,.55)' : 'rgba(140,155,195,.42)'; }
-        if (!opts.start && id === selCountry && view === 'welt' && dipTab === 'laender') r = rad * 1.35;
       }
       ctx.fillStyle = col;
-      ctx.beginPath(); ctx.arc((d.x + 0.5) * cw, (d.y + 0.5) * chh, r, 0, Math.PI * 2); ctx.fill();
+      const px = (d.x + 0.5 - V.x * WORLD_MAP.width) * cw, py = (d.y + 0.5 - V.y * WORLD_MAP.height) * chh;
+      if (square) ctx.fillRect(px - r, py - r, r * 2, r * 2);
+      else { ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill(); }
     }
-    mapCache.key = key; mapCache.canvas = cv;
+    cache.key = key; cache.canvas = cv;
     return cv;
   }
   function arc(ctx, x, y, ex, ey, color, dash, width = 1.5) {
@@ -1054,17 +1163,20 @@ const UI = (() => {
     prepMap();
     const { ctx, w, h } = fitCanvas(c);
     const t = opts.time || performance.now();
-    ctx.drawImage(baseLayer(w, h, opts), 0, 0, w, h);
+    const V = getView(c), mapKey = c.id === 'start-map' ? 'start' : c.dataset.map;
+    const T = viewXY(V, w, h), LL = (lat, lon) => T(...latLonToXY(lat, lon, w, h));
+    ctx.drawImage(baseLayer(w, h, opts, V, mapKey), 0, 0, w, h);
     if (opts.pings) for (const p of opts.pings) {
-      const [x, y] = latLonToXY(...COUNTRY_COORDS[p.id], w, h);
+      const [x, y] = LL(...COUNTRY_COORDS[p.id]);
       const age = (t - p.t) / 2000;
       if (age < 0 || age > 1) continue;
       ctx.strokeStyle = `rgba(245,185,66,${1 - age})`; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(x, y, 4 + age * 30, 0, Math.PI * 2); ctx.stroke();
     }
     if (opts.start || !S) return;
-    const xy = id => latLonToXY(...COUNTRY_COORDS[id], w, h);
+    const xy = id => LL(...COUNTRY_COORDS[id]);
     placedLabels = [];
+    if (mapKey === 'prov') { drawProvOverlay(ctx, w, h, V, t); return; }
     const [px, py] = xy(S.countryId);
     // Bündnislinien
     if (mapMode === 'buendnisse') for (const id in S.alliance) if (S.alliance[id]) { const [x, y] = xy(id); arc(ctx, px, py, x, y, 'rgba(245,185,66,.45)', null, 1.2); }
@@ -1073,7 +1185,7 @@ const UI = (() => {
     const pulse = 0.5 + 0.5 * Math.sin(t / 300);
     for (const k of S.conflicts) {
       const [lat, lon] = Engine.conflictPos(k);
-      const [x, y] = latLonToXY(lat, lon, w, h);
+      const [x, y] = LL(lat, lon);
       const sel = view === 'welt' && dipTab === 'konflikte' && k.id === selConflict;
       if (k.type === 'war') {
         const [ax, ay] = xy(k.a), [bx, by] = xy(k.b);
@@ -1087,7 +1199,7 @@ const UI = (() => {
       if (k.peacekeepers) { ctx.strokeStyle = '#6cb8ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, r + 5, 0, Math.PI * 2); ctx.stroke(); }
       ctx.font = '13px Segoe UI Emoji, Apple Color Emoji, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
       ctx.fillText(k.peacekeepers ? '🪖' : k.type === 'war' ? '⚔️' : k.type === 'civil' ? '🔥' : '⚠️', x, y + 5);
-      if (w > 520 && (k.intensity > 35 || sel)) label(ctx, k.name.replace(/^Krieg /, ''), x, y - r - 6, sel ? '#ffd479' : '#ffd0d5', y + r + 15);
+      if (w > 520 && (k.intensity > 35 || sel || V.z > 2.5)) label(ctx, k.name.replace(/^Krieg /, ''), x, y - r - 6, sel ? '#ffd479' : '#ffd0d5', y + r + 15);
     }
     // Eigene Kriege
     for (const wr of S.wars) { const [ex, ey] = xy(wr.enemy); arc(ctx, px, py, ex, ey, `rgba(255,32,64,${0.6 + 0.4 * pulse})`, [6, 4], 2.4); label(ctx, '⚔️ Unser Krieg', (px + ex) / 2, Math.min(py, ey) - 20, '#ff8a95'); }
@@ -1095,12 +1207,37 @@ const UI = (() => {
     ctx.strokeStyle = '#ffd479'; ctx.lineWidth = 1.6;
     ctx.beginPath(); ctx.arc(px, py, 6 + 2 * pulse, 0, Math.PI * 2); ctx.stroke();
   }
+  function drawProvOverlay(ctx, w, h, V, t) {
+    const T = viewXY(V, w, h), cw = w / WORLD_MAP.width * V.z;
+    const pulse = 0.5 + 0.5 * Math.sin(t / 300);
+    for (const p of Engine.ownProvinces(S)) {
+      const pr = S.prov[p.id];
+      const [x, y] = T((p.x + 0.5) * w / WORLD_MAP.width, (p.y + 0.5) * h / WORLD_MAP.height);
+      if (x < -40 || y < -20 || x > w + 40 || y > h + 20) continue;
+      if (pr.b) {
+        ctx.font = '14px Segoe UI Emoji, Apple Color Emoji, sans-serif'; ctx.textAlign = 'center';
+        ctx.globalAlpha = 0.65 + 0.35 * pulse; ctx.fillText('🏗️', x, y - 2); ctx.globalAlpha = 1;
+      }
+      const big = Math.sqrt(p.dots) * cw;
+      if (big > 26 || p.id === selProv) label(ctx, p.name, x, y + (pr.b ? 14 : 4), p.id === selProv ? '#ffd479' : '#e7ecf7', y + 20);
+    }
+  }
+  function canvasToCell(c, ev) {
+    const r = c.getBoundingClientRect(), V = getView(c);
+    return [Math.floor(((ev.clientX - r.left) / r.width / V.z + V.x) * WORLD_MAP.width), Math.floor(((ev.clientY - r.top) / r.height / V.z + V.y) * WORLD_MAP.height)];
+  }
+  function provHit(c, ev) {
+    const [x, y] = canvasToCell(c, ev);
+    for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) { const p = PROVINCES.at(x + dx, y + dy); if (p) return p; }
+    return null;
+  }
   function conflictHit(c, ev) {
-    if (!S || !S.conflicts) return null;
+    if (!S || !S.conflicts || c.dataset.map === 'prov') return null;
     const r = c.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    const T = viewXY(getView(c), r.width, r.height);
     let best = null, bd = 1e9;
     for (const k of S.conflicts) {
-      const [x, y] = latLonToXY(...Engine.conflictPos(k), r.width, r.height);
+      const [x, y] = T(...latLonToXY(...Engine.conflictPos(k), r.width, r.height));
       const d = Math.hypot(x - mx, y - my);
       if (d < 7 + k.intensity / 9 && d < bd) { best = k; bd = d; }
     }
@@ -1121,8 +1258,7 @@ const UI = (() => {
 
   function mapHit(c, ev) {
     prepMap();
-    const r = c.getBoundingClientRect();
-    const x = Math.floor((ev.clientX - r.left) / r.width * WORLD_MAP.width), y = Math.floor((ev.clientY - r.top) / r.height * WORLD_MAP.height);
+    const [x, y] = canvasToCell(c, ev);
     // kleine Toleranz für winzige Länder
     for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const ch = (WORLD_MAP.rows[y + dy] || '')[x + dx];
@@ -1174,9 +1310,6 @@ const UI = (() => {
     ctx.textAlign = 'center';
     months.forEach((m, i) => { if (m % 12 === 0) { ctx.fillText(S.startYear + m / 12, X(i), h - 8); } });
     if (cfg.ref !== undefined) { ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.setLineDash([5, 5]); ctx.beginPath(); ctx.moveTo(pad.l, Y(cfg.ref)); ctx.lineTo(w - pad.r, Y(cfg.ref)); ctx.stroke(); ctx.setLineDash([]); }
-    // Wahltermine markieren
-    ctx.strokeStyle = 'rgba(245,185,66,.25)';
-    for (let m = 48; m <= months[months.length - 1]; m += 48) { const i = months.indexOf(m); if (i >= 0) { ctx.beginPath(); ctx.moveTo(X(i), pad.t); ctx.lineTo(X(i), h - pad.b); ctx.stroke(); } }
     if (data.length < 2) { ctx.fillStyle = '#8d99b8'; ctx.fillText('Noch keine Daten – spiele ein paar Monate.', w / 2, h / 2); return; }
     const grad = ctx.createLinearGradient(0, pad.t, 0, h - pad.b);
     grad.addColorStop(0, cfg.color + '55'); grad.addColorStop(1, cfg.color + '00');
@@ -1253,17 +1386,17 @@ const UI = (() => {
   function showHelp(first) {
     const steps = [
       ['Willkommen im Amt!', 'Du regierst ein echtes Land. Jeder Klick auf <b>„Nächster Monat“</b> (oder <kbd>Leertaste</kbd>) lässt einen Monat vergehen. Mit ⏩ läuft die Zeit automatisch.'],
-      ['Zustimmung ist alles', 'Deine Zustimmung ergibt sich aus der Zufriedenheit von sieben <b>Bevölkerungsgruppen</b>. In Demokratien wird alle 4 Jahre gewählt – du brauchst 50 % der Stimmen.'],
-      ['Staatskonto 🏦', 'Was im Haushalt übrig bleibt, landet auf deinem Konto. Damit bezahlst du Gesetze, Maßnahmen und Sonderprojekte – oder tilgst Schulden. Ist das Konto leer, macht der Staat automatisch neue Schulden.'],
-      ['Minister-Autopilot 🤖', 'Deine Minister kümmern sich auf Wunsch selbst um Finanzen, Wirtschaft, Soziales, Militär, Diplomatie und kleine Ereignisse. Du greifst ein, wann du willst. Einstellbar unter <b>Regierung</b>.'],
-      ['Entscheiden', 'Unter <b>Regierung</b> beschließt du Gesetze und Sofortmaßnahmen – ohne Wartezeit. Wiederholst du dieselbe Maßnahme schnell, wirkt sie schwächer. Grüne Chips sind gute, rote schlechte Folgen.'],
+      ['Wirtschaft hochziehen 🏗️', 'Dein Land ist automatisch in <b>Provinzen</b> aufgeteilt. Unter <b>Wirtschaft</b> baust du dort <b>Industrie</b> 🏭, <b>Infrastruktur</b> 🛣️ und <b>Energie</b> ⚡ aus. Industrie bringt am meisten Wachstum, läuft aber nur, wenn Energie und Infrastruktur mithalten (Engpass-Warnung ⚠️).'],
+      ['Staatskonto 🏦', 'Was im Haushalt übrig bleibt, landet auf deinem Konto. Damit bezahlst du Ausbauten, Truppen und Projekte. Ist das Konto leer, macht der Staat automatisch neue Schulden – zu viele führen zum Staatsbankrott.'],
+      ['Politik läuft automatisch 🤖', 'Gesetze, Innenpolitik und kleine Ereignisse erledigen deine Minister. Es gibt <b>keine Wahlen</b>. Du kannst zusätzlich Finanzen, Provinzausbau, Militär und Diplomatie abgeben – oder alles selbst steuern.'],
+      ['Karte 🗺️', '<b>Mausrad</b> = Zoomen, <b>Ziehen</b> = Verschieben, ⟲ = zurücksetzen. Auf der Wirtschaftskarte wählst du per Klick eine Provinz.'],
       ['Aggressiv spielen', 'Stelle Ultimaten oder erkläre Kriege. Nach einem Sieg diktierst du die Bedingungen: <b>Annexion</b>, <b>Marionettenregierung</b> oder <b>Reparationen</b>. Aber Vorsicht: Entfernung, Bündnisse des Gegners, Atommächte und weltweite Sanktionen machen Eroberungen schwer.'],
       ['Länder & Streitkräfte', '<b>Klicke auf ein Land auf der Karte</b>, um alles mit ihm zu regeln: Verträge, Handel, Waffenverkauf, Ultimatum oder Krieg. Unter <b>Militär</b> kaufst du Panzer, Jets, Schiffe & Co. – mit Lieferzeit.'],
       ['Die Welt', 'Die Karte zeigt Kriege ⚔️, Bürgerkriege 🔥 und Krisenherde ⚠️. Klicke darauf, um zu vermitteln, zu helfen, Friedenstruppen zu schicken oder einzugreifen.'],
       ['Militär & Kriege', 'Kriege brauchen <b>Vorbereitung</b>: Verteidigungsbudget, Kriegsbereitschaft (steigt nur langsam) und Verbündete. Achte auf das <b>Kräfteverhältnis</b> – Offensiven wirken nur, wenn du stärker bist. Deine <b>Spezialeinheit</b> bekämpft Terror. Atommächte lassen sich nicht einfach besiegen.'],
       ['Starke und schwache Staaten', 'Die <b>Staatskapazität</b> bestimmt, wie gut Reformen wirken. Ein Land wie Sudan kann sich nicht in wenigen Jahren in eine Schweiz verwandeln – Fortschritt braucht dort Jahrzehnte.'],
       ['Ereignisse', 'Krisen, Skandale und Chancen passieren zufällig. Deine Berater markieren die empfohlene Option mit ⭐ – du musst ihnen aber nicht folgen.'],
-      ['Gefahren', 'Vorsicht vor <b>Revolution</b> (Stabilität &lt; 10), <b>Putsch</b> (unzufriedenes Militär), <b>Staatsbankrott</b> (zu hohe Schulden) und <b>Abwahl</b>. Rote Punkte in der Navigation warnen dich.'],
+      ['Gefahren', 'Vorsicht vor <b>Revolution</b> (Stabilität &lt; 10), <b>Putsch</b> (unzufriedenes Militär) und <b>Staatsbankrott</b> (zu hohe Schulden). Rote Punkte in der Navigation warnen dich.'],
       ['Tastenkürzel', '<kbd>Leertaste</kbd> nächster Monat · <kbd>1</kbd>–<kbd>6</kbd> Bereiche wechseln · <kbd>1</kbd>–<kbd>4</kbd> Option im Ereignis wählen · <kbd>A</kbd> Automatik · <kbd>Esc</kbd> Menü schließen'],
     ];
     openModal(`
@@ -1321,7 +1454,7 @@ const UI = (() => {
   }
 
   function continueEndless() {
-    S.gameOver = null; S.mode = 'endlos'; S.nextElection = S.month + TERM_MONTHS;
+    S.gameOver = null; S.mode = 'endlos';
     Engine.addNews(S, 'Das Volk will mehr: Die Amtszeitbegrenzung wurde aufgehoben!', 'good');
     enterGame(); save();
   }
@@ -1346,6 +1479,13 @@ const UI = (() => {
       let html = t && t.dataset.tip ? t.dataset.tip : '';
       const kHit = canvas && S ? conflictHit(canvas, ev) : null;
       if (kHit) html = `<b>${conflictIcon(kHit)} ${esc(kHit.name)}</b><br>${conflictKind(kHit)}<br>Intensität ${F(kHit.intensity, 0)}/100${kHit.peacekeepers ? '<br>🪖 Unsere Friedenstruppe vor Ort' : ''}<br><i>Klicken zum Eingreifen</i>`;
+      else if (canvas && S && canvas.dataset.map === 'prov') {
+        const p = provHit(canvas, ev);
+        if (p && Engine.ownsProvince(S, p.id)) {
+          const pr = S.prov[p.id];
+          html = `<b>${esc(p.name)}</b><br>🏭 Industrie ${pr.industrie} · 🛣️ Infrastruktur ${pr.infrastruktur} · ⚡ Energie ${pr.energie}${pr.b ? `<br>🏗️ ${Engine.BUILDINGS[pr.b.type].name} im Bau (${pr.b.done - S.month} Mon.)` : ''}<br><i>Klicken zum Auswählen</i>`;
+        } else if (p) html = `<b>${esc(Engine.byId(p.country).name)}</b> – ${esc(p.name)}`;
+      }
       else if (canvas && S) {
         const id = mapHit(canvas, ev);
         if (id) {
@@ -1404,7 +1544,18 @@ const UI = (() => {
       case 'proj-run': { const r = Engine.runProject(S, id, projAmt[id] ?? 0.5); result(r, r.msg ? esc(r.msg) : ''); break; }
       case 'auto-toggle': S.auto[el.dataset.k] = !S.auto[el.dataset.k]; save(); renderAll(); break;
       case 'auto-all': for (const k in Engine.AUTO_AREAS) S.auto[k] = el.dataset.v === '1'; save(); renderAll(); break;
-      case 'gov-filter': govFilter = el.dataset.k; renderView(); break;
+      case 'prov-layer': provLayer = el.dataset.k; renderView(); break;
+      case 'prov-sel': selProv = id; renderView(); break;
+      case 'prov-build': { const r = Engine.startBuild(S, id, el.dataset.k); selProv = id; result(r, r.msg ? esc(r.msg) : ''); break; }
+      case 'prov-cancel': { const r = Engine.cancelBuild(S, id); result(r, r.msg ? esc(r.msg) : ''); break; }
+      case 'map-zoom': {
+        const c = document.querySelector(`#view canvas[data-map="${el.dataset.k}"]`);
+        if (!c) break;
+        const f = +el.dataset.f;
+        if (!f) { if (el.dataset.k === 'prov') focusOwn(c); else Object.assign(getView(c), { z: 1, x: 0, y: 0 }); }
+        else zoomAt(c, f, 0.5, 0.5);
+        drawMap(c); break;
+      }
       case 'map-mode': mapMode = el.dataset.k; renderView(); break;
       case 'conflict-open': selConflict = id; dipTab = 'konflikte'; view = 'welt'; renderSidebar(); renderView(); break;
       case 'conflict-sel': selConflict = id; renderView(); break;
@@ -1490,6 +1641,13 @@ const UI = (() => {
       const el = ev.target.closest('[data-action]');
       if (el && !el.disabled) handleAction(el, ev);
       const c = ev.target.tagName === 'CANVAS' && ev.target.dataset.map !== undefined ? ev.target : null;
+      if (c && S && mapDragged) { mapDragged = false; return; }
+      if (c && S && c.dataset.map === 'prov') {
+        const p = provHit(c, ev);
+        if (p && Engine.ownsProvince(S, p.id)) { selProv = p.id; renderView(); }
+        else if (p && p.country !== S.countryId && S.relations[p.country] !== undefined) showCountry(p.country, 'info');
+        return;
+      }
       if (c && S) {
         const k = conflictHit(c, ev);
         if (k) { selConflict = k.id; dipTab = 'konflikte'; view = 'welt'; renderSidebar(); renderView(); return; }
@@ -1497,6 +1655,33 @@ const UI = (() => {
         if (id && id !== S.countryId && S.relations[id] !== undefined) showCountry(id, 'info');
       }
     });
+    // Karte: Mausrad = Zoom, Ziehen = Verschieben
+    document.addEventListener('wheel', ev => {
+      const c = ev.target.tagName === 'CANVAS' && ev.target.dataset.map !== undefined ? ev.target : null;
+      if (!c || !S) return;
+      ev.preventDefault();
+      const r = c.getBoundingClientRect();
+      zoomAt(c, ev.deltaY < 0 ? 1.25 : 0.8, (ev.clientX - r.left) / r.width, (ev.clientY - r.top) / r.height);
+      drawMap(c);
+    }, { passive: false });
+    document.addEventListener('mousedown', ev => {
+      const c = ev.target.tagName === 'CANVAS' && ev.target.dataset.map !== undefined ? ev.target : null;
+      if (!c || !S || ev.button !== 0) return;
+      const v = getView(c);
+      mapDrag = { c, x: ev.clientX, y: ev.clientY, vx: v.x, vy: v.y }; mapDragged = false;
+    });
+    document.addEventListener('mousemove', ev => {
+      if (!mapDrag) return;
+      const dx = ev.clientX - mapDrag.x, dy = ev.clientY - mapDrag.y;
+      if (!mapDragged && Math.hypot(dx, dy) < 5) return;
+      mapDragged = true;
+      const c = mapDrag.c, r = c.getBoundingClientRect(), v = getView(c);
+      v.x = mapDrag.vx - dx / r.width / v.z; v.y = mapDrag.vy - dy / r.height / v.z;
+      clampView(v);
+      c.style.cursor = 'grabbing';
+      drawMap(c);
+    });
+    document.addEventListener('mouseup', () => { if (mapDrag) { mapDrag.c.style.cursor = ''; mapDrag = null; } setTimeout(() => { mapDragged = false; }, 0); });
     document.addEventListener('input', ev => {
       const t = ev.target;
       if (t.id === 'inp-search') { setupSearch = t.value; const pos = t.selectionStart; showSetup(); const n = $('#inp-search'); n.focus(); n.setSelectionRange(pos, pos); return; }

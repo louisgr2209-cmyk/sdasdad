@@ -1,6 +1,6 @@
 # 🏛️ PRÄSIDENT – Der Staatssimulator
 
-Ein Präsidentensimulator für den PC: Übernimm eines von **61 echten Ländern** – von der Schweiz bis zum Sudan, von den USA bis Nordkorea, triff Entscheidungen in Wirtschaft, Sozialpolitik, Militär, Politik und Diplomatie – und überlebe Krisen, Skandale, Kriege und Wahlen.
+Ein Wirtschafts- und Militärspiel für den PC: Übernimm eines von **61 echten Ländern** – von der Schweiz bis zum Sudan, von den USA bis Nordkorea. Baue die Wirtschaft deiner **Provinzen** aus, führe deine Streitkräfte und schmiede Bündnisse. Innenpolitik, Gesetze und kleine Ereignisse erledigen deine Minister automatisch – Wahlen gibt es nicht.
 
 Man muss kein Politik-Profi sein: **Berater** erklären jede Lage, zeigen die Folgen jeder Option als farbige Chips (grün = gut, rot = schlecht) und markieren ihre Empfehlung mit ⭐.
 
@@ -20,8 +20,8 @@ npm run build:win      # erzeugt eine portable .exe im Ordner dist/
 
 | Bereich | Was du tun kannst |
 |---|---|
-| 🧭 **Übersicht** | Lebendige Weltkarte, „Ampeln“ für die Lage der Nation, Bevölkerung, Kabinettsbericht |
-| 🏛️ **Regierung** | Gesetze und Sofortmaßnahmen ohne Wartezeit – plus **Minister-Autopilot** pro Bereich |
+| 🧭 **Übersicht** | Weltkarte mit **Zoom (Mausrad) und Verschieben (Ziehen)**, „Ampeln“ für die Lage der Nation, Kabinettsbericht |
+| 🏗️ **Wirtschaft** | Dein Land ist in **Provinzen** (mit echten Regionsnamen) aufgeteilt: baue dort **Industrie**, **Infrastruktur** und **Energie** aus (Stufe 0–10, Kosten & Bauzeit). Industrie läuft nur so gut, wie Energie und Infrastruktur sie versorgen (Engpässe). Berater zeigen die besten Investitionen. Annektierte Länder bringen neue Provinzen. |
 | 💰 **Finanzen** | **Staatskonto** mit Verfügungsfonds und Überschüssen, Schulden tilgen, Kredite, Staatsfonds, **Sonderprojekte**, Steuern & Ausgaben |
 | 🗺️ **Länderfenster** | Klick auf ein Land auf der Karte: Übersicht, Diplomatie & Handel (Verträge, Waffenverkauf, Sanktionen), Militär (Streitkräfte im Vergleich, Ultimatum, Krieg) |
 | 🌍 **Welt** | **Konflikte & Krisenherde** (vermitteln, helfen, Friedenstruppen, eingreifen), Vertragsverhandlungen, Bündnisse (EU, NATO, BRICS …, eigenes Bündnis), atomwaffenfreie Welt |
@@ -35,11 +35,10 @@ npm run build:win      # erzeugt eine portable .exe im Ordner dist/
 - **Atomwaffenfreie Welt:** Überzeuge jede Atommacht einzeln, gehe selbst mit gutem Beispiel voran – dann werden alle Arsenale abgebaut (Friedensnobelpreis inklusive).
 - **54 Zufallsereignisse** mit 2–4 Entscheidungsoptionen: Generalstreik, Börsencrash, Pandemie, Terroranschlag, Ölschock, Spionage, Putschgerüchte, WM-Titel …
 - **7 Bevölkerungsgruppen** (Arbeiter, Unternehmer, Rentner, Jugend, Militär, Umweltbewegung, Konservative) – ihre Zufriedenheit ergibt deine Zustimmung.
-- **Staatskonto statt Punkten:** Alles wird sofort beschlossen und vom Konto bezahlt; wiederholte Maßnahmen wirken schwächer.
-- **Minister-Autopilot (optional, standardmäßig aus):** Minister kümmern sich auf Wunsch selbst um Finanzen, Wirtschaft, Soziales, Militär, Diplomatie und kleine Ereignisse – große Entscheidungen bleiben bei dir.
+- **Staatskonto statt Punkten:** Ausbauten, Truppen und Projekte werden vom Konto bezahlt; ist es leer, macht der Staat Schulden.
+- **Politik läuft automatisch:** Gesetze, Innenpolitik und kleine Ereignisse erledigt das Kabinett. Optional kannst du zusätzlich Finanzen, Provinzausbau, Militär und Diplomatie abgeben.
 - **Lebendige Welt:** Andere Länder führen Kriege, Krisenherde entstehen und verschwinden – sichtbar auf der Karte.
-- **Wahlen** alle 4 Jahre (Demokratien) bzw. **Machtproben** (autoritäre Staaten).
-- **Spielende** durch Abwahl, Misstrauensvotum, Revolution, Militärputsch, Staatsbankrott oder Atomkrieg – oder erfolgreich nach 3 Amtszeiten mit **Vermächtnis-Punkten**. Endlosmodus verfügbar.
+- **Spielende** durch Revolution, Militärputsch, Staatsbankrott oder Atomkrieg – oder erfolgreich nach 12 Jahren mit **Vermächtnis-Punkten**. Endlosmodus verfügbar.
 - 3 Schwierigkeitsgrade, automatisches Speichern, Export/Import von Spielständen, Tastenkürzel.
 
 ## ⌨️ Steuerung
@@ -57,12 +56,13 @@ npm run build:win      # erzeugt eine portable .exe im Ordner dist/
 ```
 index.html            Einstieg
 css/style.css         Gestaltung
-js/engine.js          Simulation (Wirtschaft, Gruppen, Wahlen, Kriege, Ereignisse)
+js/engine.js          Simulation (Wirtschaft, Provinzen, Kriege, Ereignisse)
 js/ui.js              Oberfläche
 js/data/countries.js  Länderdaten (an der realen Welt angelehnt)
 js/data/policies.js   Gesetze, Sofortmaßnahmen, Gruppen, Berater
 js/data/events.js     Zufallsereignisse
-js/data/worldmap.js   Punktraster-Weltkarte (aus Natural Earth, Public Domain)
+js/data/worldmap.js   Punktraster-Weltkarte 600×264 (aus Natural Earth, Public Domain)
+js/data/provinces.js  Automatische Aufteilung der Länder in Provinzen
 assets/flags/         Flaggen (flag-icons, MIT-Lizenz)
 electron/main.js      Desktop-App-Hülle
 tools/sim-test.js     Balance-Test ohne Oberfläche

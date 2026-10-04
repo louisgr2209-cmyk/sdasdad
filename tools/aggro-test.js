@@ -3,7 +3,7 @@
 // Aufruf: node tools/aggro-test.js [land] [durchläufe]
 const fs = require('fs'), vm = require('vm'), path = require('path');
 const root = path.join(__dirname, '..');
-const files = ['js/data/worldmap.js', 'js/data/countries.js', 'js/data/policies.js', 'js/data/events.js', 'js/engine.js'];
+const files = ['js/data/worldmap.js', 'js/data/countries.js', 'js/data/provinces.js', 'js/data/policies.js', 'js/data/events.js', 'js/engine.js'];
 const code = files.map(f => fs.readFileSync(path.join(root, f), 'utf8')).join('\n') + '\n;({ Engine, COUNTRIES })';
 const { Engine } = vm.runInContext(code, vm.createContext({ console, Math, JSON }));
 const ids = process.argv[2] ? [process.argv[2]] : ['US', 'CN', 'RU', 'DE', 'IN', 'TR', 'BR'];
