@@ -6,4 +6,4 @@ local Screen = require(modules:WaitForChild("Screen"))
 local DebugTerminal = require(modules:WaitForChild("DebugTerminal"))
 
 Screen.Setup()
-DebugTerminal.Start() -- Phase 1: Test-UI, wird in Phase 3 ersetzt
+DebugTerminal.Start() -- Test-UI (Phase 1–2), wird in Phase 3 ersetzt

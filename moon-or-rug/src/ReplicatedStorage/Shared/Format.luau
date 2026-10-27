@@ -58,4 +58,15 @@ function Format.Percent(x: number): string
 	return sign .. string.format("%.1f", x * 100) .. "%"
 end
 
+-- 45 -> "45s", 200 -> "3m", 3900 -> "1h 5m"
+function Format.Duration(seconds: number): string
+	seconds = math.max(0, math.floor(seconds))
+	if seconds < 60 then
+		return seconds .. "s"
+	elseif seconds < 3600 then
+		return math.floor(seconds / 60) .. "m"
+	end
+	return math.floor(seconds / 3600) .. "h " .. math.floor(seconds % 3600 / 60) .. "m"
+end
+
 return Format

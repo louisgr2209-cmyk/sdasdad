@@ -23,6 +23,8 @@ local coins = {} -- [coinId] = coin
 local nextId = 0
 local dirty = {} -- [coinId] = true, Coins mit Änderungen seit dem letzten Update
 local pendingTrades = {} -- Trades seit dem letzten Update (für Live-Trades/Ticker)
+local pendingNews = {} -- Meldungen für den Ticker (z. B. Rugpulls)
+local removedIds = {} -- gelöschte Coins seit dem letzten Update
 local tradeLimiter = RateLimiter.new(Config.Trade.MaxPerSecond)
 local snapshotLimiter = RateLimiter.new(2)
 
@@ -87,7 +89,9 @@ local function summary(coin)
 		Supply = coin.Supply,
 		Price = price,
 		MarketCap = marketCap,
-		Stage = Curve.Stage(C, marketCap, coin.Migrated),
+		Stage = if coin.Dead then "Dead" else Curve.Stage(C, marketCap, coin.Migrated),
+		Rugged = coin.Rugged,
+		CreatorHasLicense = coin.CreatorHasLicense,
 		Holders = coin.HolderCount,
 		DevShare = if creatorHolding then creatorHolding.Amount / C.TotalSupply else 0,
 		Volume = coin.Volume,
@@ -104,12 +108,13 @@ local function fullInfo(coin)
 	return info
 end
 
-local function recordTrade(coin, side: string, traderName: string, tokens: number, cash: number)
+local function recordTrade(coin, side: string, wallet, tokens: number, cash: number)
 	local trade = {
 		CoinId = coin.Id,
 		Ticker = coin.Ticker,
 		Side = side,
-		Trader = traderName,
+		Trader = wallet.Name,
+		IsNpc = wallet.IsNpc == true,
 		Tokens = tokens,
 		Cash = cash,
 		Price = priceOf(coin),
@@ -150,7 +155,7 @@ function MarketService.WalletForKey(_key: string)
 	return nil
 end
 
--- info = { Name, Ticker, Icon, Description, CreatorKey?, CreatorName }
+-- info = { Name, Ticker, Icon, Description, CreatorKey?, CreatorName, CreatorHasLicense? }
 function MarketService.CreateCoin(info)
 	nextId += 1
 	local id = "C" .. nextId
@@ -169,6 +174,9 @@ function MarketService.CreateCoin(info)
 		LastTradeAt = now(),
 		Supply = devAmount, -- Dev-Anteil zählt als schon verkauft
 		Migrated = false,
+		Dead = false, -- 30 Min. ohne Trade
+		Rugged = false,
+		CreatorHasLicense = info.CreatorHasLicense == true,
 		Holders = {},
 		HolderCount = 0,
 		Volume = 0,
@@ -203,6 +211,9 @@ function MarketService.Buy(wallet, coinId: string, cash: number)
 	if cash < Config.Trade.MinCash then
 		return false, "Amount too small"
 	end
+	if coin.Dead then
+		return false, "This coin is dead"
+	end
 	if wallet.GetCash() < cash then
 		return false, "Not enough cash"
 	end
@@ -225,7 +236,7 @@ function MarketService.Buy(wallet, coinId: string, cash: number)
 		(holding and holding.Cost or 0) + cash
 	)
 	payCreator(coin, creatorFee)
-	recordTrade(coin, "Buy", wallet.Name, tokens, cash)
+	recordTrade(coin, "Buy", wallet, tokens, cash)
 	return true, { Tokens = tokens, Cash = cash }
 end
 
@@ -255,8 +266,53 @@ function MarketService.Sell(wallet, coinId: string, tokens: number)
 	setHolding(coin, wallet.Key, rest, holding.Cost * (rest / holding.Amount))
 	wallet.AddCash(payout)
 	payCreator(coin, gross * Config.Fees.Creator)
-	recordTrade(coin, "Sell", wallet.Name, tokens, payout)
+	recordTrade(coin, "Sell", wallet, tokens, payout)
 	return true, { Tokens = tokens, Cash = payout }
+end
+
+-- Alle Coins (Server-intern, z. B. für NPCs). Nicht verändern!
+function MarketService.GetCoins()
+	return coins
+end
+
+function MarketService.LiveCoinCount(): number
+	local count = 0
+	for _, coin in coins do
+		if not coin.Dead then
+			count += 1
+		end
+	end
+	return count
+end
+
+function MarketService.Price(coin): number
+	return priceOf(coin)
+end
+
+-- Kursänderung der letzten "seconds" Sekunden (0.1 = +10 %)
+function MarketService.PriceChange(coin, seconds: number): number
+	local n = math.max(1, math.ceil(seconds / Config.Market.ChartInterval))
+	local ref = coin.Chart[#coin.Chart - n + 1] or coin.Chart[1] or coin.Candle
+	if ref.O <= 0 then
+		return 0
+	end
+	return priceOf(coin) / ref.O - 1
+end
+
+-- Meldung an alle (unten im Ticker)
+function MarketService.Announce(kind: string, text: string)
+	table.insert(pendingNews, { Kind = kind, Text = text, Time = now() })
+end
+
+-- Coin als gerugged markieren (der Verkauf selbst läuft vorher über Sell)
+function MarketService.MarkRugged(coinId: string, byName: string)
+	local coin = coins[coinId]
+	if not coin then
+		return
+	end
+	coin.Rugged = true
+	dirty[coinId] = true
+	MarketService.Announce("Rug", string.format("RUG PULL! %s dumped $%s", byName, coin.Ticker))
 end
 
 -- Alle Positionen eines Spielers/NPCs: { [coinId] = { Amount, Cost } }
@@ -335,6 +391,9 @@ end
 
 local function closeChartPoints()
 	for _, coin in coins do
+		if coin.Dead then
+			continue
+		end
 		local point = coin.Candle
 		coin.PointCount += 1
 		point.T = coin.PointCount
@@ -348,8 +407,35 @@ local function closeChartPoints()
 	end
 end
 
+-- Hält ein Spieler, der gerade auf dem Server ist, diesen Coin? (NPC-Schlüssel beginnen mit "npc:")
+local function hasPlayerHolders(coin): boolean
+	for key in coin.Holders do
+		if string.sub(key, 1, 4) ~= "npc:" and PlayerData.GetPlayerByKey(key) then
+			return true
+		end
+	end
+	return false
+end
+
+-- 30 Min. ohne Trade -> Dead. Tote Coins ohne Spieler-Positionen werden gelöscht
+-- (Spieler können ihre Position in einem toten Coin noch verkaufen).
+local function checkDeadCoins()
+	local t = now()
+	for id, coin in coins do
+		if not coin.Dead and t - coin.LastTradeAt >= Config.Market.DeadAfter then
+			coin.Dead = true
+			dirty[id] = true
+		end
+		if coin.Dead and not hasPlayerHolders(coin) then
+			coins[id] = nil
+			dirty[id] = nil
+			table.insert(removedIds, id)
+		end
+	end
+end
+
 local function broadcast()
-	if next(dirty) == nil and #pendingTrades == 0 then
+	if next(dirty) == nil and #pendingTrades == 0 and #pendingNews == 0 and #removedIds == 0 then
 		return
 	end
 	local list = {}
@@ -360,9 +446,11 @@ local function broadcast()
 			coin.NewPoints = {}
 		end
 	end
-	updateEvent:FireAllClients({ Coins = list, Trades = pendingTrades })
+	updateEvent:FireAllClients({ Coins = list, Trades = pendingTrades, News = pendingNews, Removed = removedIds })
 	dirty = {}
 	pendingTrades = {}
+	pendingNews = {}
+	removedIds = {}
 end
 
 function MarketService.Init(deps)
@@ -385,6 +473,7 @@ function MarketService.Start()
 			if os.clock() - lastChart >= Config.Market.ChartInterval then
 				lastChart = os.clock()
 				closeChartPoints()
+				checkDeadCoins()
 			end
 			broadcast()
 		end

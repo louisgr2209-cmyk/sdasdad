@@ -38,13 +38,59 @@ Config.Market = {
 	ChartInterval = 5, -- Sekunden pro Chart-Punkt
 	ChartPoints = 60, -- Punkte pro Chart
 	RecentTrades = 20, -- gespeicherte Live-Trades pro Coin
+	DeadAfter = 30 * 60, -- Sekunden ohne Trade, dann "Dead" (verschwindet aus den Listen)
 }
 
--- Test-Coin (Phase 1)
-Config.TestCoin = {
-	Name = "Moon Test Dog",
-	Ticker = "MTD",
-	Icon = "🐶",
+-- Feste Icon-Auswahl für Coins (NPCs jetzt, Spieler ab Phase 6)
+Config.CoinIcons = {
+	"🐱", "🐶", "🐹", "🐧", "🦆", "🐢", "🐙", "🦊", "🐼", "🐨",
+	"🦄", "🍞", "🍌", "🥔", "🍩", "🍔", "🌮", "🍕", "🧀", "🌵",
+}
+
+-- NPC-Trader: halten den Markt am Leben
+Config.Npc = {
+	Types = { Sniper = 5, Momentum = 5, Panic = 5, Random = 5 }, -- Anzahl pro Typ (zusammen 20)
+	StartCash = 2500, -- Geld pro NPC
+	RefillPerMinute = 100, -- NPC unter StartCash bekommt langsam Geld nach
+	MaxCash = 6000, -- mehr Geld verschwindet -> NPCs pumpen nicht endlos
+	TickInterval = 1, -- Sekunden zwischen NPC-Runden
+	ActChance = 0.1, -- Chance pro NPC und Runde, etwas zu tun (20 NPCs -> ca. 2 Trades/Sek.)
+	MaxBuyAge = 15 * 60, -- NPCs kaufen nur Coins, die jünger sind (Sekunden)
+
+	-- NPC-Coins
+	StartCoins = 3, -- so viele Coins gibt es direkt beim Serverstart
+	CreateEvery = { 60, 180 }, -- alle 1 bis 3 Min. ein neuer NPC-Coin
+	MaxLiveCoins = 40, -- Obergrenze für lebende Coins pro Server
+	LicenseBluffChance = 0.2, -- auch ehrliche NPCs zeigen manchmal "Rug-Lizenz" (Warnung = Risiko, nicht Beweis)
+
+	-- NPC-Rug (ca. 10 % der NPC-Coins)
+	RugChance = 0.10,
+	Rug = {
+		DevBuy = { 0.3, 0.5 }, -- Ersteller kauft am Anfang 30–50 % seines Geldes dazu
+		MinAge = 120, -- frühestens nach 2 Min.
+		MaxAge = 600, -- spätestens nach 10 Min.
+		MinGain = { 1.5, 3 }, -- rugged, sobald der Kurs x1,5 bis x3 gestiegen ist
+	},
+
+	Names = {
+		"MoonWalker", "PaperHands", "DiamondPaws", "PumpKing", "DipBuyer", "BagHolder", "ChartWizard",
+		"FomoFred", "NoSleepNina", "GreenCandle", "RedCandle", "TinyWhale", "ApeLord", "LuckyLarry",
+		"HodlHank", "RocketRita", "SniperSam", "CopeTrader", "WenMoon", "ExitLiquid",
+	},
+	Prefixes = {
+		"Moon", "Turbo", "Baby", "Giga", "Space", "Lil", "Super", "Hyper", "Sleepy", "Angry",
+		"Happy", "Golden", "Tiny", "Mega", "Cosmic", "Sir", "Based", "Wild", "Lazy", "Rich",
+	},
+	Nouns = { -- { Name, Icon } – Icons aus Config.CoinIcons
+		{ "Cat", "🐱" }, { "Dog", "🐶" }, { "Hamster", "🐹" }, { "Penguin", "🐧" }, { "Duck", "🦆" },
+		{ "Turtle", "🐢" }, { "Octo", "🐙" }, { "Fox", "🦊" }, { "Panda", "🐼" }, { "Koala", "🐨" },
+		{ "Unicorn", "🦄" }, { "Toast", "🍞" }, { "Banana", "🍌" }, { "Potato", "🥔" }, { "Donut", "🍩" },
+		{ "Burger", "🍔" }, { "Taco", "🌮" }, { "Pizza", "🍕" }, { "Cheese", "🧀" }, { "Cactus", "🌵" },
+	},
+	Descriptions = {
+		"To the moon!", "Community coin. No plan, just vibes.", "The next big thing (probably not).",
+		"Made at 3am.", "Diamond paws only.", "Buy high, sell higher.", "100% meme, 0% utility.",
+	},
 }
 
 -- UI (Handy zuerst)
