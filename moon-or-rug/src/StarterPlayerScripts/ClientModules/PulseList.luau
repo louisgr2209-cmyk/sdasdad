@@ -8,6 +8,7 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Format = require(ReplicatedStorage.Shared.Format)
 local Screen = require(script.Parent.Screen)
 local MarketClient = require(script.Parent.MarketClient)
+local Indicators = require(ReplicatedStorage.Shared.Indicators)
 
 local Colors = Screen.Colors
 local MAX_PER_COLUMN = 20
@@ -171,8 +172,12 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> ())
 					card.Bottom.Text = string.format("Dev %.0f%% · ⚠ LIC", coin.DevShare * 100)
 					card.Bottom.TextColor3 = Colors.Red
 				else
+					-- Dev-Anteil mit derselben Ampel wie auf der Coin-Seite (gelb/rot = Dev hat dazugekauft)
+					local rating = Indicators.Rate("Dev", coin.DevShare)
 					card.Bottom.Text = string.format("Dev %.0f%%", coin.DevShare * 100)
-					card.Bottom.TextColor3 = Colors.Muted
+					card.Bottom.TextColor3 = if rating == "Good" then Colors.Muted
+						elseif rating == "Ok" then Colors.Accent
+						else Colors.Red
 				end
 				card.Stroke.Enabled = coin.Rugged == true
 			end

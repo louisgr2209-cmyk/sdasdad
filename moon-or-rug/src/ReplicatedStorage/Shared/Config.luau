@@ -110,6 +110,16 @@ Config.Npc = {
 	},
 }
 
+-- Indikatoren auf der Coin-Seite (Ampel: grün = gut, gelb = vorsichtig, rot = riskant)
+-- Werte sind Anteile an allen Coins (1.000.000). Startwerte aus der Simulation, im Test anpassen.
+Config.Indicators = {
+	Top10 = { Good = 0.15, Bad = 0.30 }, -- bis 15 % grün, bis 30 % gelb, darüber rot
+	Dev = { Good = 0.05, Bad = 0.10 }, -- Startanteil 5 % = grün, mehr = Dev hat dazugekauft
+	Early = { Good = 0.10, Bad = 0.20 }, -- Anteil der Früh-Käufer (erste 30 Sek.)
+	Holders = { Good = 8, Bad = 3 }, -- ab 8 grün, ab 3 gelb, darunter rot (mehr = besser)
+	EarlyWindow = 30, -- Sekunden nach dem Erstellen, in denen ein Kauf als "früh" zählt
+}
+
 -- Sicherheit
 Config.Security = {
 	LogProfitAbove = 10_000, -- Spieler-Gewinn pro Verkauf ab hier wird im Server-Output geloggt

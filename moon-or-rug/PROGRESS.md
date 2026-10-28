@@ -29,6 +29,7 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `ReplicatedStorage/Shared/Config.luau` | ReplicatedStorage › Shared › Config | ModuleScript |
 | `ReplicatedStorage/Shared/BondingCurve.luau` | ReplicatedStorage › Shared › BondingCurve | ModuleScript |
 | `ReplicatedStorage/Shared/Format.luau` | ReplicatedStorage › Shared › Format | ModuleScript |
+| `ReplicatedStorage/Shared/Indicators.luau` | ReplicatedStorage › Shared › Indicators | ModuleScript |
 | `ServerScriptService/Main.server.luau` | ServerScriptService › Main | Script |
 | `ServerScriptService/Services/MarketService.luau` | ServerScriptService › Services › MarketService | ModuleScript |
 | `ServerScriptService/Services/PlayerDataService.luau` | ServerScriptService › Services › PlayerDataService | ModuleScript |
@@ -152,6 +153,22 @@ alle Buttons mind. 72 hoch (Tabs 64). Zu lange Texte werden mit „…“ gekür
 
 **Prüfung:** Python-Prüfskript für Luau-Blöcke (`function`/`if`/`for`/`end`, Klammern) über alle Dateien: 0 Fehler.
 
+## Indikatoren (Zusatz zu Phase 3, Wunsch: „wie axiom, aber für jeden verständlich“)
+
+Auf der Coin-Seite unter dem Chart 5 Ampel-Kacheln. Antippen → Fenster mit Erklärung und „ab wann“ grün/gelb/rot.
+| Kachel | Bedeutung | 🟢 gut | 🟡 vorsichtig | 🔴 riskant |
+|---|---|---|---|---|
+| Top 10 | Anteil der 10 größten Holder an allen Coins | bis 15 % | 15–30 % | über 30 % |
+| Dev | Anteil des Erstellers (Start = 5 %) | bis 5 % | 5–10 % | über 10 % |
+| Early | Anteil der Früh-Käufer (erste 30 Sek.), die noch halten | bis 10 % | 10–20 % | über 20 % |
+| Holders | Anzahl verschiedener Holder (mehr = besser) | ab 8 | 3–7 | unter 3 |
+| Rug lic. | Ersteller hat Rug-Lizenz | NO | – | YES |
+
+Grenzen in `Config.Indicators` (Startwerte aus der Simulation: normale Coins Top 10 meist 5–25 %, NPC-Rug-Coin
+Dev 25 % / Top 10 35 % → rot). Pulse-Karten: „Dev x %“ in derselben Ampelfarbe.
+Neue Datei `Indicators` (gemeinsam für Server/Client). Server schickt `Top10` und `EarlyShare` mit.
+Die Infozeile zeigt jetzt auch den Fortschritt bis zur Migration („Migration 45%“).
+
 ## Gesamt-Prüfung (nach Phase 3)
 
 Ohne Roblox Studio geprüft (Luau ausführen ist hier nicht erlaubt, deshalb kein echter Testlauf):
@@ -188,7 +205,7 @@ verkauft, machte aus 1.000 Cash in 1 Std. ca. 48.000 (Sniper-NPCs kauften vorher
 Fix: Sniper kaufen zufällig (ob/wann/wie viel), Nachfüllen 100 → 25/Min. Danach: 2.900–6.300 nach 1 Std.
 (früh kaufen lohnt sich weiter, aber keine Gelddruckmaschine), Markt genauso aktiv.
 
-**Denklücken für spätere Phasen (Vorschläge, brauchen dein OK):**
+**Denklücken für spätere Phasen (deine Entscheidung: alle Vorschläge OK, NPC-Rugs: ja, und „keine Duplikat-Lücken“):**
 | Phase | Lücke | Vorschlag |
 |---|---|---|
 | 4 | „1 XP pro Trade“ → XP-Farmen mit 1-Cash-Mini-Trades (bis 18.000 XP/Std.) | XP pro Trade erst ab 100 Cash Trade-Größe, max. 1 Trade-XP pro 10 Sek. |
@@ -199,6 +216,15 @@ Fix: Sniper kaufen zufällig (ob/wann/wie viel), Nachfüllen 100 → 25/Min. Dan
 | 8 | Robux-Kauf doppelt gutgeschrieben oder verloren | `ProcessReceipt` nur mit geladenen Daten, PurchaseId speichern, erst dann „granted“ |
 | 9 | Globale Coins: gleichzeitige Trades auf mehreren Servern | alle globalen Trades atomar über MemoryStore `UpdateAsync` |
 | Creator | Admin-Rechte | nur Server prüft UserId-Liste; „in Studio jeder Admin“ nur mit `RunService:IsStudio()` |
+
+## Wunsch: dauerhafte Spielwelt (Entscheidung offen)
+
+„Coins sollen in der Spielwelt dauerhaft da sein, bis sie nicht mehr gelistet oder komplett verkauft sind.“
+Das heißt: **ein Weltmarkt für alle Server** statt eigener Markt pro Server (ändert die Plan-Entscheidung
+„Eigener Markt pro Server“). Technisch: Coins liegen in MemoryStore (alle Server lesen/schreiben dieselben Coins),
+Positionen bleiben beim Verlassen/Serverwechsel erhalten, NPCs laufen nur auf einem Server gleichzeitig.
+Wichtig gegen Duplikate: jeder Trade bekommt eine eindeutige Nummer und wird so gebucht, dass ein Absturz
+mitten im Trade nie doppelt Geld oder Coins erzeugt (Trade-Journal). Fragen dazu: siehe Antwort im Chat.
 
 ## Offene Punkte
 

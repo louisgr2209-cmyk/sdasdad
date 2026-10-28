@@ -75,6 +75,34 @@ local function setHolding(coin, key: string, amount: number, cost: number)
 	end
 end
 
+-- Anteil der n größten Holder an allen Coins (für die Indikatoren)
+local function topHolderShare(coin, n: number): number
+	local amounts = {}
+	for _, holding in coin.Holders do
+		table.insert(amounts, holding.Amount)
+	end
+	table.sort(amounts, function(a, b)
+		return a > b
+	end)
+	local sum = 0
+	for i = 1, math.min(n, #amounts) do
+		sum += amounts[i]
+	end
+	return sum / C.TotalSupply
+end
+
+-- Anteil, den Früh-Käufer (erste 30 Sek.) noch halten
+local function earlyShare(coin): number
+	local sum = 0
+	for key in coin.EarlyBuyers do
+		local holding = coin.Holders[key]
+		if holding then
+			sum += holding.Amount
+		end
+	end
+	return sum / C.TotalSupply
+end
+
 -- Kurzinfo für alle Clients (wird alle 0,5 Sek. gebündelt verschickt)
 local function summary(coin)
 	local price = priceOf(coin)
@@ -95,6 +123,8 @@ local function summary(coin)
 		CreatorHasLicense = coin.CreatorHasLicense,
 		Holders = coin.HolderCount,
 		DevShare = if creatorHolding then creatorHolding.Amount / C.TotalSupply else 0,
+		Top10 = topHolderShare(coin, 10),
+		EarlyShare = earlyShare(coin),
 		Volume = coin.Volume,
 		Candle = coin.Candle,
 		NewPoints = coin.NewPoints,
@@ -180,6 +210,7 @@ function MarketService.CreateCoin(info)
 		CreatorHasLicense = info.CreatorHasLicense == true,
 		Holders = {},
 		HolderCount = 0,
+		EarlyBuyers = {}, -- [key] = true: hat in den ersten 30 Sek. gekauft (nicht der Ersteller)
 		Volume = 0,
 		Chart = {}, -- fertige Chart-Punkte { T, O, H, L, C } (T = laufende Nummer)
 		PointCount = 0,
@@ -229,6 +260,9 @@ function MarketService.Buy(wallet, coinId: string, cash: number)
 	end
 
 	coin.Supply += tokens
+	if now() - coin.CreatedAt <= Config.Indicators.EarlyWindow and wallet.Key ~= coin.CreatorKey then
+		coin.EarlyBuyers[wallet.Key] = true
+	end
 	local holding = coin.Holders[wallet.Key]
 	setHolding(
 		coin,
