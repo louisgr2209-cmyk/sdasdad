@@ -54,6 +54,7 @@ RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStora
 | 7 Rugpull | offen |
 | 8 Robux-Produkte + Gamepässe | offen |
 | 9 Globale Coins + globales Leaderboard | offen |
+| Creator-Programm A–D | geplant (eigenes Dokument „Moon or Rug – Creator-Programm“), frühestens nach Phase 4 – Zeitpunkt und Fragen offen |
 
 ## Phase 1 – Markt-Engine
 
@@ -101,6 +102,17 @@ Neue Datei: `NpcTraderService`. Der Test-Coin `MTD` ist weg (die NPC-Coins erset
 **Simulation (Python-Nachbau, 3 Std. ohne Spieler):** ca. 1,3 Trades/Sek., 25–32 lebende Coins, NPC-Geld stabil,
 Rugs ≈ 10 % der Coins. Fehler gefunden und behoben: Zufall-NPCs verkauften alte Coins nur teilweise → Coins starben nie.
 Jetzt steigen alle NPCs aus alten Coins komplett aus.
+
+## Creator-Programm (geplant)
+
+Quelle: Dokument „Moon or Rug – Creator-Programm“. Start frühestens nach Phase 4, vorher Schritt 0 (Fragen gestellt, Antworten offen).
+- Phase A: `CreatorService` + Speichern + Admin-Liste + Log
+- Phase B: Admin-Panel (nur für Admins sichtbar)
+- Phase C: Titel, Abzeichen, Namensfarbe, Rahmen, Coin-Highlight in Terminal, Leaderboard, Ticker
+- Phase D: Creator-Codes (Eingabe für neue Spieler, Zähler im Creator-Profil)
+
+Offene Fragen: Zeitpunkt, Admin-IDs, Admin-Panel-Aussehen, Code-Format, „neuer Spieler“,
+übersprungene Stufen, Entziehen, Video-Link speichern.
 
 ## Offene Punkte
 
