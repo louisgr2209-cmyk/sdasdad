@@ -96,7 +96,8 @@ Beim Start gibt es 3 NPC-Coins, danach alle 1–3 Min. einen neuen (max. 40 lebe
 Neue Datei: `NpcTraderService`. Der Test-Coin `MTD` ist weg (die NPC-Coins ersetzen ihn).
 
 **Regeln (alle Werte in `Config.Npc`):**
-- NPC-Geld: 2.500 pro NPC. Unter 2.500 kommen langsam 100/Min. nach, über 6.000 verschwindet der Rest → keine endlosen Pumps.
+- NPC-Geld: 2.500 pro NPC. Unter 2.500 kommen langsam 25/Min. nach, über 6.000 verschwindet der Rest → keine endlosen Pumps.
+- Sniper kaufen zufällig: 40 % kaufen einen neuen Coin, nach 5–120 Sek., mit 5–15 % ihres Geldes (`Config.Npc.Sniper`).
 - NPCs kaufen nur Coins, die jünger als 15 Min. sind, nie den eigenen Coin, nie gerugte oder tote Coins.
   Bei älteren Coins steigen sie aus → der Kurs läuft aus, nach 30 Min. ohne Trade ist der Coin „Dead“.
 - Tote Coins verschwinden. Hält ein Spieler (online) noch Coins, bleibt der Coin zum Verkaufen da (Kaufen gesperrt).
@@ -170,6 +171,35 @@ Ohne Roblox Studio geprüft (Luau ausführen ist hier nicht erlaubt, deshalb kei
 | iPad quer / iPad mini hoch | 1,18 / 0,74 | 85 / 54 pt | 23,6 / 14,9 pt |
 | PC 1366×768 / 1920×1080 | 1,37 / 1,50 | 98 / 108 px | 27 / 30 px |
 
+## Sicherheit & Denklücken
+
+**Wege vom Client zum Server (nur 2):**
+| Remote | Schutz |
+|---|---|
+| `TradeRequest` | Typ-Prüfung (String ≤ 20, "Buy"/"Sell", Zahl 0–1, kein NaN/∞), Coin muss existieren, Cash/Bestand prüft der Server, max. 5/Sek.; bei Spam höchstens 1 Antwort/Sek. |
+| `GetMarketSnapshot` | max. 3 pro 30 Sek., gibt nur eigene Daten + öffentliche Marktdaten zurück (keine fremden Positionen) |
+
+Weitere Punkte: Geld entsteht nie durch Rundung (Auszahlungen abgerundet), Namen werden ohne RichText angezeigt
+(keine Formatierungs-Tricks), geheime NPC-Rug-Pläne bleiben auf dem Server, Gewinne ab 10.000 pro Verkauf
+werden geloggt (`[Security]` im Server-Output), Speicher wird bei langen Servern aufgeräumt.
+
+**Gefunden & behoben – „NPCs melken“:** Simulation zeigte: Wer jeden neuen Coin sofort kauft und nach 20 Sek.
+verkauft, machte aus 1.000 Cash in 1 Std. ca. 48.000 (Sniper-NPCs kauften vorhersehbar, NPC-Geld wurde nachgefüllt).
+Fix: Sniper kaufen zufällig (ob/wann/wie viel), Nachfüllen 100 → 25/Min. Danach: 2.900–6.300 nach 1 Std.
+(früh kaufen lohnt sich weiter, aber keine Gelddruckmaschine), Markt genauso aktiv.
+
+**Denklücken für spätere Phasen (Vorschläge, brauchen dein OK):**
+| Phase | Lücke | Vorschlag |
+|---|---|---|
+| 4 | „1 XP pro Trade“ → XP-Farmen mit 1-Cash-Mini-Trades (bis 18.000 XP/Std.) | XP pro Trade erst ab 100 Cash Trade-Größe, max. 1 Trade-XP pro 10 Sek. |
+| 4 | Positionen in Server-Coins beim Verlassen (Coins gibt es nur auf diesem Server) | beim Verlassen automatisch zum aktuellen Kurs verkaufen, Cash wird gespeichert |
+| 5 | Mindestgeld „unter 100 Cash“ → Geld in Coins parken und alle 10 Min. 250 kassieren | Bedingung: Cash **+ Wert der Coins** unter 100 |
+| 5/7 | Versicherung (60 %) + Anfänger-Erstattung, die das Spiel bezahlt, wenn der Topf leer ist → mit Zweit-Accounts Geld drucken (eigenen Coin ruggen, Alt kassiert) | Erstattungen nur aus dem Erstattungstopf/Rug-Erlös; Spiel legt max. 500 Cash pro Spieler und Tag drauf; Kauf muss ≥ 60 Sek. vor dem Rug sein |
+| 6 | Spieler-Coins mit echten Krypto-Namen/Tickern (BTC, ETH, PEPE …) – der Roblox-Filter lässt die durch | zusätzliche Sperrliste in `Config` + keine doppelten Ticker |
+| 8 | Robux-Kauf doppelt gutgeschrieben oder verloren | `ProcessReceipt` nur mit geladenen Daten, PurchaseId speichern, erst dann „granted“ |
+| 9 | Globale Coins: gleichzeitige Trades auf mehreren Servern | alle globalen Trades atomar über MemoryStore `UpdateAsync` |
+| Creator | Admin-Rechte | nur Server prüft UserId-Liste; „in Studio jeder Admin“ nur mit `RunService:IsStudio()` |
+
 ## Offene Punkte
 
 - **Bekannt bis Phase 4:** Ohne Speichern startet ein Spieler nach Verlassen + Wiederkommen (gleicher Server)
@@ -199,4 +229,8 @@ Ohne Roblox Studio geprüft (Luau ausführen ist hier nicht erlaubt, deshalb kei
 | Phase 2 | Simulation: alte Coins starben nie (Zufall-NPCs verkauften nur Teile) | alle NPCs steigen aus Coins > 15 Min. komplett aus |
 | Phase 3 | Mehrere Zeilen begannen mit `(` → Luau meldet „ambiguous syntax“ | in lokale Variablen umgeschrieben |
 | Prüfung | Ein Fehler in `checkRugs`/`createNpcCoin` oder im Markt-Takt hätte die Schleife für immer gestoppt (Markt steht still) | Schleifen mit `pcall` abgesichert, Fehler erscheinen als Warnung im Output |
+| Sicherheit | NPCs vorhersehbar → 1.000 → 48.000 Cash/Std. per Sofort-Kauf | Sniper zufällig, Nachfüllen 25/Min. (Simulation: 2.900–6.300) |
+| Sicherheit | Spam von `TradeRequest` erzeugte eine Antwort pro Anfrage (Last) | „Too fast“ höchstens 1x/Sek. |
+| Sicherheit | `GetMarketSnapshot` (große Datenmenge) 2x/Sek. abrufbar | max. 3 pro 30 Sek. |
+| Sicherheit | NPC-Tabellen wuchsen bei langen Servern unbegrenzt | Aufräumen jede Minute |
 | Prüfung | Auf Handys Buttons nur 39–41 pt (Richtwert 44), Text ca. 11 pt | Design-Höhe 560 → 520: Buttons 42–49 pt, Text ca. 12 pt |

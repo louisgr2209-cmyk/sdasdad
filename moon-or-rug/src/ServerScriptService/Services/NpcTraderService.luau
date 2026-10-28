@@ -4,7 +4,8 @@
 -- ca. 10 % davon sind NPC-Rugs.
 --
 -- Typen:
---   Sniper   kauft ganz neue Coins (< 30 Sek.), verkauft bei +50 %, -30 % oder nach 2 Min.
+--   Sniper   kauft neue Coins – zufällig OB (40 %) und WANN (5–120 Sek.), damit niemand sie vorhersagen
+--            und „melken“ kann. Verkauft bei +50 %, -30 % oder nach 2 Min.
 --   Momentum kauft, was gerade steigt, verkauft, wenn es fällt
 --   Panik    kauft beliebte Coins, verkauft alles bei schnellem Fall
 --   Zufall   kauft/verkauft zufällig kleine Beträge
@@ -50,6 +51,7 @@ local function createNpc(index: number, kind: string)
 		Kind = kind,
 		Cash = Npc.StartCash,
 		BoughtAt = {}, -- [coinId] = Zeit des ersten Kaufs
+		SnipePlans = {}, -- [coinId] = Verzögerung in Sek. oder false (kauft nicht) – nur Sniper
 	}
 	npc.Wallet = {
 		Key = npc.Key,
@@ -159,11 +161,25 @@ local STRATEGIES = {
 		if sold then
 			return
 		end
-		local coin = pick(buyable(npc, t, function(c)
-			return t - c.CreatedAt <= 30 and not c.Holders[npc.Key]
-		end))
+		local cfg = Npc.Sniper
+		local ready = {}
+		for _, coin in buyable(npc, t, function(c)
+			return t - c.CreatedAt <= cfg.MaxAge and not c.Holders[npc.Key]
+		end) do
+			local plan = npc.SnipePlans[coin.Id]
+			if plan == nil then
+				-- einmal pro Coin würfeln: kaufen ja/nein und nach wie vielen Sekunden
+				plan = if rng:NextNumber() < cfg.Chance then rng:NextNumber(cfg.Delay[1], cfg.Delay[2]) else false
+				npc.SnipePlans[coin.Id] = plan
+			end
+			if plan and t - coin.CreatedAt >= plan then
+				table.insert(ready, coin)
+			end
+		end
+		local coin = pick(ready)
 		if coin then
-			buy(npc, coin, 0.10, 0.25)
+			npc.SnipePlans[coin.Id] = false -- nur einmal kaufen
+			buy(npc, coin, cfg.Share[1], cfg.Share[2])
 		end
 	end,
 
@@ -310,6 +326,21 @@ local function act(npc, t: number)
 	end
 end
 
+-- Einträge zu gelöschten Coins entfernen (sonst wächst der Speicher bei langen Servern)
+local function cleanup(npc)
+	local coins = MarketService.GetCoins()
+	for coinId in npc.BoughtAt do
+		if not coins[coinId] then
+			npc.BoughtAt[coinId] = nil
+		end
+	end
+	for coinId in npc.SnipePlans do
+		if not coins[coinId] then
+			npc.SnipePlans[coinId] = nil
+		end
+	end
+end
+
 local function refill(npc, seconds: number)
 	if npc.Cash < Npc.StartCash then
 		npc.Cash = math.min(Npc.StartCash, npc.Cash + Npc.RefillPerMinute * seconds / 60)
@@ -337,6 +368,7 @@ function NpcTraderService.Start()
 
 	task.spawn(function()
 		local nextCoinAt = now() + rng:NextNumber(Npc.CreateEvery[1], Npc.CreateEvery[2])
+		local nextCleanup = now() + 60
 		while true do
 			task.wait(Npc.TickInterval)
 			local t = now()
@@ -347,6 +379,12 @@ function NpcTraderService.Start()
 					if not ok then
 						warn("[NpcTrader] " .. npc.Name .. ": " .. tostring(err))
 					end
+				end
+			end
+			if t >= nextCleanup then
+				nextCleanup = t + 60
+				for _, npc in npcList do
+					cleanup(npc)
 				end
 			end
 			-- pcall: ein Fehler darf nie die NPC-Schleife anhalten

@@ -26,7 +26,8 @@ local pendingTrades = {} -- Trades seit dem letzten Update (für Live-Trades/Tic
 local pendingNews = {} -- Meldungen für den Ticker (z. B. Rugpulls)
 local removedIds = {} -- gelöschte Coins seit dem letzten Update
 local tradeLimiter = RateLimiter.new(Config.Trade.MaxPerSecond)
-local snapshotLimiter = RateLimiter.new(2)
+local warnLimiter = RateLimiter.new(1) -- "Too fast" höchstens 1x pro Sek. (Spam erzeugt keine Antwort-Flut)
+local snapshotLimiter = RateLimiter.new(Config.Security.SnapshotsPer30s, 30)
 
 local updateEvent: RemoteEvent
 local resultEvent: RemoteEvent
@@ -268,6 +269,10 @@ function MarketService.Sell(wallet, coinId: string, tokens: number)
 	wallet.AddCash(payout)
 	payCreator(coin, gross * Config.Fees.Creator)
 	recordTrade(coin, "Sell", wallet, tokens, payout)
+	if not wallet.IsNpc and profit >= Config.Security.LogProfitAbove then
+		-- Auffällig großer Gewinn: im Server-Output festhalten (Plan: Logs gegen Exploiter)
+		print(string.format("[Security] big profit: %s (%s) +%.2f on %s ($%s)", wallet.Name, wallet.Key, profit, coin.Id, coin.Ticker))
+	end
 	if profit >= Config.Ticker.BigProfit then
 		MarketService.Announce("Profit", string.format(
 			"%s%s made %s Cash on $%s",
@@ -348,7 +353,9 @@ end
 -- Client schickt: coinId (string), side ("Buy"/"Sell"), fraction (0 < f <= 1)
 local function onTradeRequest(player: Player, coinId: any, side: any, fraction: any)
 	if not tradeLimiter:Allow(player) then
-		reply(player, false, "Too fast! Max " .. Config.Trade.MaxPerSecond .. " trades per second.")
+		if warnLimiter:Allow(player) then
+			reply(player, false, "Too fast! Max " .. Config.Trade.MaxPerSecond .. " trades per second.")
+		end
 		return
 	end
 	if typeof(coinId) ~= "string" or #coinId > 20 or (side ~= "Buy" and side ~= "Sell") then
@@ -471,6 +478,7 @@ function MarketService.Init(deps)
 	Remotes.Function("GetMarketSnapshot").OnServerInvoke = onSnapshotRequest
 	Players.PlayerRemoving:Connect(function(player)
 		tradeLimiter:Remove(player)
+		warnLimiter:Remove(player)
 		snapshotLimiter:Remove(player)
 	end)
 end

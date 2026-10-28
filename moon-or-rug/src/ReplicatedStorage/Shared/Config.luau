@@ -59,11 +59,20 @@ Config.CoinIcons = {
 Config.Npc = {
 	Types = { Sniper = 5, Momentum = 5, Panic = 5, Random = 5 }, -- Anzahl pro Typ (zusammen 20)
 	StartCash = 2500, -- Geld pro NPC
-	RefillPerMinute = 100, -- NPC unter StartCash bekommt langsam Geld nach
+	RefillPerMinute = 25, -- NPC unter StartCash bekommt langsam Geld nach (klein halten: sonst melken Spieler die NPCs)
 	MaxCash = 6000, -- mehr Geld verschwindet -> NPCs pumpen nicht endlos
 	TickInterval = 1, -- Sekunden zwischen NPC-Runden
 	ActChance = 0.1, -- Chance pro NPC und Runde, etwas zu tun (20 NPCs -> ca. 2 Trades/Sek.)
 	MaxBuyAge = 15 * 60, -- NPCs kaufen nur Coins, die jünger sind (Sekunden)
+
+	-- Sniper: jeder entscheidet pro neuem Coin einmal zufällig, OB und WANN er kauft.
+	-- So kann kein Spieler sicher vor den Snipern kaufen und an sie verkaufen.
+	Sniper = {
+		Chance = 0.4, -- 40 % der Sniper kaufen einen neuen Coin überhaupt
+		Delay = { 5, 120 }, -- und zwar nach 5 bis 120 Sek.
+		MaxAge = 180, -- Coins älter als 3 Min. sind für Sniper uninteressant
+		Share = { 0.05, 0.15 }, -- 5–15 % ihres Geldes
+	},
 
 	-- NPC-Coins
 	StartCoins = 3, -- so viele Coins gibt es direkt beim Serverstart
@@ -99,6 +108,12 @@ Config.Npc = {
 		"To the moon!", "Community coin. No plan, just vibes.", "The next big thing (probably not).",
 		"Made at 3am.", "Diamond paws only.", "Buy high, sell higher.", "100% meme, 0% utility.",
 	},
+}
+
+-- Sicherheit
+Config.Security = {
+	LogProfitAbove = 10_000, -- Spieler-Gewinn pro Verkauf ab hier wird im Server-Output geloggt
+	SnapshotsPer30s = 3, -- so oft darf ein Client die kompletten Marktdaten holen
 }
 
 -- UI (Handy zuerst)
