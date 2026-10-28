@@ -71,6 +71,37 @@ Config.Levels = {
 	{ Level = 40, Rank = "Legend", Unlock = "Cosmetics, prestige frame" },
 }
 
+-- Schutz vor Bankrott (Phase 5)
+Config.Protection = {
+	-- Mindestgeld: Vermögen (Cash + Coins) unter 100 -> alle 10 Min. 250 Cash, solange man online ist
+	StipendBelow = 100,
+	StipendAmount = 250,
+	StipendInterval = 600,
+
+	-- Daily Reward: Tag 1..7 (danach wieder Tag 1). Einen Tag verpasst -> zurück auf Tag 1. Tage in UTC.
+	Daily = { 500, 750, 1000, 1500, 2000, 3000, 5000 },
+
+	-- Stop-Loss (ab Level 3): verkauft alles, wenn der Wert so weit unter dem Einstieg liegt
+	StopLossLevels = { 0.10, 0.20, 0.30, 0.50 },
+	StopLossMinLevel = 3,
+	StopLossOfflineDelay = 15, -- Host verkauft für Offline-Spieler, wenn der Stop seit 15 Sek. erreicht ist
+	StopLossHostInterval = 10,
+
+	-- Rug-Versicherung (ab Level 5): Schalter pro Coin, kostet 5 % jedes Kaufs, zahlt 60 % des Verlusts
+	InsurancePremium = 0.05,
+	InsurancePayout = 0.60,
+	InsuranceMinLevel = 5,
+
+	-- Anfänger-Erstattung: unter Level 5 gibt es bei einem Rugpull 50 % des Verlusts zurück.
+	-- Mit Versicherung zählt der höhere Wert (nicht beides).
+	BeginnerBelowLevel = 5,
+	BeginnerPayout = 0.50,
+
+	MinHoldSeconds = 60, -- Kauf muss mind. 60 Sek. vor dem Rugpull sein (gegen Tricks)
+	RugPotShare = 0.30, -- 30 % des Rug-Erlöses gehen in den Erstattungstopf
+	DailyTopUp = 500, -- ist ein Topf leer, legt das Spiel max. 500 Cash pro Spieler und Tag drauf
+}
+
 -- Ranglisten (nur echte Spieler)
 Config.Leaderboard = {
 	Size = 50, -- Top 50 weltweit
@@ -116,7 +147,7 @@ Config.World = {
 
 	-- Ein Speicher-Wert darf max. 32 KB groß sein:
 	FullReceipts = 30, -- volle Buchungsbelege pro Coin (ältere schrumpfen auf ihre Nummer, Schutz bleibt)
-	MaxHoldersPerCoin = 400, -- mehr Holder passen nicht sicher in einen Coin
+	MaxHoldersPerCoin = 200, -- je Holder ca. 90 Byte (Menge, Einsatz, Versicherung, Kaufzeit, Level) -> ca. 18 KB
 
 	CoinsBase = 20, -- gelistete Coins weltweit bei wenigen Spielern
 	CoinsPerPlayer = 0.2, -- +1 Coin pro 5 Spieler online (Speicher wächst nur 1,2 KB pro Spieler)

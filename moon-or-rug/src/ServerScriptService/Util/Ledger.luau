@@ -17,6 +17,7 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Curve = require(ReplicatedStorage.Shared.BondingCurve)
 
 local C = Config.Curve
+local P = Config.Protection
 local FEE_TOTAL = Config.Fees.Creator + Config.Fees.Burn
 local DUST = 1e-9
 local MAX_TRADES = 5 -- letzte Trades pro Coin (für Live-Trades auf allen Servern)
@@ -55,6 +56,7 @@ function Ledger.NewCoin(info, now: number)
 		H = {}, -- Holder: [Schlüssel] = { A = Menge, C = Kosten }
 		E = {}, -- Früh-Käufer: [Schlüssel] = true
 		Q = {}, -- Duplikat-Schutz: [Spieler] = { S = letzte Nummer, R = Ergebnis }
+		SL = {}, -- Stop-Loss-Aufträge: [Spieler] = 0.1 / 0.2 / 0.3 / 0.5
 		T = {}, -- letzte Trades
 	}
 	if info.CreatorKey then
@@ -110,7 +112,14 @@ local function buy(coin, a)
 	end
 	local amount = (if holding then holding.A else 0) + tokens
 	local cost = (if holding then holding.C else 0) + cash
-	coin.H[a.Key] = { A = amount, C = cost }
+	local insured = (if holding then holding.I or 0 else 0) + (if a.Insure then cash else 0)
+	coin.H[a.Key] = {
+		A = amount,
+		C = cost,
+		I = if insured > 0 then insured else nil, -- versicherter Einsatz
+		T = math.floor(a.Now), -- letzter Kauf (für die 60-Sek.-Regel), ganze Sekunden sparen Platz
+		L = a.Level, -- Level beim Kauf (Anfänger-Erstattung)
+	}
 	coin.Vol += cash
 	coin.LT = a.Now
 	addTrade(coin, "Buy", a, tokens, cash)
@@ -150,18 +159,30 @@ local function sell(coin, a)
 	local restCost = holding.C - costPart
 	if rest <= DUST then
 		coin.H[a.Key] = nil
+		if coin.SL then
+			coin.SL[a.Key] = nil
+		end
 		rest, restCost = 0, 0
 	else
-		coin.H[a.Key] = { A = rest, C = math.max(0, restCost) }
+		coin.H[a.Key] = {
+			A = rest,
+			C = math.max(0, restCost),
+			I = if holding.I then holding.I * (rest / holding.A) else nil,
+			T = holding.T,
+			L = holding.L,
+		}
 	end
 	coin.Sup = math.max(0, coin.Sup - tokens)
 	coin.Vol += payout
 	coin.LT = a.Now
 	addTrade(coin, "Sell", a, tokens, payout)
+	local comp = nil
 	if a.Rug then
 		coin.Rug = true -- Rugpull im selben Schritt wie der Verkauf
+		comp = Ledger.RugCompensation(coin, a.Now)
 	end
 	return {
+		Comp = comp,
 		Ok = true,
 		Tokens = tokens,
 		Cash = payout,
@@ -171,6 +192,28 @@ local function sell(coin, a)
 		Fee = gross * Config.Fees.Creator,
 		CreatorKey = coin.CK,
 	}
+end
+
+-- Erstattungen nach einem Rugpull (Wert jetzt, nach dem Crash) -> { [Spieler] = { Ins = x } oder { Beg = x } }
+-- Versicherung: 60 % des versicherten Verlusts. Anfänger (Level < 5): 50 % des Verlusts. Der höhere zählt.
+-- Nur wenn der letzte Kauf mind. 60 Sek. vor dem Rug war. NPCs bekommen nichts.
+function Ledger.RugCompensation(coin, now: number)
+	local comp = {}
+	for key, h in coin.H do
+		if string.sub(key, 1, 4) ~= "npc:" and h.C > 0 and now - (h.T or 0) >= P.MinHoldSeconds then
+			local value = Curve.CashForTokens(C, coin.Sup, h.A) * (1 - FEE_TOTAL)
+			local loss = math.max(0, h.C - value)
+			local ins = if (h.I or 0) > 0 then loss * math.min(1, h.I / h.C) * P.InsurancePayout else 0
+			local beg = if (h.L or 99) < P.BeginnerBelowLevel then loss * P.BeginnerPayout else 0
+			ins, beg = floorCents(ins), floorCents(beg)
+			if ins > 0 and ins >= beg then
+				comp[key] = { Ins = ins }
+			elseif beg > 0 then
+				comp[key] = { Beg = beg }
+			end
+		end
+	end
+	return comp
 end
 
 -- Ältere volle Belege auf ihre Nummer verkleinern (Speicher-Grenze 32 KB).
@@ -240,6 +283,46 @@ function Ledger.CoinTrade(coin, a)
 	elseif not result.Ok then
 		return nil, result -- NPC-Fehlschlag: nichts schreiben
 	end
+	coin.V += 1
+	return coin, result
+end
+
+-- Stop-Loss eines Spielers setzen (Level = 0.1 .. 0.5) oder löschen (nil). Nur mit Position.
+function Ledger.CoinSetStopLoss(coin, a)
+	if not coin or not coin.H[a.Key] then
+		return nil, { Ok = false, Error = "You don't own this coin" }
+	end
+	coin.SL = coin.SL or {}
+	if coin.SL[a.Key] == a.Level then
+		return nil, { Ok = true }
+	end
+	coin.SL[a.Key] = a.Level
+	coin.V += 1
+	return coin, { Ok = true }
+end
+
+-- Ist der Stop-Loss eines Holders erreicht? (Verkaufswert nach Gebühr <= Einsatz * (1 - Level))
+function Ledger.StopLossHit(coin, key: string): boolean
+	local level = coin.SL and coin.SL[key]
+	local h = coin.H[key]
+	if not level or not h or h.C <= 0 then
+		return false
+	end
+	local value = Curve.CashForTokens(C, coin.Sup, h.A) * (1 - FEE_TOTAL)
+	return value <= h.C * (1 - level)
+end
+
+-- Host verkauft für einen Offline-Spieler (nur wenn der Stop wirklich erreicht ist).
+-- a = { Key, Now } -> Coin, Ergebnis (Cash, Profit) oder nil
+function Ledger.CoinStopLossExec(coin, a)
+	if not coin or not Ledger.StopLossHit(coin, a.Key) then
+		return nil, nil
+	end
+	local result = sell(coin, { Key = a.Key, Name = "🛑 Stop-loss", IsNpc = false, Frac = 1, Now = a.Now })
+	if not result.Ok then
+		return nil, nil
+	end
+	coin.SL[a.Key] = nil
 	coin.V += 1
 	return coin, result
 end
@@ -322,6 +405,7 @@ function Ledger.WalletCreate(wallet, a)
 		P = profile.P,
 		Coins = profile.Coins or {},
 		St = profile.St or {},
+		Ins = profile.Ins or {},
 		Owner = a.Job,
 		HB = a.Now,
 	}, { Ok = true }
@@ -336,18 +420,29 @@ function Ledger.WalletBegin(wallet, a)
 	if wallet.P then
 		return nil, { Error = "Previous trade still processing", Pending = true }
 	end
+	local premium = a.Premium or 0 -- Versicherung: 5 % zusätzlich
 	if a.Side == "Buy" then
 		if a.Cash < Config.Trade.MinCash then
 			return nil, { Error = "Amount too small" }
 		end
-		if wallet.Cash < a.Cash then
+		if wallet.Cash < a.Cash + premium then
 			return nil, { Error = "Not enough cash" }
 		end
-		wallet.Cash = floorCents(wallet.Cash - a.Cash)
+		wallet.Cash = floorCents(wallet.Cash - a.Cash - premium)
 		wallet.Coins[a.Coin] = true
 	end
 	wallet.Seq += 1
-	wallet.P = { S = wallet.Seq, Side = a.Side, Coin = a.Coin, Cash = a.Cash, Frac = a.Frac, At = a.Now }
+	wallet.P = {
+		S = wallet.Seq,
+		Side = a.Side,
+		Coin = a.Coin,
+		Cash = a.Cash,
+		Frac = a.Frac,
+		Prem = if premium > 0 then premium else nil,
+		Ins = a.Insure,
+		L = a.Level,
+		At = a.Now,
+	}
 	return wallet, { Ok = true, Seq = wallet.Seq }
 end
 
@@ -402,7 +497,7 @@ function Ledger.WalletFinish(wallet, a)
 			wallet.Cash = floorCents(wallet.Cash + r.Cash)
 		end
 	elseif p.Side == "Buy" then
-		wallet.Cash = floorCents(wallet.Cash + p.Cash) -- Kauf fehlgeschlagen: Geld zurück
+		wallet.Cash = floorCents(wallet.Cash + p.Cash + (p.Prem or 0)) -- Kauf fehlgeschlagen: Geld + Prämie zurück
 	end
 	if (r.Amount or 0) <= 0 then
 		wallet.Coins[p.Coin] = nil
@@ -440,6 +535,65 @@ function Ledger.WalletAddCash(wallet, a)
 	return wallet, { Ok = true }
 end
 
+-- Versicherung für einen Coin an/aus (nur Einstellung, kein Geld)
+function Ledger.WalletSetInsure(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false }
+	end
+	wallet.Ins = wallet.Ins or {}
+	wallet.Ins[a.Coin] = if a.On then true else nil
+	return wallet, { Ok = true }
+end
+
+-- Mindestgeld: höchstens alle Interval Sek. (Zeit in der Geldbörse -> Rejoin hilft nicht)
+function Ledger.WalletStipend(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false }
+	end
+	local st = wallet.St or {}
+	wallet.St = st
+	if a.Now - (st.LS or 0) < a.Interval then
+		return nil, { Ok = false }
+	end
+	st.LS = a.Now
+	wallet.Cash = floorCents(wallet.Cash + a.Amount)
+	return wallet, { Ok = true, Amount = a.Amount }
+end
+
+-- Daily Reward abholen. a = { Job, Day, Multiplier? }. Einmal pro Tag (Wiederholung = nichts doppelt).
+function Ledger.WalletDaily(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false, Error = "Session lost – please rejoin" }
+	end
+	local st = wallet.St or {}
+	wallet.St = st
+	if st.DD == a.Day then
+		return nil, { Ok = false, Error = "Already claimed today – come back tomorrow" }
+	end
+	local streak = if st.DD == a.Day - 1 then (st.DS or 0) % #P.Daily + 1 else 1
+	local amount = P.Daily[streak] * (a.Multiplier or 1)
+	st.DD, st.DS = a.Day, streak
+	wallet.Cash = floorCents(wallet.Cash + amount)
+	return wallet, { Ok = true, Streak = streak, Amount = amount }
+end
+
+-- Postfach in die Geldbörse buchen (Stop-Loss offline, Erstattungen, geschlossene Coins).
+-- a = { Job, Id, Cash, Profit, Now }. Gleiche Id nochmal = nichts doppelt.
+function Ledger.WalletInbox(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false }
+	end
+	if wallet.Op == a.Id then
+		return nil, { Ok = true, Already = true }
+	end
+	wallet.Op = a.Id
+	wallet.Cash = floorCents(wallet.Cash + math.max(0, a.Cash or 0))
+	if a.Profit then
+		updateStats(wallet, { Side = "Sell" }, { Cash = 0, Profit = a.Profit }, a.Now)
+	end
+	return wallet, { Ok = true }
+end
+
 -- Coins entfernen, die es nicht mehr gibt
 function Ledger.WalletForget(wallet, a)
 	if not wallet or wallet.Owner ~= a.Job then
@@ -462,7 +616,15 @@ end
 
 -- Gespeichertes Profil (DataStore) aus der Geldbörse
 function Ledger.ProfileFromWallet(wallet)
-	return { Cash = wallet.Cash, Seq = wallet.Seq, P = wallet.P, Coins = wallet.Coins, St = wallet.St, Version = 1 }
+	return {
+		Cash = wallet.Cash,
+		Seq = wallet.Seq,
+		P = wallet.P,
+		Coins = wallet.Coins,
+		St = wallet.St,
+		Ins = wallet.Ins,
+		Version = 1,
+	}
 end
 
 ------------------------------------------------------------------------
@@ -532,6 +694,40 @@ function Ledger.NewsAdd(news, a)
 		table.remove(news.Items, 1)
 	end
 	return news, true
+end
+
+-- Töpfe: { Ins = Versicherungstopf, Ref = Erstattungstopf, D = { Day, Used = { [Spieler] = Betrag } } }
+function Ledger.PotsAdd(pots, a)
+	pots = pots or { Ins = 0, Ref = 0 }
+	pots.Ins = (pots.Ins or 0) + (a.Ins or 0)
+	pots.Ref = (pots.Ref or 0) + (a.Ref or 0)
+	return pots, true
+end
+
+-- Rug-Erstattungen bezahlen: erst aus dem Topf, fehlt etwas, legt das Spiel max. TopUp pro Spieler und Tag drauf.
+-- a = { Comp = { [Spieler] = { Ins | Beg } }, AddRef = Rug-Anteil für den Topf, Day, TopUp } -> { [Spieler] = Betrag }
+function Ledger.PotsPay(pots, a)
+	pots = pots or { Ins = 0, Ref = 0 }
+	pots.Ins = pots.Ins or 0
+	pots.Ref = (pots.Ref or 0) + (a.AddRef or 0)
+	if not pots.D or pots.D.Day ~= a.Day then
+		pots.D = { Day = a.Day, Used = {} }
+	end
+	local payouts = {}
+	for key, c in a.Comp do
+		local want = c.Ins or c.Beg or 0
+		local potName = if c.Ins then "Ins" else "Ref"
+		local fromPot = math.min(want, pots[potName])
+		pots[potName] = floorCents(pots[potName] - fromPot)
+		local used = pots.D.Used[key] or 0
+		local topUp = math.max(0, math.min(want - fromPot, a.TopUp - used))
+		pots.D.Used[key] = used + topUp
+		local total = floorCents(fromPot + topUp)
+		if total > 0 then
+			payouts[key] = total
+		end
+	end
+	return pots, payouts
 end
 
 -- Postfach: { [Schlüssel] = Betrag }. a = { Adds = { [Schlüssel] = Betrag } }

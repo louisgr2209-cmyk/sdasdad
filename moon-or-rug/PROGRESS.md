@@ -37,6 +37,7 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `ServerScriptService/Services/NpcTraderService.luau` | ServerScriptService › Services › NpcTraderService | ModuleScript |
 | `ServerScriptService/Services/WorldService.luau` | ServerScriptService › Services › WorldService | ModuleScript |
 | `ServerScriptService/Services/LeaderboardService.luau` | ServerScriptService › Services › LeaderboardService | ModuleScript |
+| `ServerScriptService/Services/ProtectionService.luau` | ServerScriptService › Services › ProtectionService | ModuleScript |
 | `ServerScriptService/Util/Ledger.luau` | ServerScriptService › Util › Ledger | ModuleScript |
 | `ServerScriptService/Util/Store.luau` | ServerScriptService › Util › Store | ModuleScript |
 | `ServerScriptService/Util/Remotes.luau` | ServerScriptService › Util › Remotes | ModuleScript |
@@ -50,6 +51,7 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `StarterPlayerScripts/ClientModules/ChartRenderer.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › ChartRenderer | ModuleScript |
 | `StarterPlayerScripts/ClientModules/Portfolio.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › Portfolio | ModuleScript |
 | `StarterPlayerScripts/ClientModules/LeaderboardUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › LeaderboardUI | ModuleScript |
+| `StarterPlayerScripts/ClientModules/DailyRewardUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › DailyRewardUI | ModuleScript |
 
 `DebugTerminal` (Phase 1–2) gibt es nicht mehr → in Studio löschen.
 RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStorage › Remotes` selbst.
@@ -63,7 +65,7 @@ RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStora
 | 3 Terminal-UI | ✅ gebaut, wartet auf Test in Studio |
 | 4a Weltmarkt + Speichern (Duplikat-Schutz) | ✅ gebaut, wartet auf Test (Studio + veröffentlicht) |
 | 4b Level/XP, Leaderboard | ✅ gebaut, wartet auf Test |
-| 5 Schutz | offen |
+| 5 Schutz | ✅ gebaut, wartet auf Test |
 | 6 Coin erstellen + Boost | offen |
 | 7 Rugpull | offen |
 | 8 Robux-Produkte + Gamepässe | offen |
@@ -159,6 +161,31 @@ Für 1000 Breite nachgerechnet: Pulse-Karten ca. 16 Zeichen pro Zeile, Coin-Seit
 alle Buttons mind. 72 hoch (Tabs 64). Zu lange Texte werden mit „…“ gekürzt statt überzulaufen.
 
 **Prüfung:** Python-Prüfskript für Luau-Blöcke (`function`/`if`/`for`/`end`, Klammern) über alle Dateien: 0 Fehler.
+
+## Phase 5 – Schutz vor Bankrott
+
+**Entscheidungen (Klick-Fragen):** Daily steigend 500·750·1.000·1.500·2.000·3.000·5.000, Lücke = Tag 1, Knopf + Fenster;
+Stop-Loss feste Stufen, **auch offline**; Versicherung per Schalter pro Coin, bezahlt aus Prämien-Topf + max. 500/Tag/Spieler
+vom Spiel; Anfänger mit Versicherung: der höhere Wert zählt. Neu: `ProtectionService`, `DailyRewardUI`.
+
+- **Mindestgeld:** Vermögen (Cash + Coins) unter 100 → alle 10 Min. +250, solange online. Zeitpunkt steht in der
+  Geldbörse → Rejoin bringt nichts.
+- **Daily Reward:** 🎁-Knopf oben (gelb = bereit), Fenster mit 7 Tagen. Nach Tag 7 wieder Tag 1. UTC-Tage.
+  Einmal pro Tag garantiert (Ledger.WalletDaily, Wiederholung bucht nicht doppelt). Doppelter Reward (Gamepass) → Phase 8.
+- **Stop-Loss (ab Lv 3):** Knopf auf der Coin-Seite schaltet OFF → -10 % → -20 % → -30 % → -50 %. Gemessen: Verkaufswert
+  nach Gebühr gegen eigenen Einsatz → verkauft alles. Auftrag liegt im Coin (Wahrheit). **Online** verkauft der eigene
+  Server nach ca. 1 Sek.; **offline** verkauft der Host, wenn der Stop seit 15 Sek. erreicht ist → Cash + Gewinn-Statistik
+  ins Postfach (Hinweis beim nächsten Join). Andere sehen nur die *Anzahl* der Aufträge, nie die Preise (sonst „Stop-Jagd“).
+- **Rug-Versicherung (ab Lv 5):** Schalter „🛡 INSURE“ pro Coin. Jeder Kauf kostet +5 % (wird mit dem Kauf reserviert,
+  bei Fehlschlag mit erstattet). Bei einem Rug: 60 % des versicherten Verlusts.
+- **Anfänger-Erstattung (unter Lv 5):** 50 % des Verlusts bei einem Rug. Mit Versicherung zählt der höhere Wert.
+- **Regeln für Erstattungen:** letzter Kauf mind. 60 Sek. vor dem Rug; Geld aus Versicherungstopf (Prämien) bzw.
+  Erstattungstopf (30 % jedes Rug-Erlöses, auch von NPC-Rugs); fehlt etwas, legt das Spiel max. 500 pro Spieler und Tag drauf.
+  Auszahlung ins Postfach mit Hinweis „🛡 Rug refund“.
+- **Geprüft:** Absturz-Test mit Versicherungsprämien (131.000 Trades): 0 Doppelbuchungen, 0 Verlust.
+  Topf-Logik mit Beispielen nachgerechnet (Tageslimit greift, nächster Tag neu).
+- **Coin-Seite:** BUY/SELL-Knöpfe zweizeilig („BUY / 10%“), darunter 🛑 STOP und 🛡 INSURE (mit 🔒 Lv-Hinweis).
+- **Portfolio:** Positionen zeigen 🛑-20% / 🛡.
 
 ## Phase 4b – Level/XP + Leaderboard
 
@@ -277,7 +304,7 @@ Postfach) werden nie automatisch wiederholt: im Zweifel geht ein kleiner Betrag 
   **0 Doppelbuchungen**, nie mehr Geld/Coins als gebucht, Coins exakt. Gegenprobe ohne Schutz: sofort Hunderte Fehler.
 - Budget nachgerechnet (Roblox: 1000 + 120 pro Spieler Anfragen/Min., 64 KB + 1,2 KB pro Spieler Speicher):
   typisch 50–90 % Auslastung, auch bei vielen kleinen Servern.
-- Grenzen: 1 Speicher-Wert max. 32 KB → max. 400 Holder pro Coin, 30 volle Buchungsbelege pro Coin
+- Grenzen: 1 Speicher-Wert max. 32 KB → max. 200 Holder pro Coin (seit Phase 5), 30 volle Buchungsbelege pro Coin
   (ältere nur mit Nummer – Schutz bleibt). Gelistete Coins: 20 + 1 pro 5 Spieler, max. 120.
 - Luau-Parser (StyLua) über alle Dateien: 0 Fehler.
 
@@ -312,6 +339,9 @@ Postfach) werden nie automatisch wiederholt: im Zweifel geht ein kleiner Betrag 
 | Phase 2 | Simulation: alte Coins starben nie (Zufall-NPCs verkauften nur Teile) | alle NPCs steigen aus Coins > 15 Min. komplett aus |
 | Phase 3 | Mehrere Zeilen begannen mit `(` → Luau meldet „ambiguous syntax“ | in lokale Variablen umgeschrieben |
 | Prüfung | Ein Fehler in `checkRugs`/`createNpcCoin` oder im Markt-Takt hätte die Schleife für immer gestoppt (Markt steht still) | Schleifen mit `pcall` abgesichert, Fehler erscheinen als Warnung im Output |
+| 5 | `%d` mit 0.1*100 (=10.000000000000002) bricht in Luau ab | vorher runden (math.floor(x*100+0.5)) |
+| 5 | Holder-Einträge größer (Versicherung, Kaufzeit, Level) → 400 Holder > 32 KB | max. 200 Holder pro Coin, Kaufzeit als ganze Sekunde |
+| 5-Test | Test-Buchhaltung vergaß Prämie bei verlorener Antwort | Prämie vor dem Speicherzugriff gemerkt |
 | 4a | Wiederholung nach verlorener Antwort hätte NPC-Trades/Gebühren doppelt gebucht | ohne automatische Wiederholung + Bestand nachprüfen |
 | 4a | Coin-Wert (max. 32 KB) wäre bei sehr vielen Händlern übergelaufen | Belege schrumpfen auf Nummer, max. 400 Holder |
 | 4a | Budget-Rechnung: viele kleine Server → 141 % des Roblox-Limits | Abfrage-Takt passt sich an (0,5–2 Sek.), sparsamere Werte → max. ~90 % |

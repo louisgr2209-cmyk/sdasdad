@@ -183,7 +183,14 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 			row.Icon.Text = coin.Icon
 			row.Name.Text = "$" .. coin.Ticker .. (if coin.Rugged then "  RUGGED" elseif coin.Stage == "Dead" then "  DEAD" else "")
 			row.Name.TextColor3 = if coin.Rugged or coin.Stage == "Dead" then Colors.Red else Colors.Text
-			row.Amount.Text = string.format("%s · cost %s", Format.Short(position.Amount), Format.Cash(position.Cost))
+			local marks = ""
+			if position.SL then
+				marks ..= string.format(" · 🛑-%d%%", math.floor(position.SL * 100 + 0.5))
+			end
+			if me.Insured and me.Insured[coin.Id] then
+				marks ..= " · 🛡"
+			end
+			row.Amount.Text = string.format("%s · cost %s%s", Format.Short(position.Amount), Format.Cash(position.Cost), marks)
 			local pnl = if position.Cost > 0 then entry.Value / position.Cost - 1 else 0
 			row.Value.Text = Format.Cash(entry.Value)
 			row.Pnl.Text = Format.Percent(pnl)

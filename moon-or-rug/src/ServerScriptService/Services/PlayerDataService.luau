@@ -97,7 +97,21 @@ function PlayerDataService.SetHolding(player: Player, coinId: string, amount: nu
 	if not profile then
 		return
 	end
-	profile.Holdings[coinId] = if amount > 0 then { Amount = amount, Cost = cost } else nil
+	local old = profile.Holdings[coinId]
+	profile.Holdings[coinId] = if amount > 0 then { Amount = amount, Cost = cost, SL = old and old.SL } else nil
+end
+
+-- Stop-Loss-Stufe in der lokalen Kopie merken (Wahrheit liegt im Coin)
+function PlayerDataService.SetStopLossLocal(player: Player, coinId: string, level: number?)
+	local holding = PlayerDataService.GetHolding(player, coinId)
+	if holding then
+		holding.SL = level
+	end
+end
+
+-- Hinweis oben im Terminal (gleicher Weg wie Trade-Meldungen)
+function PlayerDataService.Notify(player: Player, ok: boolean, message: string)
+	Remotes.Event("TradeResult"):FireClient(player, { Ok = ok, Message = message })
 end
 
 -- Geld gutschreiben/abziehen (für spätere Phasen: Daily Reward usw.). Nie doppelt.
@@ -151,7 +165,22 @@ function PlayerDataService.BuildState(player: Player)
 	if not profile or not profile.Loaded then
 		return nil
 	end
-	return { Cash = profile.Wallet.Cash, Positions = profile.Holdings, Stats = PlayerDataService.GetStats(player) }
+	-- Daily Reward: heute schon abgeholt? Welcher Tag ist als Nächstes dran?
+	local st = profile.Wallet.St or {}
+	local today = Ledger.PeriodKeys(now())
+	local claimed = st.DD == today
+	local nextStreak = if claimed or st.DD == today - 1 then (st.DS or 0) % #Config.Protection.Daily + 1 else 1
+	return {
+		Cash = profile.Wallet.Cash,
+		Positions = profile.Holdings,
+		Stats = PlayerDataService.GetStats(player),
+		Insured = profile.Wallet.Ins or {},
+		Daily = {
+			CanClaim = not claimed,
+			Streak = if claimed then st.DS else nextStreak - 1, -- bereits geschaffte Tage in Folge
+			Next = nextStreak, -- dieser Tag ist als Nächstes dran
+		},
+	}
 end
 
 function PlayerDataService.PushState(player: Player)
@@ -212,13 +241,40 @@ end
 
 -- Postfach leeren (z. B. Auszahlung automatisch geschlossener Coins) und gutschreiben.
 -- Erst leeren, dann gutschreiben: bei Absturz dazwischen verfällt der Betrag, er kommt nie doppelt.
+local refreshHoldings -- unten definiert
+
 local function drainInbox(player: Player)
 	local ok, content = inboxMap:Update("u_" .. player.UserId, Ledger.InboxDrain, {})
-	local cash = if ok and type(content) == "table" then content.Cash else nil
-	if isValidNumber(cash) and cash > 0 then
-		PlayerDataService.AddCash(player, Ledger.FloorCents(cash))
+	if not ok or type(content) ~= "table" then
+		return
 	end
+	local cash = if isValidNumber(content.Cash) then math.max(0, content.Cash) else 0
+	local profit = if isValidNumber(content.Profit) then content.Profit else nil
+	if cash <= 0 and not profit then
+		return
+	end
+	local okWallet, result = PlayerDataService.WalletUpdate(player, Ledger.WalletInbox, {
+		Job = WorldService.JobId,
+		Id = HttpService:GenerateGUID(false),
+		Cash = Ledger.FloorCents(cash),
+		Profit = profit,
+		Now = now(),
+	})
+	if not (okWallet and result and result.Ok) then
+		return
+	end
+	-- Hinweise, woher das Geld kommt
+	if isValidNumber(content.Refund) and content.Refund > 0 then
+		PlayerDataService.Notify(player, true, string.format("🛡 Rug refund: +%.2f Cash", content.Refund))
+	end
+	if isValidNumber(content.SL) and content.SL > 0 then
+		PlayerDataService.Notify(player, true, string.format("🛑 Stop-loss sold while you were away: +%.2f Cash", content.SL))
+		refreshHoldings(player)
+	end
+	PlayerDataService.PushState(player)
 end
+
+PlayerDataService.DrainInbox = drainInbox
 
 ------------------------------------------------------------------------
 -- Laden
@@ -290,7 +346,7 @@ local function load(player: Player)
 		if ok then
 			local holding = coin and coin.H[key]
 			if holding then
-				profile.Holdings[coinId] = { Amount = holding.A, Cost = holding.C }
+				profile.Holdings[coinId] = { Amount = holding.A, Cost = holding.C, SL = coin.SL and coin.SL[key] }
 			else
 				table.insert(gone, coinId)
 			end
@@ -301,6 +357,24 @@ local function load(player: Player)
 	end
 	drainInbox(player)
 	PlayerDataService.PushState(player)
+end
+
+-- Mengen aller gehaltenen Coins neu lesen (z. B. nachdem der Host per Stop-Loss verkauft hat)
+refreshHoldings = function(player: Player)
+	local profile = profiles[player]
+	if not profile or not profile.Loaded then
+		return
+	end
+	local key = PlayerDataService.Key(player)
+	for coinId in profile.Wallet.Coins do
+		local ok, coin = coinsMap:Get(coinId)
+		if ok then
+			local holding = coin and coin.H[key]
+			profile.Holdings[coinId] = if holding
+				then { Amount = holding.A, Cost = holding.C, SL = coin.SL and coin.SL[key] }
+				else nil
+		end
+	end
 end
 
 -- Spieler geht: Trades fertig, speichern, Geldbörse freigeben

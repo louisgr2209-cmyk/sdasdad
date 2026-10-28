@@ -1,7 +1,7 @@
 -- TerminalUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/TerminalUI
 -- Vollbild-Terminal: Kopfleiste (Logo, Tabs, Cash + Level), Seiten (Pulse, Coin, Portfolio, Leaderboard),
--- Ticker unten, Level-Up-Banner. Platz für später: Daily Reward (Phase 5), Shop (Phase 8).
--- Breite (mind. 976): Logo 230 | Tabs 3 x 158 + 2 x 10 = 494 | Cash/Level 230
+-- Ticker unten, Level-Up-Banner, Daily-Reward-Knopf. Platz für später: Shop (Phase 8).
+-- Breite (mind. 976): Logo 180 | 10 | Tabs 3 x 140 + 2 x 10 = 440 | Daily 64 | 10 | Cash/Level 230
 --
 -- Höhen (Design-Pixel, mind. 520): 12 Rand | Kopf 72 | 10 | Seite (Rest, mind. 368) | 10 | Ticker 36 | 12 Rand
 
@@ -15,6 +15,7 @@ local PulseList = require(script.Parent.PulseList)
 local CoinPage = require(script.Parent.CoinPage)
 local Portfolio = require(script.Parent.Portfolio)
 local LeaderboardUI = require(script.Parent.LeaderboardUI)
+local DailyRewardUI = require(script.Parent.DailyRewardUI)
 local Levels = require(ReplicatedStorage.Shared.Levels)
 
 local Colors = Screen.Colors
@@ -41,13 +42,13 @@ function TerminalUI.Start()
 	Screen.Label({
 		Text = "🚀 MOON OR RUG",
 		Font = Screen.Fonts.Bold,
-		TextSize = 28,
-		Size = UDim2.new(0, 230, 1, 0),
+		TextSize = 24,
+		Size = UDim2.new(0, 180, 1, 0),
 		Parent = header,
 	})
 	local tabBar = Screen.New("Frame", {
-		Position = UDim2.fromOffset(240, 0),
-		Size = UDim2.new(1, -240 - 240, 1, 0),
+		Position = UDim2.fromOffset(190, 0),
+		Size = UDim2.new(1, -190 - 240 - 74, 1, 0),
 		BackgroundTransparency = 1,
 		Parent = header,
 	}, {
@@ -57,6 +58,16 @@ function TerminalUI.Start()
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		}),
 	})
+	-- Daily-Reward-Knopf (leuchtet, wenn bereit)
+	local dailyButton = Screen.Button({
+		Text = "🎁",
+		TextSize = 32,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -240, 0, 4),
+		Size = UDim2.fromOffset(64, 64),
+		Parent = header,
+	})
+
 	-- Rechts: Cash, darunter Level + XP-Balken
 	local wallet = Screen.New("Frame", {
 		AnchorPoint = Vector2.new(1, 0),
@@ -158,8 +169,8 @@ function TerminalUI.Start()
 	for i, tabName in { "Pulse", "Portfolio", "Leaderboard" } do
 		local button = Screen.Button({
 			Text = string.upper(tabName),
-			TextSize = 22,
-			Size = UDim2.new(0, 158, 1, -8),
+			TextSize = 20,
+			Size = UDim2.new(0, 140, 1, -8),
 			LayoutOrder = i,
 			Parent = tabBar,
 		})
@@ -278,8 +289,14 @@ function TerminalUI.Start()
 	------------------------------------------------------------------
 	-- Aktualisieren
 	------------------------------------------------------------------
+	local daily = DailyRewardUI.new(root)
+	dailyButton.Activated:Connect(daily.Show)
+
 	local lastLevel = nil
 	MarketClient.Changed.Event:Connect(function()
+		local dailyState = MarketClient.Me.Daily
+		dailyButton.BackgroundColor3 = if dailyState and dailyState.CanClaim then Colors.Accent else Colors.PanelLight
+		daily.Refresh()
 		cashLabel.Text = "💵 " .. Format.Cash(MarketClient.Me.Cash)
 		local stats = MarketClient.Me.Stats
 		if stats then

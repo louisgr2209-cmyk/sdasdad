@@ -22,6 +22,7 @@ MarketClient.TradeResult = Instance.new("BindableEvent") -- (ok, message)
 MarketClient.News = Instance.new("BindableEvent") -- (news) z. B. Rugpull, großer Gewinn
 
 local tradeRequest: RemoteEvent
+local remotes: Instance
 
 local function addTrade(coin, trade)
 	coin.Trades = coin.Trades or {}
@@ -81,6 +82,23 @@ function MarketClient.Trade(coinId: string, side: string, fraction: number)
 	tradeRequest:FireServer(coinId, side, fraction)
 end
 
+-- Schutz (Phase 5): der Server prüft Level und Besitz
+function MarketClient.ClaimDaily()
+	local remote = remotes:WaitForChild("ClaimDaily") :: RemoteEvent
+	remote:FireServer()
+end
+
+-- index: 0 = aus, 1..4 = Config.Protection.StopLossLevels
+function MarketClient.SetStopLoss(coinId: string, index: number)
+	local remote = remotes:WaitForChild("SetStopLoss") :: RemoteEvent
+	remote:FireServer(coinId, index)
+end
+
+function MarketClient.SetInsurance(coinId: string, on: boolean)
+	local remote = remotes:WaitForChild("SetInsurance") :: RemoteEvent
+	remote:FireServer(coinId, on)
+end
+
 -- Wert einer Position = was man jetzt beim Verkaufen bekäme (nach Gebühr)
 function MarketClient.PositionValue(coin, position): number
 	return Curve.CashForTokens(Config.Curve, coin.Supply, position.Amount) * (1 - FEE_TOTAL)
@@ -103,7 +121,7 @@ end
 ------------------------------------------------------------------------
 
 function MarketClient.Start()
-	local remotes = ReplicatedStorage:WaitForChild("Remotes")
+	remotes = ReplicatedStorage:WaitForChild("Remotes")
 	tradeRequest = remotes:WaitForChild("TradeRequest") :: RemoteEvent
 	local getSnapshot = remotes:WaitForChild("GetMarketSnapshot") :: RemoteFunction
 	local marketUpdate = remotes:WaitForChild("MarketUpdate") :: RemoteEvent

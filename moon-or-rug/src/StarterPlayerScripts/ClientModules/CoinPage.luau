@@ -161,19 +161,10 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 	})
 
 	local function tradeRow(order: number, side: string, color: Color3)
-		Screen.Label({
-			Text = if side == "Buy" then "BUY" else "SELL",
-			Font = Screen.Fonts.Bold,
-			TextSize = 20,
-			TextColor3 = color,
-			Size = UDim2.new(1, 0, 0, 20),
-			LayoutOrder = order,
-			Parent = right,
-		})
 		local row = Screen.New("Frame", {
 			Size = UDim2.new(1, 0, 0, 72),
 			BackgroundTransparency = 1,
-			LayoutOrder = order + 1,
+			LayoutOrder = order,
 			Parent = right,
 		}, {
 			Screen.New("UIListLayout", {
@@ -184,11 +175,12 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		})
 		local count = #Config.Trade.Fractions
 		for i, fraction in Config.Trade.Fractions do
+			local amount = if fraction >= 1
+				then (if side == "Buy" then "MAX" else "ALL")
+				else math.floor(fraction * 100 + 0.5) .. "%"
 			local button = Screen.Button({
-				Text = if fraction >= 1
-					then (if side == "Buy" then "MAX" else "ALL")
-					else math.floor(fraction * 100 + 0.5) .. "%",
-				TextSize = 24,
+				Text = string.upper(side) .. "\n" .. amount, -- zwei Zeilen: passt auch auf schmale Bildschirme
+				TextSize = 22,
 				BackgroundColor3 = color,
 				Size = UDim2.new(1 / count, -8 * (count - 1) / count, 1, 0),
 				LayoutOrder = i,
@@ -202,7 +194,56 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		end
 	end
 	tradeRow(2, "Buy", Colors.Green)
-	tradeRow(4, "Sell", Colors.Red)
+	tradeRow(3, "Sell", Colors.Red)
+
+	-- Schutz: Stop-Loss (ab Level 3) und Versicherung (ab Level 5)
+	local protectRow = Screen.New("Frame", {
+		Size = UDim2.new(1, 0, 0, 64),
+		BackgroundTransparency = 1,
+		LayoutOrder = 4,
+		Parent = right,
+	}, {
+		Screen.New("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			Padding = UDim.new(0, 8),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	})
+	local stopButton = Screen.Button({
+		TextSize = 20,
+		Size = UDim2.new(0.5, -4, 1, 0),
+		LayoutOrder = 1,
+		Parent = protectRow,
+	})
+	local insureButton = Screen.Button({
+		TextSize = 20,
+		Size = UDim2.new(0.5, -4, 1, 0),
+		LayoutOrder = 2,
+		Parent = protectRow,
+	})
+	local stopLevels = Config.Protection.StopLossLevels
+	stopButton.Activated:Connect(function()
+		local coinId = self.CoinId
+		if not coinId then
+			return
+		end
+		-- Stufen durchschalten: OFF -> -10 % -> -20 % -> -30 % -> -50 % -> OFF
+		local position = MarketClient.Me.Positions[coinId]
+		local current = 0
+		for i, level in stopLevels do
+			if position and position.SL == level then
+				current = i
+			end
+		end
+		MarketClient.SetStopLoss(coinId, (current + 1) % (#stopLevels + 1))
+	end)
+	insureButton.Activated:Connect(function()
+		local coinId = self.CoinId
+		if coinId then
+			local insured = MarketClient.Me.Insured or {}
+			MarketClient.SetInsurance(coinId, not insured[coinId])
+		end
+	end)
 
 	Screen.Label({
 		Text = "LIVE TRADES",
@@ -214,8 +255,8 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		Parent = right,
 	})
 	local tradeList = Screen.New("Frame", {
-		-- füllt den Rest: 26 + 20 + 72 + 20 + 72 + 22 + 6 Abstände à 6 = 268
-		Size = UDim2.new(1, 0, 1, -268),
+		-- füllt den Rest: 26 + 72 + 72 + 64 + 22 + 5 Abstände à 6 = 286 (kleinster Bildschirm: 2 Zeilen)
+		Size = UDim2.new(1, 0, 1, -286),
 		BackgroundTransparency = 1,
 		ClipsDescendants = true,
 		LayoutOrder = 7,
@@ -375,6 +416,26 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		else
 			positionLabel.Text = "You hold none"
 			positionLabel.TextColor3 = Colors.Muted
+		end
+
+		local stats = MarketClient.Me.Stats
+		local myLevel = if stats then stats.Level else 1
+		local protection = Config.Protection
+		if myLevel < protection.StopLossMinLevel then
+			stopButton.Text = "🛑 STOP 🔒 Lv " .. protection.StopLossMinLevel
+			stopButton.BackgroundColor3 = Colors.PanelLight
+		else
+			local sl = position and position.SL
+			stopButton.Text = if sl then string.format("🛑 STOP -%d%%", math.floor(sl * 100 + 0.5)) else "🛑 STOP OFF"
+			stopButton.BackgroundColor3 = if sl then Colors.Border else Colors.PanelLight
+		end
+		if myLevel < protection.InsuranceMinLevel then
+			insureButton.Text = "🛡 INSURE 🔒 Lv " .. protection.InsuranceMinLevel
+			insureButton.BackgroundColor3 = Colors.PanelLight
+		else
+			local on = (MarketClient.Me.Insured or {})[coin.Id] == true
+			insureButton.Text = if on then "🛡 INSURED +5%" else "🛡 INSURE OFF"
+			insureButton.BackgroundColor3 = if on then Colors.Border else Colors.PanelLight
 		end
 
 		local trades = coin.Trades or {}

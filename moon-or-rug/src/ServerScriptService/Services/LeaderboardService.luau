@@ -60,6 +60,8 @@ local function wealth(player: Player): number
 	return total
 end
 
+LeaderboardService.Wealth = wealth
+
 local function values(player: Player)
 	local stats = PlayerDataService.GetStats(player)
 	return {

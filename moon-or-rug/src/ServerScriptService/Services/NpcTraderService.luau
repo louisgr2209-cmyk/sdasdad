@@ -139,7 +139,9 @@ local function sell(npc, coin, share: number, rug: boolean?): boolean
 	end
 	local ok, result = MarketService.NpcTrade(npc.Wallet, coin.Id, { Side = "Sell", Frac = share, Rug = rug })
 	if ok then
-		npc.Cash = Ledger.FloorCents(npc.Cash + result.Cash)
+		-- Rugpull: 30 % des Erlöses gehen in den Erstattungstopf (bucht der ProtectionService)
+		local keep = if rug then 1 - Config.Protection.RugPotShare else 1
+		npc.Cash = Ledger.FloorCents(npc.Cash + result.Cash * keep)
 	end
 	setHolding(npc, coin.Id, result)
 	return ok

@@ -36,12 +36,13 @@ Screen.Fonts = {
 -- Instanz mit Eigenschaften und Kindern bauen
 function Screen.New(className: string, props: { [string]: any }?, children: { Instance }?): any
 	local instance = Instance.new(className)
+	local target: any = instance
 	local parent
 	for key, value in props or {} do
 		if key == "Parent" then
 			parent = value
 		else
-			(instance :: any)[key] = value
+			target[key] = value
 		end
 	end
 	for _, child in children or {} do

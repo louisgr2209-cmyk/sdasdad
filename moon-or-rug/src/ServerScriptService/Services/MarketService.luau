@@ -37,6 +37,7 @@ local removedIds = {} -- gelöschte Coins seit dem letzten Update
 local flushQueue = {} -- [shard] = { Updates = {}, Removes = {} }: noch in die Sammel-Schlüssel schreiben
 local newsOut = {} -- eigene Meldungen, noch nicht an andere Server geschickt
 local npcFees = {} -- [npcKey] = Betrag, gesammelt
+local potAdds = { Ins = 0 } -- Versicherungsprämien, gesammelt (alle 10 Sek. in den Topf)
 local lastNewsSeq = nil -- zuletzt gesehene Meldung (nil = noch nie gelesen)
 local queues = {} -- [player] = { Busy, Items }: Trades eines Spielers nacheinander
 
@@ -112,6 +113,13 @@ local function publicInfo(value)
 		Top = top / C.TotalSupply,
 		Ear = early / C.TotalSupply,
 		T = lastTrades,
+		SLC = (function() -- Anzahl Stop-Loss-Aufträge (nur Anzahl, keine Preise: sonst könnte man sie jagen)
+			local count = 0
+			for _ in value.SL or {} do
+				count += 1
+			end
+			return count
+		end)(),
 	}
 end
 
@@ -161,6 +169,7 @@ local function applyInfo(info)
 	coin.DevShare = info.Dev
 	coin.Top10 = info.Top
 	coin.EarlyShare = info.Ear
+	coin.StopLossCount = info.SLC or 0
 	updateCandle(coin)
 
 	for _, t in info.T or {} do
@@ -267,6 +276,9 @@ local function afterTrade(wallet, coin, result, rug: boolean)
 	end
 	if rug then
 		MarketService.Announce("Rug", string.format("RUG PULL! %s dumped $%s", wallet.Name, coin.Ticker))
+		if MarketService.RugHandler then
+			task.spawn(MarketService.RugHandler, coin, result) -- Versicherung/Anfänger-Erstattung (ProtectionService)
+		end
 	elseif (result.Profit or 0) >= Config.Ticker.BigProfit then
 		MarketService.Announce(
 			"Profit",
@@ -297,7 +309,7 @@ end
 -- Spieler-Trades (3 Schritte, siehe Ledger)
 ------------------------------------------------------------------------
 
--- Schritte 2 + 3 für einen angemeldeten Trade p = { S, Side, Coin, Cash, Frac }
+-- Schritte 2 + 3 für einen angemeldeten Trade p = { S, Side, Coin, Cash, Frac, Prem, Ins, L }
 -- -> ok, nachricht
 local function settle(player: Player, p)
 	local key = PlayerData.Key(player)
@@ -308,6 +320,8 @@ local function settle(player: Player, p)
 		Side = p.Side,
 		Cash = p.Cash,
 		Frac = p.Frac,
+		Insure = p.Ins,
+		Level = p.L,
 		Now = now(),
 	})
 	if not okCoin or not result then
@@ -326,6 +340,9 @@ local function settle(player: Player, p)
 	-- Gebühren/Meldungen nur bei frischer Buchung (bei Wiederholung nie doppelt)
 	if result.Ok and newValue and coin then
 		afterTrade({ Key = key, Name = player.DisplayName, IsNpc = false }, coin, result, false)
+		if p.Prem then
+			potAdds.Ins += p.Prem -- Versicherungsprämie in den Topf
+		end
 	end
 	if not result.Ok then
 		return false, result.Error or "Trade failed"
@@ -367,9 +384,14 @@ local function executeTrade(player: Player, coinId: string, side: string, fracti
 	if side == "Sell" and not PlayerData.GetHolding(player, coinId) then
 		return false, "You don't own this coin"
 	end
-	local cash = nil
+	local cash, premium, insure = nil, nil, nil
+	local level = PlayerData.GetStats(player).Level
 	if side == "Buy" then
-		cash = Ledger.FloorCents(wallet.Cash * fraction)
+		-- Versicherung (Schalter pro Coin, ab Level 5): 5 % zusätzlich, Einsatz so, dass beides ins Cash passt
+		insure = wallet.Ins ~= nil and wallet.Ins[coinId] == true and level >= Config.Protection.InsuranceMinLevel
+		local rate = if insure then Config.Protection.InsurancePremium else 0
+		cash = Ledger.FloorCents(wallet.Cash * fraction / (1 + rate))
+		premium = if insure then Ledger.FloorCents(cash * rate) else nil
 		if cash < Config.Trade.MinCash then
 			return false, if wallet.Cash < Config.Trade.MinCash then "Not enough cash" else "Amount too small"
 		end
@@ -380,6 +402,9 @@ local function executeTrade(player: Player, coinId: string, side: string, fracti
 		Coin = coinId,
 		Cash = cash,
 		Frac = fraction,
+		Premium = premium,
+		Insure = insure or nil,
+		Level = level,
 		Now = now(),
 	})
 	if not okBegin or not begin then
@@ -391,7 +416,16 @@ local function executeTrade(player: Player, coinId: string, side: string, fracti
 		end
 		return false, begin.Error or "Trade failed"
 	end
-	return settle(player, { S = begin.Seq, Side = side, Coin = coinId, Cash = cash, Frac = fraction })
+	return settle(player, {
+		S = begin.Seq,
+		Side = side,
+		Coin = coinId,
+		Cash = cash,
+		Frac = fraction,
+		Prem = premium,
+		Ins = insure or nil,
+		L = level,
+	})
 end
 
 local function reply(player: Player, ok: boolean, message: string)
@@ -432,6 +466,53 @@ function MarketService.WaitIdle(player: Player, timeout: number)
 		task.wait(0.1)
 	end
 	queues[player] = nil
+end
+
+-- Verkauf im Auftrag des Spielers einreihen (Stop-Loss, solange er online ist)
+function MarketService.QueueSell(player: Player, coinId: string, prefix: string): boolean
+	return enqueue(player, function()
+		local ok, message = executeTrade(player, coinId, "Sell", 1)
+		if player.Parent then
+			reply(player, ok, prefix .. message)
+			PlayerData.PushState(player)
+		end
+	end)
+end
+
+-- Stop-Loss im Coin setzen (level = 0.1 .. 0.5 oder nil = aus) -> ok, fehler
+function MarketService.SetStopLoss(player: Player, coinId: string, level: number?)
+	local ok, result, newValue = coinsMap:Update(coinId, Ledger.CoinSetStopLoss, {
+		Key = PlayerData.Key(player),
+		Level = level,
+	})
+	if not ok or not result then
+		return false, "Market busy – please try again"
+	end
+	if newValue then
+		onCoinValue(newValue)
+	end
+	return result.Ok, result.Error
+end
+
+-- Coin-Wert direkt lesen (Host: Stop-Loss von Offline-Spielern prüfen)
+function MarketService.ReadCoin(coinId: string)
+	local ok, value = coinsMap:Get(coinId)
+	return if ok then value else nil
+end
+
+-- Host: Stop-Loss für einen Offline-Spieler ausführen -> ergebnis oder nil.
+-- Ohne Wiederholung: im Zweifel bekommt der Spieler nichts, aber nie doppelt.
+function MarketService.StopLossExec(coinId: string, key: string)
+	local ok, result, newValue = coinsMap:UpdateOnce(coinId, Ledger.CoinStopLossExec, { Key = key, Now = now() })
+	if ok and newValue and result then
+		onCoinValue(newValue)
+		return result
+	end
+	return nil
+end
+
+function MarketService.Reply(player: Player, ok: boolean, message: string)
+	reply(player, ok, message)
 end
 
 -- Client schickt: coinId (string), side ("Buy"/"Sell"), fraction (0 < f <= 1)
@@ -481,6 +562,9 @@ end
 -- Für den NPC-Host
 ------------------------------------------------------------------------
 
+-- Wird vom ProtectionService gesetzt: function(coin, ergebnis) nach einem Rugpull
+MarketService.RugHandler = nil :: ((any, any) -> ())?
+
 function MarketService.GetCoins()
 	return coins
 end
@@ -493,6 +577,11 @@ function MarketService.LiveCoinCount(): number
 		end
 	end
 	return count
+end
+
+-- Verkaufswert einer Menge (nach Gebühr)
+function MarketService.PositionValue(coin, amount: number): number
+	return Curve.CashForTokens(C, coin.Supply, amount) * (1 - Config.Fees.Creator - Config.Fees.Burn)
 end
 
 function MarketService.Price(coin): number
@@ -738,6 +827,15 @@ local function syncNews()
 	lastNewsSeq = math.max(lastNewsSeq, news.Seq)
 end
 
+local function flushPots()
+	if potAdds.Ins <= 0 then
+		return
+	end
+	local adds = { Ins = potAdds.Ins }
+	potAdds.Ins = 0
+	marketMap:UpdateOnce("Pots", Ledger.PotsAdd, adds) -- ohne Wiederholung: nie doppelt
+end
+
 local function flushFees()
 	if next(npcFees) == nil then
 		return
@@ -839,10 +937,14 @@ function MarketService.Start()
 		return WorldService.SyncInterval(W.Shards * 2) -- Schreiben kostet 2 Einheiten, nur wenn sich etwas geändert hat
 	end, flush)
 	loop("news", every(W.NewsInterval), syncNews)
-	loop("fees", every(W.FeeFlushInterval), flushFees)
+	loop("fees", every(W.FeeFlushInterval), function()
+		flushFees()
+		flushPots()
+	end)
 	game:BindToClose(function()
 		pcall(flush)
 		pcall(flushFees)
+		pcall(flushPots)
 	end)
 end
 
