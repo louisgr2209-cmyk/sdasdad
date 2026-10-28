@@ -13,6 +13,8 @@ local Config = require(ReplicatedStorage.Shared.Config)
 
 local Screen = {}
 
+local currentScale = 1
+
 Screen.Colors = {
 	Background = Color3.fromRGB(10, 12, 17),
 	Panel = Color3.fromRGB(19, 22, 30),
@@ -96,6 +98,34 @@ function Screen.Button(props: { [string]: any }): TextButton
 	return button
 end
 
+-- Senkrechte Scroll-Liste (Höhe wächst automatisch mit dem Inhalt)
+function Screen.Scroller(props: { [string]: any }): ScrollingFrame
+	local defaults = {
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		ScrollBarThickness = 6,
+		ScrollBarImageColor3 = Screen.Colors.Border,
+	}
+	for key, value in props do
+		defaults[key] = value
+	end
+	local scroller = Screen.New("ScrollingFrame", defaults)
+	Screen.New("UIListLayout", {
+		Padding = UDim.new(0, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = scroller,
+	})
+	return scroller
+end
+
+-- Aktueller Skalierungsfaktor (Bildschirm-Pixel pro Design-Pixel)
+function Screen.GetScale(): number
+	return currentScale
+end
+
 -- Roblox-Standard-UI ausblenden, die im Terminal stört
 function Screen.Setup()
 	for _, coreType in { Enum.CoreGuiType.Backpack, Enum.CoreGuiType.Health, Enum.CoreGuiType.PlayerList, Enum.CoreGuiType.EmotesMenu } do
@@ -159,6 +189,7 @@ function Screen.CreateRoot(name: string): Frame
 		local factor = math.min(size.X / ui.DesignWidth, size.Y / ui.DesignHeight)
 		factor = math.clamp(factor, ui.MinScale, ui.MaxScale)
 		scale.Scale = factor
+		currentScale = factor
 		root.Size = UDim2.fromOffset(size.X / factor, size.Y / factor)
 	end
 	holder:GetPropertyChangedSignal("AbsoluteSize"):Connect(update)

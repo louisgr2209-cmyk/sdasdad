@@ -261,12 +261,22 @@ function MarketService.Sell(wallet, coinId: string, tokens: number)
 		return false, "Amount too small"
 	end
 
+	local profit = payout - holding.Cost * (tokens / holding.Amount)
 	coin.Supply = math.max(0, coin.Supply - tokens)
 	local rest = holding.Amount - tokens
 	setHolding(coin, wallet.Key, rest, holding.Cost * (rest / holding.Amount))
 	wallet.AddCash(payout)
 	payCreator(coin, gross * Config.Fees.Creator)
 	recordTrade(coin, "Sell", wallet, tokens, payout)
+	if profit >= Config.Ticker.BigProfit then
+		MarketService.Announce("Profit", string.format(
+			"%s%s made %s Cash on $%s",
+			if wallet.IsNpc then "🤖 " else "",
+			wallet.Name,
+			Format.Cash(profit),
+			coin.Ticker
+		))
+	end
 	return true, { Tokens = tokens, Cash = payout }
 end
 

@@ -37,8 +37,14 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `ServerScriptService/Util/RateLimiter.luau` | ServerScriptService › Util › RateLimiter | ModuleScript |
 | `StarterPlayerScripts/ClientMain.client.luau` | StarterPlayer › StarterPlayerScripts › ClientMain | LocalScript |
 | `StarterPlayerScripts/ClientModules/Screen.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › Screen | ModuleScript |
-| `StarterPlayerScripts/ClientModules/DebugTerminal.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › DebugTerminal | ModuleScript |
+| `StarterPlayerScripts/ClientModules/MarketClient.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › MarketClient | ModuleScript |
+| `StarterPlayerScripts/ClientModules/TerminalUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › TerminalUI | ModuleScript |
+| `StarterPlayerScripts/ClientModules/PulseList.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › PulseList | ModuleScript |
+| `StarterPlayerScripts/ClientModules/CoinPage.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › CoinPage | ModuleScript |
+| `StarterPlayerScripts/ClientModules/ChartRenderer.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › ChartRenderer | ModuleScript |
+| `StarterPlayerScripts/ClientModules/Portfolio.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › Portfolio | ModuleScript |
 
+`DebugTerminal` (Phase 1–2) gibt es nicht mehr → in Studio löschen.
 RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStorage › Remotes` selbst.
 
 ## Phasen
@@ -46,15 +52,15 @@ RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStora
 | Phase | Status |
 |---|---|
 | 1 Markt-Engine | ✅ gebaut, noch nicht in Studio getestet |
-| 2 NPC-Trader + NPC-Coins | ✅ gebaut, wartet auf Test in Studio |
-| 3 Terminal-UI | offen |
+| 2 NPC-Trader + NPC-Coins | ✅ gebaut, noch nicht in Studio getestet |
+| 3 Terminal-UI | ✅ gebaut, wartet auf Test in Studio |
 | 4 Speichern, Level/XP, Server-Leaderboard | offen |
 | 5 Schutz | offen |
 | 6 Coin erstellen + Boost | offen |
 | 7 Rugpull | offen |
 | 8 Robux-Produkte + Gamepässe | offen |
 | 9 Globale Coins + globales Leaderboard | offen |
-| Creator-Programm A–D | geplant (eigenes Dokument „Moon or Rug – Creator-Programm“), frühestens nach Phase 4 – Zeitpunkt und Fragen offen |
+| Creator-Programm A–D | geplant direkt **nach Phase 6** (eigenes Dokument „Moon or Rug – Creator-Programm“) |
 
 ## Phase 1 – Markt-Engine
 
@@ -111,10 +117,45 @@ Quelle: Dokument „Moon or Rug – Creator-Programm“. Start frühestens nach 
 - Phase C: Titel, Abzeichen, Namensfarbe, Rahmen, Coin-Highlight in Terminal, Leaderboard, Ticker
 - Phase D: Creator-Codes (Eingabe für neue Spieler, Zähler im Creator-Profil)
 
-Offene Fragen: Zeitpunkt, Admin-IDs, Admin-Panel-Aussehen, Code-Format, „neuer Spieler“,
-übersprungene Stufen, Entziehen, Video-Link speichern.
+Antworten (Schritt 0):
+| Frage | Antwort |
+|---|---|
+| Zeitpunkt | direkt nach Phase 6 |
+| Admin-IDs | Platzhalter-Liste in `Config`; in Studio ist jeder Admin (nur zum Testen) |
+| Admin-Panel | „ADMIN“-Knopf (nur Admins) → Fenster: Name, 4 Stufen, Freischalten/Entziehen, letzte 10 Aktionen |
+| Creator-Code | Views bleiben die Hauptbelohnung. Code gibt neuen Spielern ein **Vorteil-Paket**, der Creator bekommt **pro eingelöstem Code extra Belohnung**. Inhalt der Pakete + Code-Format: klären vor Phase D |
+| Wer darf Code eingeben | jeder Spieler genau **einmal** im ganzen Spiel, danach nie wieder |
+| Stufe übersprungen | nur Belohnung dieser Stufe |
+| Entziehen | Titel/Abzeichen/Farben/Highlight/Code weg, ausgezahltes Cash bleibt |
+| Video-Link | Feld im Admin-Panel, nur für Admins sichtbar |
+
+## Phase 3 – Terminal-UI
+
+**Was:** `DebugTerminal` ersetzt durch das echte Terminal.
+- `TerminalUI`: Kopfleiste (Logo, Tabs PULSE/PORTFOLIO, Cash), Seiten, Hinweis nach Trades (2,5 Sek.),
+  Ticker unten (Rugpulls 🚨, große Gewinne 💰 ab 1.000 Cash Gewinn, sonst Hinweis „Fictional meme coins – just a game“).
+- `PulseList`: 3 Spalten New · Almost done · Migrated (max. 20 Karten je Spalte). Karte: Icon, Ticker, Alter, MC, Holder,
+  Dev-Anteil, ⚠ LIC (Rug-Lizenz), roter Rahmen bei RUGGED, BUY = Schnellkauf 10 % des Cash (`Config.Trade.QuickBuyFraction`).
+  Antippen der Karte öffnet die Coin-Seite. Tote Coins erscheinen nicht.
+- `CoinPage`: Chart (Linie), Preis + Änderung über den Chart, Infos, Ersteller, Lizenz-Warnung,
+  Position mit P/L, BUY 10/25/50 %/MAX, SELL 10/25/50 %/ALL, Live-Trades.
+- `ChartRenderer`: Linie aus kleinen gedrehten Frames, 60 Punkte + aktueller Punkt, High/Low-Beschriftung.
+- `Portfolio`: Cash, Wert in Coins, Gesamt, offener Gewinn/Verlust; Liste der Positionen mit SELL ALL.
+- `MarketClient`: empfängt alle Server-Daten an einer Stelle; die Seiten lesen nur daraus.
+- Server: Verkauf mit ≥ 1.000 Gewinn → Meldung im Ticker (`Config.Ticker`).
+
+**Geräte:** Alles liegt in `Screen.CreateRoot` (sicherer Bereich + Skalierung).
+Kleinster Platz ist 1000 × 560 Design-Pixel (iPad quer/hoch); Handys im Querformat haben mehr Breite (ca. 1300).
+Für 1000 Breite nachgerechnet: Pulse-Karten ca. 16 Zeichen pro Zeile, Coin-Seite rechts 4 Live-Trades,
+alle Buttons mind. 72 hoch (Tabs 64). Zu lange Texte werden mit „…“ gekürzt statt überzulaufen.
+
+**Prüfung:** Python-Prüfskript für Luau-Blöcke (`function`/`if`/`for`/`end`, Klammern) über alle Dateien: 0 Fehler.
 
 ## Offene Punkte
+
+- **Frage (Phase 8):** Der Plan nennt „Top-Holder“ bei der Coin-Seite **und** beim Gamepass Pro-Terminal.
+  Bisher nicht gebaut. Vorschlag: Top-Holder nur mit Pro-Terminal (sonst hat der Pass weniger Wert).
+- Kopfleiste: Level (Phase 4), Daily Reward (Phase 5) und Shop (Phase 8) kommen rechts neben die Tabs.
 
 - **Balancing (beim Test entscheiden):** Ohne Spieler erreicht fast nie ein Coin die Migration (69.000).
   Selbst mit doppeltem NPC-Geld nur ca. 1 Coin in 3 Std. Mit Spielern fließt mehr Geld. Falls die Spalte

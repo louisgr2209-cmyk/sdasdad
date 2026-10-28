@@ -3,7 +3,7 @@
 
 local modules = script.Parent:WaitForChild("ClientModules")
 local Screen = require(modules:WaitForChild("Screen"))
-local DebugTerminal = require(modules:WaitForChild("DebugTerminal"))
+local TerminalUI = require(modules:WaitForChild("TerminalUI"))
 
 Screen.Setup()
-DebugTerminal.Start() -- Test-UI (Phase 1–2), wird in Phase 3 ersetzt
+TerminalUI.Start()

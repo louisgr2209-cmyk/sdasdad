@@ -30,6 +30,14 @@ Config.Trade = {
 	MaxPerSecond = 5, -- Rate-Limit pro Spieler
 	MinCash = 1, -- kleinster Trade in Cash
 	Fractions = { 0.10, 0.25, 0.50, 1.00 }, -- Kauf-/Verkauf-Buttons
+	QuickBuyFraction = 0.10, -- Schnellkauf in der Pulse-Liste: 10 % des Cash
+}
+
+-- Ticker unten im Terminal
+Config.Ticker = {
+	BigProfit = 1000, -- Gewinn ab dem ein Verkauf gemeldet wird ("X made 1,234 Cash on $ABC")
+	ShowSeconds = 5, -- so lange bleibt eine Meldung stehen
+	IdleText = "Fictional meme coins – just a game. Cash is not real money.",
 }
 
 -- Markt-Takt
