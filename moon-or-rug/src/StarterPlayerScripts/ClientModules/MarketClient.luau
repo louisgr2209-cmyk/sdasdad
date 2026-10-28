@@ -13,7 +13,8 @@ local MAX_TRADES = Config.Market.RecentTrades
 local MarketClient = {}
 
 MarketClient.Coins = {} -- [coinId] = Info vom Server (+ Chart, Trades)
-MarketClient.Me = { Cash = 0, Positions = {} }
+MarketClient.Me = { Cash = 0, Positions = {}, Stats = nil }
+MarketClient.Leaderboard = { World = nil, Server = nil } -- Ranglisten vom Server
 
 -- Signale für die Bildschirme
 MarketClient.Changed = Instance.new("BindableEvent") -- Markt oder eigene Daten geändert
@@ -108,6 +109,17 @@ function MarketClient.Start()
 	local marketUpdate = remotes:WaitForChild("MarketUpdate") :: RemoteEvent
 	local playerState = remotes:WaitForChild("PlayerState") :: RemoteEvent
 	local tradeResult = remotes:WaitForChild("TradeResult") :: RemoteEvent
+	local leaderboard = remotes:WaitForChild("Leaderboard") :: RemoteEvent
+
+	leaderboard.OnClientEvent:Connect(function(data)
+		if data.World then
+			MarketClient.Leaderboard.World = data.World
+		end
+		if data.Server then
+			MarketClient.Leaderboard.Server = data.Server
+		end
+		MarketClient.Changed:Fire()
+	end)
 
 	marketUpdate.OnClientEvent:Connect(function(update)
 		applyUpdate(update)

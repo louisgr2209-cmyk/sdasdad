@@ -321,6 +321,7 @@ function Ledger.WalletCreate(wallet, a)
 		Seq = profile.Seq or 0,
 		P = profile.P,
 		Coins = profile.Coins or {},
+		St = profile.St or {},
 		Owner = a.Job,
 		HB = a.Now,
 	}, { Ok = true }
@@ -350,8 +351,45 @@ function Ledger.WalletBegin(wallet, a)
 	return wallet, { Ok = true, Seq = wallet.Seq }
 end
 
+-- Tag- und Wochen-Nummer (UTC; Woche beginnt Montag) für Tages-/Wochen-Ranglisten
+function Ledger.PeriodKeys(now: number): (number, number)
+	local day = math.floor(now / 86400)
+	local week = math.floor((day + 3) / 7) -- 1.1.1970 war ein Donnerstag
+	return day, week
+end
+
+-- Statistiken nach einem abgeschlossenen Trade (XP, PNL, bester Trade – gesamt, Woche, Tag)
+local function updateStats(wallet, p, r, now: number)
+	local st = wallet.St or {}
+	wallet.St = st
+	local xp = Config.Xp
+	if (r.Cash or 0) >= xp.MinTradeCash and now - (st.LXT or 0) >= xp.TradeCooldown then
+		st.TXp = (st.TXp or 0) + xp.PerTrade
+		st.LXT = now
+	end
+	if p.Side == "Sell" and r.Profit then
+		local profit = r.Profit
+		local day, week = Ledger.PeriodKeys(now)
+		if st.DK ~= day then
+			st.DK, st.DPnl, st.DBest = day, 0, 0
+		end
+		if st.WK ~= week then
+			st.WK, st.WPnl, st.WBest = week, 0, 0
+		end
+		st.Pnl = (st.Pnl or 0) + profit
+		st.DPnl += profit
+		st.WPnl += profit
+		if profit > 0 then
+			st.PP = (st.PP or 0) + profit -- für Gewinn-XP
+		end
+		st.Best = math.max(st.Best or 0, profit)
+		st.DBest = math.max(st.DBest, profit)
+		st.WBest = math.max(st.WBest, profit)
+	end
+end
+
 -- Schritt 3: Trade abschließen (genau einmal, egal welcher Server es tut).
--- a = { Seq, Result }
+-- a = { Seq, Result, Now }
 function Ledger.WalletFinish(wallet, a)
 	if not wallet or not wallet.P or wallet.P.S ~= a.Seq then
 		return nil, { Already = true }
@@ -368,6 +406,9 @@ function Ledger.WalletFinish(wallet, a)
 	end
 	if (r.Amount or 0) <= 0 then
 		wallet.Coins[p.Coin] = nil
+	end
+	if r.Ok and not r.Unknown then
+		updateStats(wallet, p, r, a.Now or 0)
 	end
 	return wallet, { Ok = true }
 end
@@ -421,7 +462,7 @@ end
 
 -- Gespeichertes Profil (DataStore) aus der Geldbörse
 function Ledger.ProfileFromWallet(wallet)
-	return { Cash = wallet.Cash, Seq = wallet.Seq, P = wallet.P, Coins = wallet.Coins, Version = 1 }
+	return { Cash = wallet.Cash, Seq = wallet.Seq, P = wallet.P, Coins = wallet.Coins, St = wallet.St, Version = 1 }
 end
 
 ------------------------------------------------------------------------

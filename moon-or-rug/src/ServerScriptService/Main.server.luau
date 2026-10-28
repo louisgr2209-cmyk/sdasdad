@@ -8,6 +8,7 @@ local WorldService = require(ServerScriptService.Services.WorldService)
 local PlayerDataService = require(ServerScriptService.Services.PlayerDataService)
 local MarketService = require(ServerScriptService.Services.MarketService)
 local NpcTraderService = require(ServerScriptService.Services.NpcTraderService)
+local LeaderboardService = require(ServerScriptService.Services.LeaderboardService)
 
 -- Reines Terminal: kein Avatar
 Players.CharacterAutoLoads = false
@@ -21,6 +22,8 @@ MarketService.Init({ PlayerData = PlayerDataService })
 MarketService.Start() -- lädt den Weltmarkt
 NpcTraderService.Init()
 NpcTraderService.Start() -- NPCs laufen nur auf dem Host
+LeaderboardService.Init()
 PlayerDataService.Init() -- erst jetzt Spieler laden: Markt ist bereit
+LeaderboardService.Start()
 
 print("[MoonOrRug] Server ready")

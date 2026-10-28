@@ -30,11 +30,13 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `ReplicatedStorage/Shared/BondingCurve.luau` | ReplicatedStorage › Shared › BondingCurve | ModuleScript |
 | `ReplicatedStorage/Shared/Format.luau` | ReplicatedStorage › Shared › Format | ModuleScript |
 | `ReplicatedStorage/Shared/Indicators.luau` | ReplicatedStorage › Shared › Indicators | ModuleScript |
+| `ReplicatedStorage/Shared/Levels.luau` | ReplicatedStorage › Shared › Levels | ModuleScript |
 | `ServerScriptService/Main.server.luau` | ServerScriptService › Main | Script |
 | `ServerScriptService/Services/MarketService.luau` | ServerScriptService › Services › MarketService | ModuleScript |
 | `ServerScriptService/Services/PlayerDataService.luau` | ServerScriptService › Services › PlayerDataService | ModuleScript |
 | `ServerScriptService/Services/NpcTraderService.luau` | ServerScriptService › Services › NpcTraderService | ModuleScript |
 | `ServerScriptService/Services/WorldService.luau` | ServerScriptService › Services › WorldService | ModuleScript |
+| `ServerScriptService/Services/LeaderboardService.luau` | ServerScriptService › Services › LeaderboardService | ModuleScript |
 | `ServerScriptService/Util/Ledger.luau` | ServerScriptService › Util › Ledger | ModuleScript |
 | `ServerScriptService/Util/Store.luau` | ServerScriptService › Util › Store | ModuleScript |
 | `ServerScriptService/Util/Remotes.luau` | ServerScriptService › Util › Remotes | ModuleScript |
@@ -47,6 +49,7 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `StarterPlayerScripts/ClientModules/CoinPage.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › CoinPage | ModuleScript |
 | `StarterPlayerScripts/ClientModules/ChartRenderer.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › ChartRenderer | ModuleScript |
 | `StarterPlayerScripts/ClientModules/Portfolio.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › Portfolio | ModuleScript |
+| `StarterPlayerScripts/ClientModules/LeaderboardUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › LeaderboardUI | ModuleScript |
 
 `DebugTerminal` (Phase 1–2) gibt es nicht mehr → in Studio löschen.
 RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStorage › Remotes` selbst.
@@ -59,7 +62,7 @@ RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStora
 | 2 NPC-Trader + NPC-Coins | ✅ gebaut, noch nicht in Studio getestet |
 | 3 Terminal-UI | ✅ gebaut, wartet auf Test in Studio |
 | 4a Weltmarkt + Speichern (Duplikat-Schutz) | ✅ gebaut, wartet auf Test (Studio + veröffentlicht) |
-| 4b Level/XP, Leaderboard | offen |
+| 4b Level/XP, Leaderboard | ✅ gebaut, wartet auf Test |
 | 5 Schutz | offen |
 | 6 Coin erstellen + Boost | offen |
 | 7 Rugpull | offen |
@@ -156,6 +159,25 @@ Für 1000 Breite nachgerechnet: Pulse-Karten ca. 16 Zeichen pro Zeile, Coin-Seit
 alle Buttons mind. 72 hoch (Tabs 64). Zu lange Texte werden mit „…“ gekürzt statt überzulaufen.
 
 **Prüfung:** Python-Prüfskript für Luau-Blöcke (`function`/`if`/`for`/`end`, Klammern) über alle Dateien: 0 Fehler.
+
+## Phase 4b – Level/XP + Leaderboard
+
+**Entscheidungen (Klick-Fragen):** Tempo schnell; Ranglisten Vermögen, bester Trade, PNL (realisiert);
+Zeiträume Gesamt, Woche, Tag; weltweit schon jetzt; keine NPCs; Level-Up als Banner.
+
+- **XP:** +1 pro Trade ab 100 Cash (höchstens alle 10 Sek. – kein Farmen mit Mini-Trades), +1 pro 100 Cash Gewinn.
+  Level L ab 3 × (L−1)² XP → Lv 3 nach ca. 4 Min., Lv 5 ca. 16 Min., Lv 10 ca. 1,5 Std., Lv 25 ca. 10 Std., Lv 40 ca. 25 Std.
+- **Ränge:** Rookie (1), Trader (3, Stop-Loss), Degen (5, Rug-Versicherung), Whale (10, Coin erstellen),
+  Shark (15, Boost), Dev (25, Rug-Lizenz), Legend (40, Kosmetik) – `Config.Levels`.
+- **Statistiken** (XP, PNL, bester Trade, je Tag/Woche) werden im selben Schritt wie das Geld gebucht
+  (`Ledger.WalletFinish`) → zählen genau einmal, auch bei Absturz. Gespeichert mit dem Spielstand.
+- **Leaderboard-Seite** (3. Tab): WORLD/SERVER, ALL TIME (Net worth, PnL, Best trade) / WEEK / TODAY (PnL, Best trade),
+  Top 50, eigene Werte unten („You: …“). Woche startet Montag, Tag um 0 Uhr UTC.
+- **Weltweit:** jeder Server schreibt geänderte Werte seiner Spieler alle 2 Min. + beim Verlassen in OrderedDataStores;
+  nur der Host liest die Top 50 (alle 90 Sek.) und teilt sie über den Weltmarkt-Speicher (alle Server holen sie jede Minute).
+  Im Studio-Testmodus gibt es nur die SERVER-Liste.
+- **Kopfleiste:** Cash, darunter „Lv 7 · Whale“ + XP-Balken. Level-Up → gelber Banner 4 Sek. mit Freischaltung.
+- **Portfolio:** 5. Kachel „Level“ mit Fortschritt und fehlenden XP.
 
 ## Indikatoren (Zusatz zu Phase 3, Wunsch: „wie axiom, aber für jeden verständlich“)
 

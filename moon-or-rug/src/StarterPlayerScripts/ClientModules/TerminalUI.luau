@@ -1,6 +1,7 @@
 -- TerminalUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/TerminalUI
--- Vollbild-Terminal: Kopfleiste (Logo, Tabs, Cash), Seiten (Pulse, Coin, Portfolio), Ticker unten.
--- Platz für später in der Kopfleiste: Level (Phase 4), Daily Reward (Phase 5), Shop (Phase 8).
+-- Vollbild-Terminal: Kopfleiste (Logo, Tabs, Cash + Level), Seiten (Pulse, Coin, Portfolio, Leaderboard),
+-- Ticker unten, Level-Up-Banner. Platz für später: Daily Reward (Phase 5), Shop (Phase 8).
+-- Breite (mind. 976): Logo 230 | Tabs 3 x 158 + 2 x 10 = 494 | Cash/Level 230
 --
 -- Höhen (Design-Pixel, mind. 520): 12 Rand | Kopf 72 | 10 | Seite (Rest, mind. 368) | 10 | Ticker 36 | 12 Rand
 
@@ -13,6 +14,8 @@ local MarketClient = require(script.Parent.MarketClient)
 local PulseList = require(script.Parent.PulseList)
 local CoinPage = require(script.Parent.CoinPage)
 local Portfolio = require(script.Parent.Portfolio)
+local LeaderboardUI = require(script.Parent.LeaderboardUI)
+local Levels = require(ReplicatedStorage.Shared.Levels)
 
 local Colors = Screen.Colors
 local HEADER = 72
@@ -44,7 +47,7 @@ function TerminalUI.Start()
 	})
 	local tabBar = Screen.New("Frame", {
 		Position = UDim2.fromOffset(240, 0),
-		Size = UDim2.new(1, -240 - 260, 1, 0),
+		Size = UDim2.new(1, -240 - 240, 1, 0),
 		BackgroundTransparency = 1,
 		Parent = header,
 	}, {
@@ -54,15 +57,45 @@ function TerminalUI.Start()
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		}),
 	})
-	local cashLabel = Screen.Label({
-		Font = Screen.Fonts.Bold,
-		TextSize = 28,
-		TextColor3 = Colors.Accent,
-		TextXAlignment = Enum.TextXAlignment.Right,
+	-- Rechts: Cash, darunter Level + XP-Balken
+	local wallet = Screen.New("Frame", {
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.fromScale(1, 0),
-		Size = UDim2.new(0, 250, 1, 0),
+		Size = UDim2.new(0, 230, 1, 0),
+		BackgroundTransparency = 1,
 		Parent = header,
+	})
+	local cashLabel = Screen.Label({
+		Font = Screen.Fonts.Bold,
+		TextSize = 26,
+		TextColor3 = Colors.Accent,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Size = UDim2.new(1, 0, 0, 36),
+		Parent = wallet,
+	})
+	local levelLabel = Screen.Label({
+		TextSize = 20,
+		TextColor3 = Colors.Muted,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Position = UDim2.fromOffset(0, 36),
+		Size = UDim2.new(1, 0, 0, 24),
+		Parent = wallet,
+	})
+	local xpBar = Screen.New("Frame", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, 0, 0, 62),
+		Size = UDim2.new(0, 150, 0, 6),
+		BackgroundColor3 = Colors.PanelLight,
+		Parent = wallet,
+	}, {
+		Screen.Corner(3),
+	})
+	local xpFill = Screen.New("Frame", {
+		Size = UDim2.fromScale(0, 1),
+		BackgroundColor3 = Colors.Green,
+		Parent = xpBar,
+	}, {
+		Screen.Corner(3),
 	})
 
 	------------------------------------------------------------------
@@ -119,12 +152,14 @@ function TerminalUI.Start()
 	}
 	local portfolioFrame = page("Portfolio")
 	pages.Portfolio = { Frame = portfolioFrame, View = Portfolio.new(portfolioFrame, openCoin) }
+	local leaderboardFrame = page("Leaderboard")
+	pages.Leaderboard = { Frame = leaderboardFrame, View = LeaderboardUI.new(leaderboardFrame) }
 
-	for i, tabName in { "Pulse", "Portfolio" } do
+	for i, tabName in { "Pulse", "Portfolio", "Leaderboard" } do
 		local button = Screen.Button({
 			Text = string.upper(tabName),
-			TextSize = 24,
-			Size = UDim2.new(0, 170, 1, -8),
+			TextSize = 22,
+			Size = UDim2.new(0, 158, 1, -8),
 			LayoutOrder = i,
 			Parent = tabBar,
 		})
@@ -207,12 +242,58 @@ function TerminalUI.Start()
 	end)
 
 	------------------------------------------------------------------
+	-- Level-Up-Banner (oben in der Mitte, 4 Sek.)
+	------------------------------------------------------------------
+	local banner = Screen.Label({
+		Font = Screen.Fonts.Bold,
+		TextSize = 24, -- längster Text (ca. 55 Zeichen) passt bei 1000 Breite
+		TextColor3 = Colors.Background,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		BackgroundTransparency = 0,
+		BackgroundColor3 = Colors.Accent,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, HEADER + GAP + 54),
+		Size = UDim2.new(0.8, 0, 0, 56),
+		Visible = false,
+		ZIndex = 11,
+		Parent = root,
+	})
+	Screen.Corner(12).Parent = banner
+	local bannerId = 0
+	local function showLevelUp(level: number)
+		local rank = Levels.Rank(level)
+		local unlock = Levels.UnlockAt(level)
+		banner.Text = string.format("LEVEL UP!  Lv %d · %s", level, rank.Rank)
+			.. (if unlock then " – " .. unlock.Unlock .. " unlocked" else "")
+		banner.Visible = true
+		bannerId += 1
+		local myId = bannerId
+		task.delay(4, function()
+			if bannerId == myId then
+				banner.Visible = false
+			end
+		end)
+	end
+
+	------------------------------------------------------------------
 	-- Aktualisieren
 	------------------------------------------------------------------
+	local lastLevel = nil
 	MarketClient.Changed.Event:Connect(function()
 		cashLabel.Text = "💵 " .. Format.Cash(MarketClient.Me.Cash)
+		local stats = MarketClient.Me.Stats
+		if stats then
+			local level, progress = Levels.Progress(stats.Xp)
+			levelLabel.Text = string.format("Lv %d · %s", level, Levels.Rank(level).Rank)
+			xpFill.Size = UDim2.fromScale(math.clamp(progress, 0, 1), 1)
+			if lastLevel and level > lastLevel then
+				showLevelUp(level)
+			end
+			lastLevel = level
+		end
 		pages[current].View.Refresh()
 	end)
+	levelLabel.Text = ""
 	cashLabel.Text = "💵 …"
 	show("Pulse")
 end

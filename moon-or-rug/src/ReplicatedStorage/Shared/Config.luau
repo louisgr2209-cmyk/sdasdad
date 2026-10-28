@@ -51,6 +51,35 @@ Config.Market = {
 	DeadAfter = 30 * 60, -- Sekunden ohne Trade, dann "Dead" (verschwindet aus den Listen)
 }
 
+-- XP und Level (Tempo "schnell": Level 5 ca. 15 Min., Level 10 ca. 1,5 Std., Level 25 ca. 10 Std.)
+Config.Xp = {
+	PerTrade = 1, -- XP pro Trade ...
+	MinTradeCash = 100, -- ... aber nur ab dieser Trade-Größe (sonst XP-Farmen mit Mini-Trades)
+	TradeCooldown = 10, -- ... und höchstens alle 10 Sek.
+	ProfitPerXp = 100, -- +1 XP pro 100 Cash Gewinn
+	LevelFactor = 3, -- XP für Level L = LevelFactor * (L - 1)^2
+}
+
+-- Ränge (Level ab dem sie gelten) und was freigeschaltet wird
+Config.Levels = {
+	{ Level = 1, Rank = "Rookie", Unlock = "Buy, sell, portfolio" },
+	{ Level = 3, Rank = "Trader", Unlock = "Stop-loss" },
+	{ Level = 5, Rank = "Degen", Unlock = "Rug insurance" },
+	{ Level = 10, Rank = "Whale", Unlock = "Create your own coin" },
+	{ Level = 15, Rank = "Shark", Unlock = "Coin boost" },
+	{ Level = 25, Rank = "Dev", Unlock = "Rug pull license" },
+	{ Level = 40, Rank = "Legend", Unlock = "Cosmetics, prestige frame" },
+}
+
+-- Ranglisten (nur echte Spieler)
+Config.Leaderboard = {
+	Size = 50, -- Top 50 weltweit
+	ServerInterval = 5, -- Server-Liste aktualisieren (Sek.)
+	SubmitInterval = 120, -- eigene Werte in die weltweite Liste schreiben (Sek.)
+	WorldReadInterval = 90, -- Host liest die weltweite Liste (Sek.)
+	WorldShareInterval = 60, -- alle Server holen die weltweite Liste (Sek.)
+}
+
 -- Weltmarkt: alle Server teilen dieselben Coins (MemoryStore), Spielstände im DataStore.
 -- Budget-Grenzen von Roblox: Speicher 64 KB + 1,2 KB pro Spieler, Anfragen 1000 + 120 pro Spieler und Minute.
 Config.World = {

@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
+local Levels = require(ReplicatedStorage.Shared.Levels)
 local Remotes = require(ServerScriptService.Util.Remotes)
 local Store = require(ServerScriptService.Util.Store)
 local Ledger = require(ServerScriptService.Util.Ledger)
@@ -58,6 +59,12 @@ end
 function PlayerDataService.GetWallet(player: Player)
 	local profile = profiles[player]
 	return if profile and profile.Loaded then profile.Wallet else nil
+end
+
+-- Alle gehaltenen Coins (nur lesen!): { [coinId] = { Amount, Cost } }
+function PlayerDataService.GetHoldings(player: Player)
+	local profile = profiles[player]
+	return if profile then profile.Holdings else {}
 end
 
 function PlayerDataService.GetHolding(player: Player, coinId: string)
@@ -110,12 +117,41 @@ function PlayerDataService.AddCash(player: Player, delta: number): boolean
 	return false
 end
 
+-- Statistiken (XP, PNL, bester Trade). Tag/Woche zählen nur, wenn sie zum aktuellen Tag/zur Woche gehören.
+function PlayerDataService.GetStats(player: Player)
+	local wallet = PlayerDataService.GetWallet(player)
+	local st = (wallet and wallet.St) or {}
+	local day, week = Ledger.PeriodKeys(now())
+	local xp = Levels.Xp(st)
+	return {
+		Xp = xp,
+		Level = Levels.LevelForXp(xp),
+		Pnl = st.Pnl or 0,
+		Best = st.Best or 0,
+		DayPnl = if st.DK == day then st.DPnl else 0,
+		DayBest = if st.DK == day then st.DBest else 0,
+		WeekPnl = if st.WK == week then st.WPnl else 0,
+		WeekBest = if st.WK == week then st.WBest else 0,
+	}
+end
+
+-- Alle geladenen Spieler (für Ranglisten)
+function PlayerDataService.LoadedPlayers(): { Player }
+	local list = {}
+	for player, profile in profiles do
+		if profile.Loaded then
+			table.insert(list, player)
+		end
+	end
+	return list
+end
+
 function PlayerDataService.BuildState(player: Player)
 	local profile = profiles[player]
 	if not profile or not profile.Loaded then
 		return nil
 	end
-	return { Cash = profile.Wallet.Cash, Positions = profile.Holdings }
+	return { Cash = profile.Wallet.Cash, Positions = profile.Holdings, Stats = PlayerDataService.GetStats(player) }
 end
 
 function PlayerDataService.PushState(player: Player)
@@ -142,11 +178,20 @@ local function cleanProfile(data)
 			end
 		end
 	end
+	local stats = {}
+	if type(data.St) == "table" then
+		for key, value in data.St do
+			if type(key) == "string" and isValidNumber(value) then
+				stats[key] = value
+			end
+		end
+	end
 	return {
 		Cash = Ledger.FloorCents(data.Cash),
 		Seq = if isValidNumber(data.Seq) then data.Seq else 0,
 		P = if type(data.P) == "table" then data.P else nil,
 		Coins = coins,
+		St = stats,
 	}
 end
 

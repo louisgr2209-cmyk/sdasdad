@@ -317,7 +317,8 @@ local function settle(player: Player, p)
 	if newValue then
 		coin = onCoinValue(newValue)
 	end
-	local okFinish = PlayerData.WalletUpdate(player, Ledger.WalletFinish, { Seq = p.S, Result = result })
+	local okFinish =
+		PlayerData.WalletUpdate(player, Ledger.WalletFinish, { Seq = p.S, Result = result, Now = now() })
 	if not okFinish then
 		return false, "Trade pending – it finishes automatically"
 	end

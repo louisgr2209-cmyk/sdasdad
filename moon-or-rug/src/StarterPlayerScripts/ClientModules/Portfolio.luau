@@ -1,11 +1,12 @@
 -- Portfolio (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/Portfolio
--- Cash, offene Positionen mit Gewinn/Verlust. Eigener Coin (Phase 6) und Level-Balken (Phase 4) folgen.
+-- Cash, offene Positionen mit Gewinn/Verlust, Level. Eigener Coin folgt in Phase 6.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Format = require(ReplicatedStorage.Shared.Format)
 local Screen = require(script.Parent.Screen)
 local MarketClient = require(script.Parent.MarketClient)
+local Levels = require(ReplicatedStorage.Shared.Levels)
 
 local Colors = Screen.Colors
 local ROW_HEIGHT = 88
@@ -32,7 +33,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 	})
 	local function stat(order: number, title: string)
 		local box = Screen.New("Frame", {
-			Size = UDim2.fromScale(0.25, 1),
+			Size = UDim2.fromScale(0.2, 1),
 			BackgroundTransparency = 1,
 			LayoutOrder = order,
 			Parent = summary,
@@ -56,6 +57,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 	local positionsValue = stat(2, "In coins")
 	local totalValue = stat(3, "Total")
 	local pnlValue = stat(4, "Open P/L")
+	local levelValue = stat(5, "Level")
 
 	local list = Screen.Scroller({
 		Position = UDim2.fromOffset(0, 84),
@@ -164,6 +166,13 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 		pnlValue.Text = (if openPnl >= 0 then "+" else "") .. Format.Cash(openPnl)
 		pnlValue.TextColor3 = if openPnl >= 0 then Colors.Green else Colors.Red
 		emptyLabel.Visible = #entries == 0
+		if me.Stats then
+			local level, progress, missing = Levels.Progress(me.Stats.Xp)
+			levelValue.Text = string.format("Lv %d · %d%%", level, math.floor(progress * 100))
+			levelValue.TextColor3 = Colors.Text
+			-- kleine Hilfe im Titel: wie viel XP noch fehlt (kurz, passt auch auf das iPad)
+			levelValue.Parent:FindFirstChildOfClass("TextLabel").Text = string.format("Next: %d XP", missing)
+		end
 
 		local shown = {}
 		for index, entry in entries do
