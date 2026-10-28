@@ -34,6 +34,9 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `ServerScriptService/Services/MarketService.luau` | ServerScriptService › Services › MarketService | ModuleScript |
 | `ServerScriptService/Services/PlayerDataService.luau` | ServerScriptService › Services › PlayerDataService | ModuleScript |
 | `ServerScriptService/Services/NpcTraderService.luau` | ServerScriptService › Services › NpcTraderService | ModuleScript |
+| `ServerScriptService/Services/WorldService.luau` | ServerScriptService › Services › WorldService | ModuleScript |
+| `ServerScriptService/Util/Ledger.luau` | ServerScriptService › Util › Ledger | ModuleScript |
+| `ServerScriptService/Util/Store.luau` | ServerScriptService › Util › Store | ModuleScript |
 | `ServerScriptService/Util/Remotes.luau` | ServerScriptService › Util › Remotes | ModuleScript |
 | `ServerScriptService/Util/RateLimiter.luau` | ServerScriptService › Util › RateLimiter | ModuleScript |
 | `StarterPlayerScripts/ClientMain.client.luau` | StarterPlayer › StarterPlayerScripts › ClientMain | LocalScript |
@@ -55,12 +58,13 @@ RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStora
 | 1 Markt-Engine | ✅ gebaut, noch nicht in Studio getestet |
 | 2 NPC-Trader + NPC-Coins | ✅ gebaut, noch nicht in Studio getestet |
 | 3 Terminal-UI | ✅ gebaut, wartet auf Test in Studio |
-| 4 Speichern, Level/XP, Server-Leaderboard | offen |
+| 4a Weltmarkt + Speichern (Duplikat-Schutz) | ✅ gebaut, wartet auf Test (Studio + veröffentlicht) |
+| 4b Level/XP, Leaderboard | offen |
 | 5 Schutz | offen |
 | 6 Coin erstellen + Boost | offen |
 | 7 Rugpull | offen |
 | 8 Robux-Produkte + Gamepässe | offen |
-| 9 Globale Coins + globales Leaderboard | offen |
+| 9 Globales Leaderboard (globale Coins gibt es durch den Weltmarkt schon) | offen |
 | Creator-Programm A–D | geplant direkt **nach Phase 6** (eigenes Dokument „Moon or Rug – Creator-Programm“) |
 
 ## Phase 1 – Markt-Engine
@@ -217,24 +221,55 @@ Fix: Sniper kaufen zufällig (ob/wann/wie viel), Nachfüllen 100 → 25/Min. Dan
 | 9 | Globale Coins: gleichzeitige Trades auf mehreren Servern | alle globalen Trades atomar über MemoryStore `UpdateAsync` |
 | Creator | Admin-Rechte | nur Server prüft UserId-Liste; „in Studio jeder Admin“ nur mit `RunService:IsStudio()` |
 
-## Wunsch: dauerhafte Spielwelt (Entscheidung offen)
+## Phase 4a – Weltmarkt + Speichern
 
-„Coins sollen in der Spielwelt dauerhaft da sein, bis sie nicht mehr gelistet oder komplett verkauft sind.“
-Das heißt: **ein Weltmarkt für alle Server** statt eigener Markt pro Server (ändert die Plan-Entscheidung
-„Eigener Markt pro Server“). Technisch: Coins liegen in MemoryStore (alle Server lesen/schreiben dieselben Coins),
-Positionen bleiben beim Verlassen/Serverwechsel erhalten, NPCs laufen nur auf einem Server gleichzeitig.
-Wichtig gegen Duplikate: jeder Trade bekommt eine eindeutige Nummer und wird so gebucht, dass ein Absturz
-mitten im Trade nie doppelt Geld oder Coins erzeugt (Trade-Journal). Fragen dazu: siehe Antwort im Chat.
+**Entscheidungen:** ein Markt für alle Server (ersetzt „eigener Markt pro Server“), so wenig Verzögerung wie
+möglich; delistete Coins bleiben verkaufbar; gelistete Coins wachsen mit der Spielerzahl; NPC-Coins weltweit
+alle 1–3 Min.; Pro-Terminal = Ampeln für alle, Pro zeigt Top-10-Namen/Kerzen/Dev-Verkäufe.
+
+**Aufbau (neu: `Ledger`, `Store`, `WorldService`; neu geschrieben: `MarketService`, `PlayerDataService`, `NpcTraderService`, `Main`):**
+- **Coins** = je ein MemoryStore-Schlüssel (Wahrheit für Menge/Preis/Holder). Trades ändern ihn atomar.
+- **Kurzinfos** aller Coins in 4 Sammel-Schlüsseln. Jeder Server liest sie alle 0,5 Sek. (bei winzigen Servern bis 2 Sek.,
+  damit das Roblox-Budget reicht) und schreibt eigene Änderungen. Eigene Trades sind sofort sichtbar,
+  Trades anderer Server nach ca. 0,5–1,5 Sek.
+- **Geldbörse** (Cash, offener Trade, gehaltene Coins) im MemoryStore, solange gespielt wird. **Session-Lock:**
+  nur ein Server hält sie (Lebenszeichen alle 15 Sek.; erst nach 45 Sek. Stille darf ein anderer übernehmen).
+- **Speichern:** DataStore alle 60 Sek., beim Verlassen und beim Herunterfahren (BindToClose). Laden: erst
+  Weltmarkt (neuester Stand), sonst DataStore, sonst Startgeld. DataStore nicht erreichbar → Spieler wird mit
+  Hinweis gekickt statt mit falschem Stand zu spielen.
+- **NPC-Host:** genau ein Server lässt NPCs handeln, erstellt Coins, markiert tote Coins, speichert Charts.
+  Fällt er aus, übernimmt nach max. 30 Sek. ein anderer (NPC-Zustand wird alle 10 Sek. gespeichert).
+- **Delistete Coins:** weiter verkaufbar. Nach 72 Std. ohne Trade verkauft das Spiel Reste automatisch,
+  Cash kommt ins Postfach (beim nächsten Join / jede Minute gutgeschrieben).
+- **Lokaler Testmodus:** ohne veröffentlichtes Spiel / ohne API-Zugriff läuft alles nur im Speicher (Warnung im Output).
+
+**Duplikat-Schutz (Trade in 3 Schritten mit fortlaufender Nummer):**
+1. Geldbörse merkt sich den Trade, Kauf-Geld wird reserviert. 2. Coin bucht genau einmal (merkt sich die Nummer).
+3. Geldbörse schließt genau einmal ab. Absturz/verlorene Antwort dazwischen → Schritte 2+3 werden später
+wiederholt (beim nächsten Trade oder Join) und ändern nichts doppelt. Buchungen ohne Nummer (NPC-Trades, Gebühren,
+Postfach) werden nie automatisch wiederholt: im Zweifel geht ein kleiner Betrag verloren, aber nie doppelt.
+
+**Prüfungen:**
+- Python-Nachbau des Ledgers, 40 Läufe mit 110.000–135.000 Trades, 8 % Fehler pro Speicherzugriff
+  (Anfrage verloren / geschrieben aber Antwort verloren), Serverwechsel, verspätete alte Anfragen:
+  **0 Doppelbuchungen**, nie mehr Geld/Coins als gebucht, Coins exakt. Gegenprobe ohne Schutz: sofort Hunderte Fehler.
+- Budget nachgerechnet (Roblox: 1000 + 120 pro Spieler Anfragen/Min., 64 KB + 1,2 KB pro Spieler Speicher):
+  typisch 50–90 % Auslastung, auch bei vielen kleinen Servern.
+- Grenzen: 1 Speicher-Wert max. 32 KB → max. 400 Holder pro Coin, 30 volle Buchungsbelege pro Coin
+  (ältere nur mit Nummer – Schutz bleibt). Gelistete Coins: 20 + 1 pro 5 Spieler, max. 120.
+- Luau-Parser (StyLua) über alle Dateien: 0 Fehler.
 
 ## Offene Punkte
 
-- **Bekannt bis Phase 4:** Ohne Speichern startet ein Spieler nach Verlassen + Wiederkommen (gleicher Server)
-  wieder mit 1.000 Cash und findet seine alten Coins noch vor. Wird mit Phase 4 (Speichern) gelöst –
-  dabei klären wir, was mit Positionen beim Verlassen passiert.
+- **Test Phase 4a braucht ein veröffentlichtes Spiel** (MemoryStore/DataStore). In Studio ohne API-Zugriff läuft
+  der lokale Testmodus (alles funktioniert, aber nichts wird gespeichert und es gibt nur einen Server).
+  Achtung: Mit API-Zugriff schreibt Studio in die **echten** Spielstände → am besten eine eigene Test-Place nutzen.
+- Mehrere Server gleichzeitig lassen sich nur im veröffentlichten Spiel testen (z. B. 2 Geräte, 2 Server).
+- ~~Bekannt bis Phase 4: Verlassen + Wiederkommen gab wieder 1.000 Cash~~ → gelöst mit Phase 4a (Speichern + Weltmarkt).
 
-- **Frage (Phase 8):** Der Plan nennt „Top-Holder“ bei der Coin-Seite **und** beim Gamepass Pro-Terminal.
-  Bisher nicht gebaut. Vorschlag: Top-Holder nur mit Pro-Terminal (sonst hat der Pass weniger Wert).
-- Kopfleiste: Level (Phase 4), Daily Reward (Phase 5) und Shop (Phase 8) kommen rechts neben die Tabs.
+- Phase 8: Pro-Terminal zeigt Top-10-Holder mit Namen, Kerzen-Chart, Dev-Verkäufe live (entschieden).
+- Kopfleiste: Level (Phase 4b), Daily Reward (Phase 5) und Shop (Phase 8) kommen rechts neben die Tabs.
+- Gebühren an Spieler-Ersteller (0,5 %) kommen mit Phase 6 (dann über das Spieler-Postfach).
 
 - **Balancing (beim Test entscheiden):** Ohne Spieler erreicht fast nie ein Coin die Migration (69.000).
   Selbst mit doppeltem NPC-Geld nur ca. 1 Coin in 3 Std. Mit Spielern fließt mehr Geld. Falls die Spalte
@@ -255,6 +290,12 @@ mitten im Trade nie doppelt Geld oder Coins erzeugt (Trade-Journal). Fragen dazu
 | Phase 2 | Simulation: alte Coins starben nie (Zufall-NPCs verkauften nur Teile) | alle NPCs steigen aus Coins > 15 Min. komplett aus |
 | Phase 3 | Mehrere Zeilen begannen mit `(` → Luau meldet „ambiguous syntax“ | in lokale Variablen umgeschrieben |
 | Prüfung | Ein Fehler in `checkRugs`/`createNpcCoin` oder im Markt-Takt hätte die Schleife für immer gestoppt (Markt steht still) | Schleifen mit `pcall` abgesichert, Fehler erscheinen als Warnung im Output |
+| 4a | Wiederholung nach verlorener Antwort hätte NPC-Trades/Gebühren doppelt gebucht | ohne automatische Wiederholung + Bestand nachprüfen |
+| 4a | Coin-Wert (max. 32 KB) wäre bei sehr vielen Händlern übergelaufen | Belege schrumpfen auf Nummer, max. 400 Holder |
+| 4a | Budget-Rechnung: viele kleine Server → 141 % des Roblox-Limits | Abfrage-Takt passt sich an (0,5–2 Sek.), sparsamere Werte → max. ~90 % |
+| 4a | Delistete Coins von Spielern, die nie wiederkommen, hätten den Speicher gefüllt | nach 72 Std. automatisch verkaufen, Cash ins Postfach |
+| 4a | Schleifen über Tabellen, die sich während Speicherzugriffen ändern | vorher Kopie der Liste |
+| 4a-Test | Test-Fehler: alte Anfragen aus anderen Testläufen | Liste pro Lauf geleert |
 | Sicherheit | NPCs vorhersehbar → 1.000 → 48.000 Cash/Std. per Sofort-Kauf | Sniper zufällig, Nachfüllen 25/Min. (Simulation: 2.900–6.300) |
 | Sicherheit | Spam von `TradeRequest` erzeugte eine Antwort pro Anfrage (Last) | „Too fast“ höchstens 1x/Sek. |
 | Sicherheit | `GetMarketSnapshot` (große Datenmenge) 2x/Sek. abrufbar | max. 3 pro 30 Sek. |

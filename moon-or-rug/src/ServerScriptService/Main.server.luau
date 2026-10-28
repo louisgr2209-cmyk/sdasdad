@@ -4,6 +4,7 @@
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
 
+local WorldService = require(ServerScriptService.Services.WorldService)
 local PlayerDataService = require(ServerScriptService.Services.PlayerDataService)
 local MarketService = require(ServerScriptService.Services.MarketService)
 local NpcTraderService = require(ServerScriptService.Services.NpcTraderService)
@@ -11,20 +12,15 @@ local NpcTraderService = require(ServerScriptService.Services.NpcTraderService)
 -- Reines Terminal: kein Avatar
 Players.CharacterAutoLoads = false
 
-PlayerDataService.Init()
+-- Verbindungen zwischen den Services (ohne gegenseitige requires)
+PlayerDataService.RecoverPending = MarketService.RecoverPending
+PlayerDataService.WaitIdle = MarketService.WaitIdle
+
+WorldService.Start() -- meldet den Server in der Welt, wählt den NPC-Host
 MarketService.Init({ PlayerData = PlayerDataService })
+MarketService.Start() -- lädt den Weltmarkt
 NpcTraderService.Init()
+NpcTraderService.Start() -- NPCs laufen nur auf dem Host
+PlayerDataService.Init() -- erst jetzt Spieler laden: Markt ist bereit
 
--- Verbindungen zwischen den Services
-PlayerDataService.PositionsProvider = MarketService.GetPositions
-MarketService.WalletForKey = function(key)
-	if string.sub(key, 1, 4) == "npc:" then
-		return NpcTraderService.Wallet(key)
-	end
-	local player = PlayerDataService.GetPlayerByKey(key)
-	return player and PlayerDataService.Wallet(player)
-end
-
-MarketService.Start()
-NpcTraderService.Start()
 print("[MoonOrRug] Server ready")

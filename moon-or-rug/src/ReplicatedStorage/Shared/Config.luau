@@ -28,6 +28,8 @@ Config.Fees = {
 -- Trades
 Config.Trade = {
 	MaxPerSecond = 5, -- Rate-Limit pro Spieler
+	MaxPerMinute = 30, -- zusätzlich pro Minute (schont das Roblox-Budget des Weltmarkts)
+	MaxQueued = 3, -- so viele Trades eines Spielers dürfen gleichzeitig in der Warteschlange sein
 	MinCash = 1, -- kleinster Trade in Cash
 	Fractions = { 0.10, 0.25, 0.50, 1.00 }, -- Kauf-/Verkauf-Buttons
 	QuickBuyFraction = 0.10, -- Schnellkauf in der Pulse-Liste: 10 % des Cash
@@ -42,11 +44,58 @@ Config.Ticker = {
 
 -- Markt-Takt
 Config.Market = {
-	BroadcastInterval = 0.5, -- Sekunden zwischen Kurs-Updates an alle Clients
+	BroadcastInterval = 0.25, -- Sekunden zwischen Kurs-Updates an alle Clients (klein = wenig Verzögerung)
 	ChartInterval = 5, -- Sekunden pro Chart-Punkt
 	ChartPoints = 60, -- Punkte pro Chart
 	RecentTrades = 20, -- gespeicherte Live-Trades pro Coin
 	DeadAfter = 30 * 60, -- Sekunden ohne Trade, dann "Dead" (verschwindet aus den Listen)
+}
+
+-- Weltmarkt: alle Server teilen dieselben Coins (MemoryStore), Spielstände im DataStore.
+-- Budget-Grenzen von Roblox: Speicher 64 KB + 1,2 KB pro Spieler, Anfragen 1000 + 120 pro Spieler und Minute.
+Config.World = {
+	CoinsMap = "MoR_Coins_v1", -- MemoryStore: ein Schlüssel pro Coin (die Wahrheit)
+	MarketMap = "MoR_Market_v1", -- MemoryStore: Sammel-Schlüssel, Welt, Meldungen, NPCs, Charts
+	WalletsMap = "MoR_Wallets_v1", -- MemoryStore: Geldbörsen der Spieler, die gerade spielen
+	InboxMap = "MoR_Inbox_v1", -- MemoryStore: Postfach pro Spieler (z. B. Auszahlung geschlossener Coins)
+	ProfileStore = "MoR_Players_v1", -- DataStore: dauerhafte Spielstände
+
+	CoinExpiration = 45 * 24 * 3600, -- Coin ohne Änderung wird nach 45 Tagen gelöscht (Roblox-Maximum)
+	Expiration = 2 * 24 * 3600, -- übrige Weltmarkt-Schlüssel
+	WalletExpiration = 30 * 24 * 3600, -- Geldbörse, solange gespielt wird
+	WalletReleasedExpiration = 600, -- nach dem Verlassen (und gespeichert): noch 10 Min. im Weltmarkt
+
+	Shards = 4, -- Sammel-Schlüssel mit den Kurzinfos aller Coins
+	-- Lesen/Schreiben der Sammel-Schlüssel passt sich dem Budget an: so schnell wie möglich (0,5 Sek.),
+	-- bei winzigen Servern langsamer (bis 2 Sek.), damit das Roblox-Limit nie gerissen wird.
+	MinSyncInterval = 0.5,
+	MaxSyncInterval = 2,
+	SyncBudgetShare = 0.4, -- Anteil des Anfrage-Budgets eines Servers für Lesen der Kurse
+	NewsInterval = 2, -- Ticker-Meldungen zwischen Servern
+	FeeFlushInterval = 10, -- gesammelte Creator-Gebühren ins Postfach
+	InboxInterval = 60, -- Spieler-Postfach prüfen
+	ChartSaveInterval = 30, -- Host speichert Charts für neue Server
+	MaintenanceInterval = 30, -- Host prüft tote Coins
+	NpcSaveInterval = 10, -- Host speichert NPC-Zustand
+
+	TickInterval = 10, -- Server meldet sich in der Welt
+	HostLease = 30, -- Host-Rolle gilt so lange ohne Erneuerung
+	ServerStale = 45, -- Server ohne Meldung gilt als weg
+	WalletStale = 45, -- Geldbörse eines Servers ohne Lebenszeichen darf übernommen werden
+	HeartbeatInterval = 15,
+	AutosaveInterval = 60,
+
+	-- Ein Speicher-Wert darf max. 32 KB groß sein:
+	FullReceipts = 30, -- volle Buchungsbelege pro Coin (ältere schrumpfen auf ihre Nummer, Schutz bleibt)
+	MaxHoldersPerCoin = 400, -- mehr Holder passen nicht sicher in einen Coin
+
+	CoinsBase = 20, -- gelistete Coins weltweit bei wenigen Spielern
+	CoinsPerPlayer = 0.2, -- +1 Coin pro 5 Spieler online (Speicher wächst nur 1,2 KB pro Spieler)
+	CoinsMax = 120, -- Obergrenze
+
+	-- Delistete Coins: Besitzer können weiter verkaufen. Nach so vielen Stunden ohne Trade verkauft
+	-- das Spiel den Rest automatisch zum Kurvenwert, das Cash kommt ins Postfach (beim nächsten Join).
+	DeadKeepHours = 72,
 }
 
 -- Feste Icon-Auswahl für Coins (NPCs jetzt, Spieler ab Phase 6)
@@ -75,9 +124,8 @@ Config.Npc = {
 	},
 
 	-- NPC-Coins
-	StartCoins = 3, -- so viele Coins gibt es direkt beim Serverstart
+	StartCoins = 3, -- so viele gelistete Coins gibt es mindestens (Host erstellt sofort welche)
 	CreateEvery = { 60, 180 }, -- alle 1 bis 3 Min. ein neuer NPC-Coin
-	MaxLiveCoins = 40, -- Obergrenze für lebende Coins pro Server
 	LicenseBluffChance = 0.2, -- auch ehrliche NPCs zeigen manchmal "Rug-Lizenz" (Warnung = Risiko, nicht Beweis)
 
 	-- NPC-Rug (ca. 10 % der NPC-Coins)
