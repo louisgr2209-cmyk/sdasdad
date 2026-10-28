@@ -2,9 +2,9 @@
 -- Coin-Seite: links Chart + Infos, rechts Position, Kaufen/Verkaufen (10/25/50 %/alles), Live-Trades.
 -- Stop-Loss und Versicherung kommen in Phase 5.
 --
--- Platz (kleinster Fall 968 x 408 Design-Pixel):
+-- Platz (kleinster Fall 976 x 368 Design-Pixel):
 --   links 60 %: Kopf 72 | Chart | 2 Infozeilen à 24
---   rechts 40 %: Position 26 | BUY 20+72 | SELL 20+72 | Live-Trades (Rest, mind. 4 Zeilen)
+--   rechts 40 %: Position 26 | BUY 20+72 | SELL 20+72 | Live-Trades (Rest, mind. 3 Zeilen)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 

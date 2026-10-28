@@ -349,10 +349,17 @@ function NpcTraderService.Start()
 					end
 				end
 			end
-			checkRugs(t)
+			-- pcall: ein Fehler darf nie die NPC-Schleife anhalten
+			local ok, err = pcall(checkRugs, t)
+			if not ok then
+				warn("[NpcTrader] rugs: " .. tostring(err))
+			end
 			if t >= nextCoinAt then
 				nextCoinAt = t + rng:NextNumber(Npc.CreateEvery[1], Npc.CreateEvery[2])
-				createNpcCoin()
+				ok, err = pcall(createNpcCoin)
+				if not ok then
+					warn("[NpcTrader] new coin: " .. tostring(err))
+				end
 			end
 		end
 	end)

@@ -2,7 +2,7 @@
 -- Vollbild-Terminal: Kopfleiste (Logo, Tabs, Cash), Seiten (Pulse, Coin, Portfolio), Ticker unten.
 -- Platz für später in der Kopfleiste: Level (Phase 4), Daily Reward (Phase 5), Shop (Phase 8).
 --
--- Höhen (Design-Pixel, mind. 560): 12 Rand | Kopf 72 | 10 | Seite (Rest, mind. 408) | 10 | Ticker 36 | 12 Rand
+-- Höhen (Design-Pixel, mind. 520): 12 Rand | Kopf 72 | 10 | Seite (Rest, mind. 368) | 10 | Ticker 36 | 12 Rand
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 

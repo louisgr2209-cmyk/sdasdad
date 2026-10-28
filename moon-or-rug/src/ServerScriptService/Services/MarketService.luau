@@ -475,17 +475,25 @@ function MarketService.Init(deps)
 	end)
 end
 
+local lastChart = os.clock()
+local function tick()
+	if os.clock() - lastChart >= Config.Market.ChartInterval then
+		lastChart = os.clock()
+		closeChartPoints()
+		checkDeadCoins()
+	end
+	broadcast()
+end
+
 function MarketService.Start()
 	task.spawn(function()
-		local lastChart = os.clock()
 		while true do
 			task.wait(Config.Market.BroadcastInterval)
-			if os.clock() - lastChart >= Config.Market.ChartInterval then
-				lastChart = os.clock()
-				closeChartPoints()
-				checkDeadCoins()
+			-- pcall: ein Fehler darf nie den ganzen Markt anhalten
+			local ok, err = pcall(tick)
+			if not ok then
+				warn("[Market] " .. tostring(err))
 			end
-			broadcast()
 		end
 	end)
 end

@@ -103,8 +103,8 @@ Config.Npc = {
 
 -- UI (Handy zuerst)
 Config.UI = {
-	DesignWidth = 1000, -- Layout ist für 1000 x 560 gebaut und wird skaliert
-	DesignHeight = 560,
+	DesignWidth = 1000, -- Layout ist für 1000 x 520 gebaut und wird skaliert
+	DesignHeight = 520, -- 520 statt 560: auf Handys Buttons ca. 44 pt, Text ca. 12 pt
 	MinScale = 0.5,
 	MaxScale = 1.5,
 }

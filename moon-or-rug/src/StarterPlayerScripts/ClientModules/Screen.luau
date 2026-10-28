@@ -3,7 +3,7 @@
 --  * dunkler Hintergrund füllt den ganzen Bildschirm (auch hinter Notch/Dynamic Island)
 --  * Inhalt liegt nur im sicheren Bereich (keine Notch, Dynamic Island, Kamera-Loch,
 --    abgerundete Ecken, Roblox-Leiste oben)
---  * Layout wird für 1000 x 560 gebaut und auf jede Größe skaliert (iPhone bis PC)
+--  * Layout wird für 1000 x 520 gebaut und auf jede Größe skaliert (iPhone bis PC)
 
 local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -136,7 +136,7 @@ function Screen.Setup()
 end
 
 -- Erstellt einen Vollbild-Bildschirm. Gibt "root" zurück: dort alles hineinbauen.
--- root ist in Design-Pixeln mind. ca. 1000 x 560 groß (je nach Seitenverhältnis mehr).
+-- root ist in Design-Pixeln mind. ca. 1000 x 520 groß (je nach Seitenverhältnis mehr).
 function Screen.CreateRoot(name: string): Frame
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 	local ui = Config.UI

@@ -85,7 +85,7 @@ Server prüft Typ, Wert, Coin, Cash/Bestand und Rate-Limit und rechnet alles sel
 
 **Geräte:** `Screen.CreateRoot` baut jeden Bildschirm so:
 Hintergrund über den ganzen Bildschirm, Inhalt nur im sicheren Bereich (`CoreUISafeInsets`),
-Layout in 1000 × 560 Design-Pixeln, per `UIScale` passend skaliert.
+Layout in 1000 × 520 Design-Pixeln, per `UIScale` passend skaliert.
 Buttons 72 Design-Pixel hoch (≈ 44 pt auf dem kleinsten iPhone), Text mind. 20.
 Roblox-Rucksack, Lebensanzeige, Spielerliste und Emotes sind aus, Querformat ist Standard.
 
@@ -145,13 +145,36 @@ Antworten (Schritt 0):
 - Server: Verkauf mit ≥ 1.000 Gewinn → Meldung im Ticker (`Config.Ticker`).
 
 **Geräte:** Alles liegt in `Screen.CreateRoot` (sicherer Bereich + Skalierung).
-Kleinster Platz ist 1000 × 560 Design-Pixel (iPad quer/hoch); Handys im Querformat haben mehr Breite (ca. 1300).
-Für 1000 Breite nachgerechnet: Pulse-Karten ca. 16 Zeichen pro Zeile, Coin-Seite rechts 4 Live-Trades,
+Kleinster Platz ist 1000 × 520 Design-Pixel (iPad, PC); Handys im Querformat haben mehr Breite (ca. 1100–1300).
+Für 1000 Breite nachgerechnet: Pulse-Karten ca. 16 Zeichen pro Zeile, Coin-Seite rechts 3 Live-Trades,
 alle Buttons mind. 72 hoch (Tabs 64). Zu lange Texte werden mit „…“ gekürzt statt überzulaufen.
 
 **Prüfung:** Python-Prüfskript für Luau-Blöcke (`function`/`if`/`for`/`end`, Klammern) über alle Dateien: 0 Fehler.
 
+## Gesamt-Prüfung (nach Phase 3)
+
+Ohne Roblox Studio geprüft (Luau ausführen ist hier nicht erlaubt, deshalb kein echter Testlauf):
+1. **Syntax:** alle 17 Dateien mit dem echten Luau-Parser von StyLua geparst → 0 Fehler
+   (Gegenprobe mit absichtlich kaputter Datei → Fehler erkannt).
+2. **Namen:** eigener Checker für nicht definierte Variablen/vergessene `require` → keine echten Funde.
+3. **Von Hand gelesen:** alle Dateien Zeile für Zeile (Logik, Roblox-APIs, Remote-Daten, Randfälle).
+4. **Mathematik/NPCs:** Python-Nachbau (Kurve, Gebühren, 3 Std. NPC-Markt), siehe Phase 1 und 2.
+5. **Geräte:** Skalierung für 11 Geräte nachgerechnet (Tabelle unten).
+
+| Gerät | Skalierung | Button (72) | Text (20) |
+|---|---|---|---|
+| iPhone SE | 0,61 | 44 pt | 12,2 pt |
+| iPhone 15 Pro (Dynamic Island) | 0,60 | 43 pt | 12,1 pt |
+| iPhone 15 Pro Max | 0,68 | 49 pt | 13,5 pt |
+| Samsung Galaxy S23 (Kameraloch) | 0,58 | 42 pt | 11,6 pt |
+| iPad quer / iPad mini hoch | 1,18 / 0,74 | 85 / 54 pt | 23,6 / 14,9 pt |
+| PC 1366×768 / 1920×1080 | 1,37 / 1,50 | 98 / 108 px | 27 / 30 px |
+
 ## Offene Punkte
+
+- **Bekannt bis Phase 4:** Ohne Speichern startet ein Spieler nach Verlassen + Wiederkommen (gleicher Server)
+  wieder mit 1.000 Cash und findet seine alten Coins noch vor. Wird mit Phase 4 (Speichern) gelöst –
+  dabei klären wir, was mit Positionen beim Verlassen passiert.
 
 - **Frage (Phase 8):** Der Plan nennt „Top-Holder“ bei der Coin-Seite **und** beim Gamepass Pro-Terminal.
   Bisher nicht gebaut. Vorschlag: Top-Holder nur mit Pro-Terminal (sonst hat der Pass weniger Wert).
@@ -172,4 +195,8 @@ alle Buttons mind. 72 hoch (Tabs 64). Zu lange Texte werden mit „…“ gekür
 
 | Datum | Fehler | Lösung |
 |---|---|---|
-| – | noch keine | – |
+| Phase 1 | `Format` in MarketService nicht geladen (wäre beim ersten Trade abgestürzt) | `require` ergänzt, vor dem ersten Push gefunden |
+| Phase 2 | Simulation: alte Coins starben nie (Zufall-NPCs verkauften nur Teile) | alle NPCs steigen aus Coins > 15 Min. komplett aus |
+| Phase 3 | Mehrere Zeilen begannen mit `(` → Luau meldet „ambiguous syntax“ | in lokale Variablen umgeschrieben |
+| Prüfung | Ein Fehler in `checkRugs`/`createNpcCoin` oder im Markt-Takt hätte die Schleife für immer gestoppt (Markt steht still) | Schleifen mit `pcall` abgesichert, Fehler erscheinen als Warnung im Output |
+| Prüfung | Auf Handys Buttons nur 39–41 pt (Richtwert 44), Text ca. 11 pt | Design-Höhe 560 → 520: Buttons 42–49 pt, Text ca. 12 pt |
