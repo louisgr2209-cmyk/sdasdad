@@ -16,6 +16,7 @@ local CoinPage = require(script.Parent.CoinPage)
 local Portfolio = require(script.Parent.Portfolio)
 local LeaderboardUI = require(script.Parent.LeaderboardUI)
 local DailyRewardUI = require(script.Parent.DailyRewardUI)
+local CreateCoinUI = require(script.Parent.CreateCoinUI)
 local Levels = require(ReplicatedStorage.Shared.Levels)
 
 local Colors = Screen.Colors
@@ -153,7 +154,18 @@ function TerminalUI.Start()
 	end
 
 	local pulseFrame = page("Pulse")
-	pages.Pulse = { Frame = pulseFrame, View = PulseList.new(pulseFrame, openCoin) }
+	local createUI -- Formular "Coin erstellen" (wird unten gebaut, liegt über allem)
+	pages.Pulse = {
+		Frame = pulseFrame,
+		View = PulseList.new(pulseFrame, openCoin, function()
+			local stats = MarketClient.Me.Stats
+			if stats and stats.Level < Config.Launch.CreateMinLevel then
+				MarketClient.TradeResult:Fire(false, "Creating coins unlocks at level " .. Config.Launch.CreateMinLevel)
+				return
+			end
+			createUI.Show()
+		end),
+	}
 	local coinFrame = page("Coin")
 	pages.Coin = {
 		Frame = coinFrame,
@@ -290,6 +302,7 @@ function TerminalUI.Start()
 	-- Aktualisieren
 	------------------------------------------------------------------
 	local daily = DailyRewardUI.new(root)
+	createUI = CreateCoinUI.new(root)
 	dailyButton.Activated:Connect(daily.Show)
 
 	local lastLevel = nil

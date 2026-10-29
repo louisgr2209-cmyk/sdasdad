@@ -102,6 +102,34 @@ Config.Protection = {
 	DailyTopUp = 500, -- ist ein Topf leer, legt das Spiel max. 500 Cash pro Spieler und Tag drauf
 }
 
+-- Coin erstellen + Boost (Phase 6)
+Config.Launch = {
+	CreateCost = 50_000, -- Cash (Robux-Variante kommt in Phase 8)
+	CreateMinLevel = 10,
+	MaxActiveCoins = 1, -- pro Spieler gleichzeitig gelistet
+	DevBuyOptions = { 0, 0.10, 0.25, 0.50 }, -- optional direkt mitkaufen (Anteil des restlichen Cash), max. 50 %
+
+	BoostCost = 25_000,
+	BoostMinLevel = 15,
+	BoostSeconds = 600, -- 10 Min. oben in der BOOSTED-Leiste
+	BoostSlots = 3, -- weltweit gleichzeitig
+	BoostSyncInterval = 5, -- so oft holt jeder Server die Boost-Liste
+
+	-- Regeln für Namen (zusätzlich Roblox-Textfilter)
+	NameMin = 3,
+	NameMax = 20,
+	TickerMin = 3,
+	TickerMax = 5,
+	DescMax = 60,
+	-- Echte Krypto-Namen/Marken sind verboten (Plan: nur fiktive Coins). Ticker: exakt; Name: als Wort.
+	Blocked = {
+		"BITCOIN", "BTC", "ETHEREUM", "ETH", "SOLANA", "SOL", "DOGECOIN", "DOGE", "SHIBA", "SHIB",
+		"PEPE", "BONK", "FLOKI", "WIF", "XRP", "RIPPLE", "BNB", "BINANCE", "COINBASE", "TETHER",
+		"USDT", "USDC", "CARDANO", "ADA", "LITECOIN", "LTC", "MONERO", "XMR", "TRON", "TRX",
+		"POLYGON", "MATIC", "AVAX", "CRYPTO", "KRYPTO", "AXIOM", "PUMPFUN", "NFT", "ROBUX",
+	},
+}
+
 -- Ranglisten (nur echte Spieler)
 Config.Leaderboard = {
 	Size = 50, -- Top 50 weltweit

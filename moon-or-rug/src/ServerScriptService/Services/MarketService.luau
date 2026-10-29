@@ -28,6 +28,7 @@ local PlayerData -- wird in Init gesetzt
 local coinsMap = Store.Map(W.CoinsMap, W.CoinExpiration)
 local marketMap = Store.Map(W.MarketMap, W.Expiration)
 local inboxMap = Store.Map(W.InboxMap, W.CoinExpiration)
+local LC = Config.Launch
 
 local coins = {} -- lokale Kopie: [coinId] = coin
 local dirty = {} -- [coinId] = true: an Clients schicken
@@ -38,6 +39,9 @@ local flushQueue = {} -- [shard] = { Updates = {}, Removes = {} }: noch in die S
 local newsOut = {} -- eigene Meldungen, noch nicht an andere Server geschickt
 local npcFees = {} -- [npcKey] = Betrag, gesammelt
 local potAdds = { Ins = 0 } -- Versicherungsprämien, gesammelt (alle 10 Sek. in den Topf)
+local playerFees = {} -- [Spieler-Schlüssel] = Betrag: Ersteller-Gebühren (alle 10 Sek. ins Postfach)
+local boosts = {} -- [coinId] = bis (Server-Zeit): aktuelle Boosts (alle Server)
+local boostsChanged = false
 local lastNewsSeq = nil -- zuletzt gesehene Meldung (nil = noch nie gelesen)
 local queues = {} -- [player] = { Busy, Items }: Trades eines Spielers nacheinander
 
@@ -55,6 +59,11 @@ end
 
 local function isValidNumber(n: any): boolean
 	return typeof(n) == "number" and n == n and n > -math.huge and n < math.huge
+end
+
+-- Neue, weltweit eindeutige Coin-Id (12 Zeichen)
+local function newCoinId(): string
+	return string.sub((string.gsub(HttpService:GenerateGUID(false), "-", "")), 1, 12)
 end
 
 -- Sammel-Schlüssel für einen Coin (1..Shards)
@@ -233,6 +242,7 @@ local function summary(coin)
 		Ticker = coin.Ticker,
 		Icon = coin.Icon,
 		CreatorName = coin.CreatorName,
+		CreatorId = coin.CreatorKey, -- damit der Client "mein Coin" erkennt
 		CreatedAt = coin.CreatedAt,
 		Supply = coin.Supply,
 		Price = price,
@@ -271,8 +281,9 @@ local function afterTrade(wallet, coin, result, rug: boolean)
 	if result.Fee and result.Fee > 0 and result.CreatorKey then
 		if string.sub(result.CreatorKey, 1, 4) == "npc:" then
 			npcFees[result.CreatorKey] = (npcFees[result.CreatorKey] or 0) + result.Fee
+		elseif result.CreatorKey ~= wallet.Key then
+			playerFees[result.CreatorKey] = (playerFees[result.CreatorKey] or 0) + result.Fee
 		end
-		-- Gebühren an Spieler-Ersteller: kommt mit Phase 6 (Coins von Spielern)
 	end
 	if rug then
 		MarketService.Announce("Rug", string.format("RUG PULL! %s dumped $%s", wallet.Name, coin.Ticker))
@@ -313,23 +324,41 @@ end
 -- -> ok, nachricht
 local function settle(player: Player, p)
 	local key = PlayerData.Key(player)
-	local okCoin, result, newValue = coinsMap:Update(p.Coin, Ledger.CoinTrade, {
-		Key = key,
-		Name = player.DisplayName,
-		Seq = p.S,
-		Side = p.Side,
-		Cash = p.Cash,
-		Frac = p.Frac,
-		Insure = p.Ins,
-		Level = p.L,
-		Now = now(),
-	})
+	local isLaunch = p.Side == "Launch"
+	local okCoin, result, newValue
+	if isLaunch then
+		okCoin, result, newValue = coinsMap:Update(p.Coin, Ledger.CoinLaunch, {
+			Id = p.Coin,
+			Info = p.Info,
+			Key = key,
+			Name = player.DisplayName,
+			Seq = p.S,
+			DevCash = p.Cash,
+			Level = p.L,
+			Now = now(),
+		})
+	else
+		okCoin, result, newValue = coinsMap:Update(p.Coin, Ledger.CoinTrade, {
+			Key = key,
+			Name = player.DisplayName,
+			Seq = p.S,
+			Side = p.Side,
+			Cash = p.Cash,
+			Frac = p.Frac,
+			Insure = p.Ins,
+			Level = p.L,
+			Now = now(),
+		})
+	end
 	if not okCoin or not result then
 		return false, "Trade pending – it finishes automatically"
 	end
 	local coin = nil
 	if newValue then
 		coin = onCoinValue(newValue)
+		if isLaunch then
+			coin.LocalCreatedAt = os.clock()
+		end
 	end
 	local okFinish =
 		PlayerData.WalletUpdate(player, Ledger.WalletFinish, { Seq = p.S, Result = result, Now = now() })
@@ -338,6 +367,13 @@ local function settle(player: Player, p)
 	end
 	PlayerData.SetHolding(player, p.Coin, result.Amount or 0, result.Cost or 0)
 	-- Gebühren/Meldungen nur bei frischer Buchung (bei Wiederholung nie doppelt)
+	if isLaunch then
+		if not result.Ok then
+			return false, result.Error or "Launch failed – your cash was refunded"
+		end
+		local devText = if (result.Cash or 0) > 0 then " (dev buy " .. Format.Cash(result.Cash) .. ")" else ""
+		return true, string.format("🚀 $%s launched!%s", p.Info.Ticker, devText)
+	end
 	if result.Ok and newValue and coin then
 		afterTrade({ Key = key, Name = player.DisplayName, IsNpc = false }, coin, result, false)
 		if p.Prem then
@@ -468,6 +504,156 @@ function MarketService.WaitIdle(player: Player, timeout: number)
 	queues[player] = nil
 end
 
+-- Spieler-Coin erstellen (3 Schritte wie ein Trade: Gebühr + Dev-Buy reservieren, anlegen, abschließen)
+local function executeLaunch(player: Player, info, devFraction: number)
+	local wallet = PlayerData.GetWallet(player)
+	if not wallet then
+		return false, "Still loading your data…"
+	end
+	if wallet.P and not MarketService.RecoverPending(player) then
+		return false, "Previous trade still processing – try again"
+	end
+	wallet = PlayerData.GetWallet(player)
+	local level = PlayerData.GetStats(player).Level
+	if level < LC.CreateMinLevel then
+		return false, "Creating coins unlocks at level " .. LC.CreateMinLevel
+	end
+	local mine = wallet.MyCoin and coins[wallet.MyCoin]
+	if mine and not mine.Dead then
+		return false, "You already have an active coin ($" .. mine.Ticker .. ")"
+	end
+	if MarketService.TickerTaken(info.Ticker) then
+		return false, "Ticker $" .. info.Ticker .. " is taken – pick another"
+	end
+	if wallet.Cash < LC.CreateCost then
+		return false, "You need " .. Format.Cash(LC.CreateCost) .. " Cash"
+	end
+	local devCash = Ledger.FloorCents((wallet.Cash - LC.CreateCost) * devFraction)
+	if devCash < Config.Trade.MinCash then
+		devCash = 0
+	end
+	local coinId = newCoinId()
+	local okBegin, begin = PlayerData.WalletUpdate(player, Ledger.WalletLaunchBegin, {
+		Job = WorldService.JobId,
+		Coin = coinId,
+		Fee = LC.CreateCost,
+		Cash = devCash,
+		Info = info,
+		Level = level,
+		Now = now(),
+	})
+	if not okBegin or not begin then
+		return false, "Market busy – please try again"
+	end
+	if not begin.Ok then
+		if begin.Pending then
+			MarketService.RecoverPending(player)
+		end
+		return false, begin.Error or "Launch failed"
+	end
+	return settle(player, {
+		S = begin.Seq,
+		Side = "Launch",
+		Coin = coinId,
+		Fee = LC.CreateCost,
+		Cash = devCash,
+		Info = info,
+		L = level,
+	})
+end
+
+function MarketService.Launch(player: Player, info, devFraction: number): boolean
+	return enqueue(player, function()
+		local ok, message = executeLaunch(player, info, devFraction)
+		if player.Parent then
+			reply(player, ok, message)
+			PlayerData.PushState(player)
+		end
+	end)
+end
+
+-- Boost: nur eigener Coin. Erst bezahlen (mit Buchungsnummer), dann Platz nehmen, sonst Geld zurück.
+local function executeBoost(player: Player, coinId: string)
+	local wallet = PlayerData.GetWallet(player)
+	local coin = coins[coinId]
+	if not wallet or not coin then
+		return false, "Coin not found"
+	end
+	if coin.CreatorKey ~= PlayerData.Key(player) then
+		return false, "You can only boost your own coin"
+	end
+	if coin.Dead then
+		return false, "This coin is dead"
+	end
+	if PlayerData.GetStats(player).Level < LC.BoostMinLevel then
+		return false, "Boost unlocks at level " .. LC.BoostMinLevel
+	end
+	-- schnelle Vorprüfung mit der lokalen Liste (spart Hin-und-her-Buchungen)
+	local t = now()
+	local active, nextFree = 0, math.huge
+	for id, untilTime in boosts do
+		if untilTime > t then
+			active += 1
+			nextFree = math.min(nextFree, untilTime - t)
+			if id == coinId then
+				return false, string.format("Already boosted (%dm left)", math.ceil((untilTime - t) / 60))
+			end
+		end
+	end
+	if active >= LC.BoostSlots then
+		return false, string.format("Boost slots full – next free in %dm", math.ceil(nextFree / 60))
+	end
+	if wallet.Cash < LC.BoostCost then
+		return false, "You need " .. Format.Cash(LC.BoostCost) .. " Cash"
+	end
+	local payId = HttpService:GenerateGUID(false)
+	local okPay, paid = PlayerData.WalletUpdate(player, Ledger.WalletAddCash, {
+		Job = WorldService.JobId,
+		Id = payId,
+		Delta = -LC.BoostCost,
+	})
+	if not okPay or not paid or not paid.Ok then
+		return false, "Not enough cash"
+	end
+	local okClaim, claim, newBoosts = marketMap:Update("Boosts", Ledger.BoostClaim, {
+		Coin = coinId,
+		Id = payId,
+		Now = now(),
+		Seconds = LC.BoostSeconds,
+		Slots = LC.BoostSlots,
+	})
+	if okClaim and claim and claim.Ok then
+		if newBoosts then
+			boosts = {}
+			for id, entry in newBoosts do
+				boosts[id] = entry.U
+			end
+			boostsChanged = true
+		end
+		return true, string.format("🚀 $%s boosted for %d min!", coin.Ticker, math.floor(LC.BoostSeconds / 60))
+	end
+	-- kein Platz (oder Fehler): Geld zurück, mit eigener Buchungsnummer (nie doppelt)
+	PlayerData.WalletUpdate(player, Ledger.WalletAddCash, {
+		Job = WorldService.JobId,
+		Id = HttpService:GenerateGUID(false),
+		Delta = LC.BoostCost,
+	})
+	if claim and claim.Full then
+		return false, string.format("Boost slots full – next free in %dm (refunded)", math.ceil(claim.NextFree / 60))
+	end
+	return false, ((claim and claim.Error) or "Boost failed") .. " (refunded)"
+end
+
+function MarketService.Boost(player: Player, coinId: string): boolean
+	return enqueue(player, function()
+		local ok, message = executeBoost(player, coinId)
+		if player.Parent then
+			reply(player, ok, message)
+			PlayerData.PushState(player)
+		end
+	end)
+end
+
 -- Verkauf im Auftrag des Spielers einreihen (Stop-Loss, solange er online ist)
 function MarketService.QueueSell(player: Player, coinId: string, prefix: string): boolean
 	return enqueue(player, function()
@@ -555,7 +741,7 @@ local function onSnapshotRequest(player: Player)
 	for _, coin in coins do
 		table.insert(list, fullInfo(coin))
 	end
-	return { Coins = list, Me = PlayerData.BuildState(player) }
+	return { Coins = list, Me = PlayerData.BuildState(player), Boosts = boosts }
 end
 
 ------------------------------------------------------------------------
@@ -598,9 +784,19 @@ function MarketService.PriceChange(coin, seconds: number): number
 	return Curve.Price(C, coin.Supply) / ref.O - 1
 end
 
--- Neuer Coin. info = { Name, Ticker, Icon, Desc, CreatorKey, CreatorName, License } -> lokaler Coin oder nil
+-- Ist dieser Ticker gerade bei einem gelisteten Coin vergeben?
+function MarketService.TickerTaken(ticker: string): boolean
+	for _, coin in coins do
+		if coin.Ticker == ticker and not coin.Dead then
+			return true
+		end
+	end
+	return false
+end
+
+-- Neuer Coin (NPC). info = { Name, Ticker, Icon, Desc, CreatorKey, CreatorName, License } -> lokaler Coin oder nil
 function MarketService.CreateCoin(info)
-	info.Id = string.sub((string.gsub(HttpService:GenerateGUID(false), "-", "")), 1, 12)
+	info.Id = newCoinId()
 	local value = Ledger.NewCoin(info, now())
 	if not coinsMap:Set(info.Id, value) then
 		return nil
@@ -837,13 +1033,44 @@ local function flushPots()
 end
 
 local function flushFees()
-	if next(npcFees) == nil then
+	if next(npcFees) == nil and next(playerFees) == nil then
 		return
 	end
 	local adds = npcFees
 	npcFees = {}
 	-- ohne Wiederholung: im Fehlerfall verfällt die Gebühr, sie wird aber nie doppelt gutgeschrieben
-	marketMap:UpdateOnce("InboxNpc", Ledger.InboxAdd, { Adds = adds })
+	if next(adds) then
+		marketMap:UpdateOnce("InboxNpc", Ledger.InboxAdd, { Adds = adds })
+	end
+	local forPlayers = playerFees
+	playerFees = {}
+	for key, amount in forPlayers do
+		inboxMap:UpdateOnce("u_" .. key, Ledger.InboxAdd, { Adds = { Cash = amount, Fee = amount } })
+	end
+end
+
+local function syncBoosts()
+	local ok, data = marketMap:Get("Boosts")
+	if not ok then
+		return
+	end
+	local fresh = {}
+	for id, entry in data or {} do
+		if type(entry) == "table" and type(entry.U) == "number" then
+			fresh[id] = entry.U
+		end
+	end
+	for id, untilTime in fresh do
+		if boosts[id] ~= untilTime then
+			boostsChanged = true
+		end
+	end
+	for id in boosts do
+		if not fresh[id] then
+			boostsChanged = true
+		end
+	end
+	boosts = fresh
 end
 
 local function closeChartPoints()
@@ -865,7 +1092,7 @@ local function closeChartPoints()
 end
 
 local function broadcast()
-	if next(dirty) == nil and #pendingTrades == 0 and #pendingNews == 0 and #removedIds == 0 then
+	if next(dirty) == nil and #pendingTrades == 0 and #pendingNews == 0 and #removedIds == 0 and not boostsChanged then
 		return
 	end
 	local list = {}
@@ -876,7 +1103,14 @@ local function broadcast()
 			coin.NewPoints = {}
 		end
 	end
-	updateEvent:FireAllClients({ Coins = list, Trades = pendingTrades, News = pendingNews, Removed = removedIds })
+	updateEvent:FireAllClients({
+		Coins = list,
+		Trades = pendingTrades,
+		News = pendingNews,
+		Removed = removedIds,
+		Boosts = if boostsChanged then boosts else nil,
+	})
+	boostsChanged = false
 	dirty = {}
 	pendingTrades = {}
 	pendingNews = {}
@@ -937,6 +1171,7 @@ function MarketService.Start()
 		return WorldService.SyncInterval(W.Shards * 2) -- Schreiben kostet 2 Einheiten, nur wenn sich etwas geändert hat
 	end, flush)
 	loop("news", every(W.NewsInterval), syncNews)
+	loop("boosts", every(LC.BoostSyncInterval), syncBoosts)
 	loop("fees", every(W.FeeFlushInterval), function()
 		flushFees()
 		flushPots()

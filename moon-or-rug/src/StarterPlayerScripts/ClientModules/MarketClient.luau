@@ -3,6 +3,7 @@
 -- Rechnet nichts Echtes: Werte hier sind nur Anzeige. Trades entscheidet der Server.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Curve = require(ReplicatedStorage.Shared.BondingCurve)
@@ -15,6 +16,8 @@ local MarketClient = {}
 MarketClient.Coins = {} -- [coinId] = Info vom Server (+ Chart, Trades)
 MarketClient.Me = { Cash = 0, Positions = {}, Stats = nil }
 MarketClient.Leaderboard = { World = nil, Server = nil } -- Ranglisten vom Server
+MarketClient.Boosts = {} -- [coinId] = bis (Server-Zeit)
+MarketClient.MyKey = tostring(Players.LocalPlayer.UserId) -- vergleichbar mit coin.CreatorId
 
 -- Signale für die Bildschirme
 MarketClient.Changed = Instance.new("BindableEvent") -- Markt oder eigene Daten geändert
@@ -69,6 +72,9 @@ local function applyUpdate(update)
 			addTrade(coin, trade)
 		end
 	end
+	if update.Boosts then
+		MarketClient.Boosts = update.Boosts
+	end
 	for _, news in update.News or {} do
 		MarketClient.News:Fire(news)
 	end
@@ -92,6 +98,23 @@ end
 function MarketClient.SetStopLoss(coinId: string, index: number)
 	local remote = remotes:WaitForChild("SetStopLoss") :: RemoteEvent
 	remote:FireServer(coinId, index)
+end
+
+-- Coin erstellen / boosten (Server prüft Level, Cash, Namen, Filter)
+function MarketClient.CreateCoin(name: string, ticker: string, desc: string, icon: string, devIndex: number)
+	local remote = remotes:WaitForChild("CreateCoin") :: RemoteEvent
+	remote:FireServer(name, ticker, desc, icon, devIndex)
+end
+
+function MarketClient.Boost(coinId: string)
+	local remote = remotes:WaitForChild("BoostCoin") :: RemoteEvent
+	remote:FireServer(coinId)
+end
+
+-- Restzeit eines Boosts in Sek. (0 = nicht geboostet)
+function MarketClient.BoostLeft(coinId: string): number
+	local untilTime = MarketClient.Boosts[coinId]
+	return if untilTime then math.max(0, untilTime - workspace:GetServerTimeNow()) else 0
 end
 
 function MarketClient.SetInsurance(coinId: string, on: boolean)
@@ -167,6 +190,7 @@ function MarketClient.Start()
 				if snapshot.Me then
 					MarketClient.Me = snapshot.Me
 				end
+				MarketClient.Boosts = snapshot.Boosts or {}
 				MarketClient.Changed:Fire()
 				return
 			end

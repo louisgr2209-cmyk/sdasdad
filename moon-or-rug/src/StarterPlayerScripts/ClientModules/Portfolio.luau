@@ -181,7 +181,8 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 			shown[coin.Id] = true
 			row.Frame.LayoutOrder = index
 			row.Icon.Text = coin.Icon
-			row.Name.Text = "$" .. coin.Ticker .. (if coin.Rugged then "  RUGGED" elseif coin.Stage == "Dead" then "  DEAD" else "")
+			local crown = if coin.CreatorId == MarketClient.MyKey then "👑 " else ""
+			row.Name.Text = crown .. "$" .. coin.Ticker .. (if coin.Rugged then "  RUGGED" elseif coin.Stage == "Dead" then "  DEAD" else "")
 			row.Name.TextColor3 = if coin.Rugged or coin.Stage == "Dead" then Colors.Red else Colors.Text
 			local marks = ""
 			if position.SL then
@@ -189,6 +190,9 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 			end
 			if me.Insured and me.Insured[coin.Id] then
 				marks ..= " · 🛡"
+			end
+			if coin.CreatorId == MarketClient.MyKey and me.Stats and me.Stats.FeesEarned > 0 then
+				marks ..= " · fees " .. Format.Short(me.Stats.FeesEarned)
 			end
 			row.Amount.Text = string.format("%s · cost %s%s", Format.Short(position.Amount), Format.Cash(position.Cost), marks)
 			local pnl = if position.Cost > 0 then entry.Value / position.Cost - 1 else 0

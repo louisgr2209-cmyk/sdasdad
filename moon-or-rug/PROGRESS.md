@@ -38,6 +38,8 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `ServerScriptService/Services/WorldService.luau` | ServerScriptService › Services › WorldService | ModuleScript |
 | `ServerScriptService/Services/LeaderboardService.luau` | ServerScriptService › Services › LeaderboardService | ModuleScript |
 | `ServerScriptService/Services/ProtectionService.luau` | ServerScriptService › Services › ProtectionService | ModuleScript |
+| `ServerScriptService/Services/LaunchService.luau` | ServerScriptService › Services › LaunchService | ModuleScript |
+| `ServerScriptService/Util/TextFilter.luau` | ServerScriptService › Util › TextFilter | ModuleScript |
 | `ServerScriptService/Util/Ledger.luau` | ServerScriptService › Util › Ledger | ModuleScript |
 | `ServerScriptService/Util/Store.luau` | ServerScriptService › Util › Store | ModuleScript |
 | `ServerScriptService/Util/Remotes.luau` | ServerScriptService › Util › Remotes | ModuleScript |
@@ -52,6 +54,7 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `StarterPlayerScripts/ClientModules/Portfolio.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › Portfolio | ModuleScript |
 | `StarterPlayerScripts/ClientModules/LeaderboardUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › LeaderboardUI | ModuleScript |
 | `StarterPlayerScripts/ClientModules/DailyRewardUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › DailyRewardUI | ModuleScript |
+| `StarterPlayerScripts/ClientModules/CreateCoinUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › CreateCoinUI | ModuleScript |
 
 `DebugTerminal` (Phase 1–2) gibt es nicht mehr → in Studio löschen.
 RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStorage › Remotes` selbst.
@@ -66,7 +69,7 @@ RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStora
 | 4a Weltmarkt + Speichern (Duplikat-Schutz) | ✅ gebaut, wartet auf Test (Studio + veröffentlicht) |
 | 4b Level/XP, Leaderboard | ✅ gebaut, wartet auf Test |
 | 5 Schutz | ✅ gebaut, wartet auf Test |
-| 6 Coin erstellen + Boost | offen |
+| 6 Coin erstellen + Boost | ✅ gebaut, wartet auf Test |
 | 7 Rugpull | offen |
 | 8 Robux-Produkte + Gamepässe | offen |
 | 9 Globales Leaderboard (globale Coins gibt es durch den Weltmarkt schon) | offen |
@@ -161,6 +164,29 @@ Für 1000 Breite nachgerechnet: Pulse-Karten ca. 16 Zeichen pro Zeile, Coin-Seit
 alle Buttons mind. 72 hoch (Tabs 64). Zu lange Texte werden mit „…“ gekürzt statt überzulaufen.
 
 **Prüfung:** Python-Prüfskript für Luau-Blöcke (`function`/`if`/`for`/`end`, Klammern) über alle Dateien: 0 Fehler.
+
+## Phase 6 – Coin erstellen + Boost
+
+**Entscheidungen (Klick-Fragen):** Knopf in Pulse; Dev-Buy optional, max. 50 % (0/10/25/50 % des restlichen Cash);
+Boost max. 3 weltweit, nur eigener Coin, eigene BOOSTED-Leiste; Namen „Standard“; Boost-Plätze voll → Hinweis +
+Restzeit, kein Geld weg. Neu: `LaunchService`, `TextFilter`, `CreateCoinUI`.
+
+- **Coin erstellen** (ab Lv 10, 50.000 Cash, max. 1 aktiver Coin): Formular mit Name (3–20, Buchstaben/Zahlen/Leerzeichen),
+  Ticker (3–5 A–Z, darf bei keinem gelisteten Coin vergeben sein), Beschreibung (max. 60), Icon (20 feste), Dev-Buy.
+  Prüfung: eigene Regeln + **Sperrliste echter Krypto-Namen/Marken** (`Config.Launch.Blocked`) + **Roblox-Textfilter**
+  (wird etwas gefiltert → abgelehnt). Formular bleibt bei Fehlern offen (nichts neu tippen).
+- **Ablauf wie ein Trade mit Duplikat-Schutz:** Gebühr + Dev-Buy reservieren → Coin + Dev-Buy in einem Schritt anlegen →
+  abschließen (nicht benutzter Dev-Buy zurück, bei Fehler alles zurück). Ersteller bekommt 5 % Dev-Anteil.
+  Test: 3.000 Coin-Starts mit 40 % Fehlern pro Speicherzugriff → Gebühr/Dev-Buy immer genau einmal.
+- **Ersteller-Gebühren (0,5 % jedes Trades) für Spieler:** gesammelt, alle 10 Sek. ins Postfach, gutgeschrieben jede Minute
+  (auch offline → beim nächsten Join). Portfolio zeigt beim eigenen Coin 👑 und „fees …“.
+- **Boost** (ab Lv 15, 25.000 Cash, nur eigener Coin, 10 Min., max. 3 weltweit): erst bezahlen (mit Buchungsnummer),
+  dann Platz nehmen; kein Platz → Geld sofort zurück + „next free in Xm“. Gleiche Buchungsnummer nochmal = kein Doppel-Boost.
+  Alle Server holen die Boost-Liste alle 5 Sek.
+- **Pulse:** oben „🚀 BOOSTED“ mit bis zu 3 Coins + Restzeit (antippen = Coin-Seite) und „+ CREATE COIN“
+  (🔒 bis Lv 10, mit aktivem Coin „👑 MY COIN $XYZ“). **Coin-Seite:** beim eigenen Coin Knopf „🚀 BOOST“ / Restzeit.
+- **Prüfwerkzeug neu:** Checker für „Funktion benutzt, was erst weiter unten definiert ist“ (hat 1 echten Fehler gefunden,
+  siehe Fehlertabelle). Gegenprobe mit kaputter Datei: erkannt.
 
 ## Phase 5 – Schutz vor Bankrott
 
@@ -318,7 +344,8 @@ Postfach) werden nie automatisch wiederholt: im Zweifel geht ein kleiner Betrag 
 
 - Phase 8: Pro-Terminal zeigt Top-10-Holder mit Namen, Kerzen-Chart, Dev-Verkäufe live (entschieden).
 - Kopfleiste: Level (Phase 4b), Daily Reward (Phase 5) und Shop (Phase 8) kommen rechts neben die Tabs.
-- Gebühren an Spieler-Ersteller (0,5 %) kommen mit Phase 6 (dann über das Spieler-Postfach).
+- Highlight (25 R$) und Coin per Robux erstellen (99 R$) kommen mit Phase 8. „Global schalten“ (199 R$) entfällt –
+  durch den Weltmarkt sind alle Coins global (Frage dazu in Phase 8).
 
 - **Balancing (beim Test entscheiden):** Ohne Spieler erreicht fast nie ein Coin die Migration (69.000).
   Selbst mit doppeltem NPC-Geld nur ca. 1 Coin in 3 Std. Mit Spielern fließt mehr Geld. Falls die Spalte
@@ -339,6 +366,8 @@ Postfach) werden nie automatisch wiederholt: im Zweifel geht ein kleiner Betrag 
 | Phase 2 | Simulation: alte Coins starben nie (Zufall-NPCs verkauften nur Teile) | alle NPCs steigen aus Coins > 15 Min. komplett aus |
 | Phase 3 | Mehrere Zeilen begannen mit `(` → Luau meldet „ambiguous syntax“ | in lokale Variablen umgeschrieben |
 | Prüfung | Ein Fehler in `checkRugs`/`createNpcCoin` oder im Markt-Takt hätte die Schleife für immer gestoppt (Markt steht still) | Schleifen mit `pcall` abgesichert, Fehler erscheinen als Warnung im Output |
+| 6 | `newCoinId` wurde benutzt, bevor sie definiert war → Coin-Start wäre abgestürzt | nach oben verschoben + neuer Checker für alle Dateien |
+| 6 | Formular schloss sich sofort → bei abgelehntem Namen alles neu tippen | bleibt offen bis zur Antwort, Fehler im Formular |
 | 5 | `%d` mit 0.1*100 (=10.000000000000002) bricht in Luau ab | vorher runden (math.floor(x*100+0.5)) |
 | 5 | Holder-Einträge größer (Versicherung, Kaufzeit, Level) → 400 Holder > 32 KB | max. 200 Holder pro Coin, Kaufzeit als ganze Sekunde |
 | 5-Test | Test-Buchhaltung vergaß Prämie bei verlorener Antwort | Prämie vor dem Speicherzugriff gemerkt |

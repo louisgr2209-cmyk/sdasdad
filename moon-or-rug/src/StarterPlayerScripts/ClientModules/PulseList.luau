@@ -1,5 +1,6 @@
 -- PulseList (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/PulseList
--- Startseite: drei Spalten New · Almost done · Migrated.
+-- Startseite: oben BOOSTED-Leiste (max. 3) + "CREATE COIN", darunter drei Spalten New · Almost done · Migrated.
+-- Breite oben (mind. 976): Titel 150 | 3 Boosts à 190 | Knopf 210
 -- Pro Coin: Icon, Ticker, Alter, Marktkapital, Holder, Dev-Anteil, Rug-Lizenz-Warnung, Schnellkauf.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -22,15 +23,81 @@ local COLUMNS = {
 
 local PulseList = {}
 
--- parent: Seite, onOpenCoin(coinId): Coin-Seite öffnen
-function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> ())
+local TOP = 64 -- Höhe der BOOSTED-Leiste
+
+-- parent: Seite, onOpenCoin(coinId): Coin-Seite öffnen, onCreate(): Formular "Coin erstellen"
+function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: () -> ())
 	local self = { Cards = {}, Columns = {} }
 
-	Screen.New("UIListLayout", {
-		FillDirection = Enum.FillDirection.Horizontal,
-		Padding = UDim.new(0, 12),
-		SortOrder = Enum.SortOrder.LayoutOrder,
+	-- BOOSTED-Leiste
+	local top = Screen.New("Frame", {
+		Size = UDim2.new(1, 0, 0, TOP),
+		BackgroundTransparency = 1,
 		Parent = parent,
+	})
+	Screen.Label({
+		Text = "🚀 BOOSTED",
+		Font = Screen.Fonts.Bold,
+		TextColor3 = Colors.Accent,
+		Size = UDim2.new(0, 150, 1, 0),
+		Parent = top,
+	})
+	local boostChips = {}
+	for i = 1, Config.Launch.BoostSlots do
+		local chip = Screen.Button({
+			Text = "",
+			TextSize = 20,
+			Position = UDim2.fromOffset(150 + (i - 1) * 198, 0),
+			Size = UDim2.fromOffset(190, TOP),
+			Visible = false,
+			Parent = top,
+		})
+		Screen.New("UIStroke", { Color = Colors.Accent, Thickness = 2, Parent = chip })
+		chip.Activated:Connect(function()
+			if chip:GetAttribute("CoinId") then
+				onOpenCoin(chip:GetAttribute("CoinId"))
+			end
+		end)
+		boostChips[i] = chip
+	end
+	local noBoost = Screen.Label({
+		Text = "No boosted coins right now",
+		TextSize = 20,
+		TextColor3 = Colors.Muted,
+		Position = UDim2.fromOffset(150, 0),
+		Size = UDim2.new(1, -150 - 220, 1, 0),
+		Parent = top,
+	})
+	local createButton = Screen.Button({
+		Text = "+ CREATE COIN",
+		TextSize = 22,
+		BackgroundColor3 = Colors.Green,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(1, 0),
+		Size = UDim2.fromOffset(210, TOP),
+		Parent = top,
+	})
+	createButton.Activated:Connect(function()
+		local myCoin = MarketClient.Me.MyCoin and MarketClient.Coins[MarketClient.Me.MyCoin]
+		if myCoin and myCoin.Stage ~= "Dead" then
+			onOpenCoin(myCoin.Id) -- eigener Coin aktiv: dorthin
+		else
+			onCreate()
+		end
+	end)
+
+	-- Spalten
+	local columnsArea = Screen.New("Frame", {
+		Position = UDim2.fromOffset(0, TOP + 10),
+		Size = UDim2.new(1, 0, 1, -(TOP + 10)),
+		BackgroundTransparency = 1,
+		Parent = parent,
+	}, {
+		Screen.New("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			Padding = UDim.new(0, 12),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
 	})
 
 	for i, def in COLUMNS do
@@ -38,7 +105,7 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> ())
 			Size = UDim2.new(1 / #COLUMNS, -8, 1, 0),
 			BackgroundColor3 = Colors.Panel,
 			LayoutOrder = i,
-			Parent = parent,
+			Parent = columnsArea,
 		}, {
 			Screen.Corner(12),
 		})
@@ -133,6 +200,39 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> ())
 	end
 
 	function self.Refresh()
+		-- BOOSTED-Leiste (längste Restzeit zuerst)
+		local boosted = {}
+		for coinId in MarketClient.Boosts do
+			local coin = MarketClient.Coins[coinId]
+			local left = MarketClient.BoostLeft(coinId)
+			if coin and left > 0 then
+				table.insert(boosted, { Coin = coin, Left = left })
+			end
+		end
+		table.sort(boosted, function(a, b)
+			return a.Left > b.Left
+		end)
+		for i, chip in boostChips do
+			local entry = boosted[i]
+			chip.Visible = entry ~= nil
+			if entry then
+				chip:SetAttribute("CoinId", entry.Coin.Id)
+				chip.Text = string.format("%s $%s · %s", entry.Coin.Icon, entry.Coin.Ticker, Format.Duration(entry.Left))
+			end
+		end
+		noBoost.Visible = #boosted == 0
+
+		-- Knopf: gesperrt bis Level 10, mit aktivem eigenem Coin "MY COIN"
+		local stats = MarketClient.Me.Stats
+		local myCoin = MarketClient.Me.MyCoin and MarketClient.Coins[MarketClient.Me.MyCoin]
+		if myCoin and myCoin.Stage ~= "Dead" then
+			createButton.Text = "👑 MY COIN $" .. myCoin.Ticker
+		elseif stats and stats.Level < Config.Launch.CreateMinLevel then
+			createButton.Text = "🔒 CREATE · Lv " .. Config.Launch.CreateMinLevel
+		else
+			createButton.Text = "+ CREATE COIN"
+		end
+
 		-- Coins nach Spalte sortieren
 		local byStage = { New = {}, AlmostDone = {}, Migrated = {} }
 		for _, coin in MarketClient.Coins do

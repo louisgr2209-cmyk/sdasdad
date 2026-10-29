@@ -10,6 +10,7 @@ local MarketService = require(ServerScriptService.Services.MarketService)
 local NpcTraderService = require(ServerScriptService.Services.NpcTraderService)
 local LeaderboardService = require(ServerScriptService.Services.LeaderboardService)
 local ProtectionService = require(ServerScriptService.Services.ProtectionService)
+local LaunchService = require(ServerScriptService.Services.LaunchService)
 
 -- Reines Terminal: kein Avatar
 Players.CharacterAutoLoads = false
@@ -25,6 +26,7 @@ NpcTraderService.Init()
 NpcTraderService.Start() -- NPCs laufen nur auf dem Host
 LeaderboardService.Init()
 ProtectionService.Init()
+LaunchService.Init()
 PlayerDataService.Init() -- erst jetzt Spieler laden: Markt ist bereit
 LeaderboardService.Start()
 ProtectionService.Start()

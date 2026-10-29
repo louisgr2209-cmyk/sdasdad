@@ -327,6 +327,44 @@ function Ledger.CoinStopLossExec(coin, a)
 	return coin, result
 end
 
+-- Spieler-Coin anlegen (Schritt 2 von "Coin erstellen"), optional mit Dev-Buy im selben Schritt.
+-- a = { Id, Info = { Name, Ticker, Icon, Desc }, Key, Name, Seq, DevCash, Level, License, Now }
+function Ledger.CoinLaunch(coin, a)
+	if coin then
+		local done = coin.Q[a.Key]
+		local doneSeq = if type(done) == "number" then done elseif done then done.S else nil
+		if doneSeq and doneSeq >= a.Seq then
+			if type(done) == "table" then
+				return nil, done.R -- schon angelegt
+			end
+			local holding = coin.H[a.Key]
+			return nil, { Ok = true, Unknown = true, Tokens = 0, Cash = 0, Amount = if holding then holding.A else 0 }
+		end
+		return nil, { Ok = false, Error = "Please try again", Amount = 0 } -- Id schon vergeben (praktisch unmöglich)
+	end
+	local info = a.Info
+	coin = Ledger.NewCoin({
+		Id = a.Id,
+		Name = info.Name,
+		Ticker = info.Ticker,
+		Icon = info.Icon,
+		Desc = info.Desc,
+		CreatorKey = a.Key,
+		CreatorName = a.Name,
+		License = a.License,
+	}, a.Now)
+	local holding = coin.H[a.Key]
+	local result = { Ok = true, Tokens = 0, Cash = 0, Amount = holding.A, Cost = 0 }
+	if (a.DevCash or 0) >= Config.Trade.MinCash then
+		local bought = buy(coin, { Key = a.Key, Name = a.Name, Cash = a.DevCash, Level = a.Level, Now = a.Now })
+		if bought.Ok then
+			result = bought
+		end
+	end
+	coin.Q[a.Key] = { S = a.Seq, R = receipt(result), At = a.Now }
+	return coin, result
+end
+
 -- Coin als "Dead" markieren (30 Min. ohne Trade)
 function Ledger.CoinMarkDead(coin, a)
 	if not coin or coin.Dead or a.Now - coin.LT < a.DeadAfter then
@@ -483,6 +521,33 @@ local function updateStats(wallet, p, r, now: number)
 	end
 end
 
+-- Schritt 1 von "Coin erstellen": Gebühr + Dev-Buy reservieren.
+-- a = { Job, Coin, Fee, Cash (Dev-Buy), Info, Level, Now }
+function Ledger.WalletLaunchBegin(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Error = "Session lost – please rejoin" }
+	end
+	if wallet.P then
+		return nil, { Error = "Previous trade still processing", Pending = true }
+	end
+	if wallet.Cash < a.Fee + a.Cash then
+		return nil, { Error = "Not enough cash" }
+	end
+	wallet.Cash = floorCents(wallet.Cash - a.Fee - a.Cash)
+	wallet.Seq += 1
+	wallet.P = {
+		S = wallet.Seq,
+		Side = "Launch",
+		Coin = a.Coin,
+		Fee = a.Fee,
+		Cash = a.Cash,
+		Info = a.Info,
+		L = a.Level,
+		At = a.Now,
+	}
+	return wallet, { Ok = true, Seq = wallet.Seq }
+end
+
 -- Schritt 3: Trade abschließen (genau einmal, egal welcher Server es tut).
 -- a = { Seq, Result, Now }
 function Ledger.WalletFinish(wallet, a)
@@ -492,6 +557,20 @@ function Ledger.WalletFinish(wallet, a)
 	local p = wallet.P
 	local r = a.Result
 	wallet.P = nil
+	if p.Side == "Launch" then
+		if r.Ok then
+			wallet.MyCoin = p.Coin
+			wallet.Coins[p.Coin] = true
+			-- nicht benutzter Dev-Buy zurück (bei unbekanntem Ergebnis nicht: lieber nichts als doppelt)
+			local unused = if r.Unknown then 0 else (p.Cash or 0) - (r.Cash or 0)
+			if unused > 0 then
+				wallet.Cash = floorCents(wallet.Cash + unused)
+			end
+		else
+			wallet.Cash = floorCents(wallet.Cash + (p.Fee or 0) + (p.Cash or 0)) -- alles zurück
+		end
+		return wallet, { Ok = true }
+	end
 	if r.Ok then
 		if p.Side == "Sell" then
 			wallet.Cash = floorCents(wallet.Cash + r.Cash)
@@ -588,6 +667,11 @@ function Ledger.WalletInbox(wallet, a)
 	end
 	wallet.Op = a.Id
 	wallet.Cash = floorCents(wallet.Cash + math.max(0, a.Cash or 0))
+	if a.Fee and a.Fee > 0 then
+		local st = wallet.St or {}
+		wallet.St = st
+		st.FE = (st.FE or 0) + a.Fee -- verdiente Ersteller-Gebühren (Anzeige im Portfolio)
+	end
 	if a.Profit then
 		updateStats(wallet, { Side = "Sell" }, { Cash = 0, Profit = a.Profit }, a.Now)
 	end
@@ -728,6 +812,33 @@ function Ledger.PotsPay(pots, a)
 		end
 	end
 	return pots, payouts
+end
+
+-- Boost-Plätze: { [coinId] = { U = bis, Id = Buchungsnummer } }
+-- a = { Coin, Id, Now, Seconds, Slots }. Gleiche Id nochmal = schon gebucht (kein Doppel-Boost, keine falsche Erstattung).
+function Ledger.BoostClaim(boosts, a)
+	boosts = boosts or {}
+	local active, nextFree = 0, math.huge
+	for coinId, entry in boosts do
+		if entry.U <= a.Now then
+			boosts[coinId] = nil
+		else
+			active += 1
+			nextFree = math.min(nextFree, entry.U - a.Now)
+		end
+	end
+	local mine = boosts[a.Coin]
+	if mine then
+		if mine.Id == a.Id then
+			return nil, { Ok = true, Until = mine.U }
+		end
+		return nil, { Ok = false, Error = string.format("Already boosted (%dm left)", math.ceil((mine.U - a.Now) / 60)) }
+	end
+	if active >= a.Slots then
+		return nil, { Ok = false, Full = true, NextFree = nextFree }
+	end
+	boosts[a.Coin] = { U = a.Now + a.Seconds, Id = a.Id }
+	return boosts, { Ok = true, Until = a.Now + a.Seconds }
 end
 
 -- Postfach: { [Schlüssel] = Betrag }. a = { Adds = { [Schlüssel] = Betrag } }

@@ -146,6 +146,7 @@ function PlayerDataService.GetStats(player: Player)
 		DayBest = if st.DK == day then st.DBest else 0,
 		WeekPnl = if st.WK == week then st.WPnl else 0,
 		WeekBest = if st.WK == week then st.WBest else 0,
+		FeesEarned = st.FE or 0, -- verdiente Ersteller-Gebühren
 	}
 end
 
@@ -175,6 +176,7 @@ function PlayerDataService.BuildState(player: Player)
 		Positions = profile.Holdings,
 		Stats = PlayerDataService.GetStats(player),
 		Insured = profile.Wallet.Ins or {},
+		MyCoin = profile.Wallet.MyCoin,
 		Daily = {
 			CanClaim = not claimed,
 			Streak = if claimed then st.DS else nextStreak - 1, -- bereits geschaffte Tage in Folge
@@ -258,6 +260,7 @@ local function drainInbox(player: Player)
 		Id = HttpService:GenerateGUID(false),
 		Cash = Ledger.FloorCents(cash),
 		Profit = profit,
+		Fee = if isValidNumber(content.Fee) then content.Fee else nil,
 		Now = now(),
 	})
 	if not (okWallet and result and result.Ok) then

@@ -64,6 +64,22 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		Size = UDim2.new(1, -84, 0, 30),
 		Parent = left,
 	})
+	-- Boost: nur beim eigenen Coin (ab Level 15, 25.000 Cash, 10 Min.)
+	local boostButton = Screen.Button({
+		TextSize = 20,
+		BackgroundColor3 = Colors.Accent,
+		TextColor3 = Colors.Background,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(1, 0),
+		Size = UDim2.fromOffset(120, 72),
+		Visible = false,
+		Parent = left,
+	})
+	boostButton.Activated:Connect(function()
+		if self.CoinId then
+			MarketClient.Boost(self.CoinId)
+		end
+	end)
 
 	local chartHolder = Screen.New("Frame", {
 		Position = UDim2.fromOffset(0, 82),
@@ -370,6 +386,22 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		end
 
 		nameLabel.Text = string.format("%s %s  $%s", coin.Icon, coin.Name, coin.Ticker)
+		local mine = coin.CreatorId == MarketClient.MyKey
+		boostButton.Visible = mine
+		local labelWidth = if mine then -84 - 128 else -84
+		nameLabel.Size = UDim2.new(1, labelWidth, 0, 36)
+		priceLabel.Size = UDim2.new(1, labelWidth, 0, 30)
+		if mine then
+			local boostLeft = MarketClient.BoostLeft(coin.Id)
+			local myStats = MarketClient.Me.Stats
+			if boostLeft > 0 then
+				boostButton.Text = "🚀 " .. Format.Duration(boostLeft)
+			elseif myStats and myStats.Level < Config.Launch.BoostMinLevel then
+				boostButton.Text = "🔒 Lv " .. Config.Launch.BoostMinLevel
+			else
+				boostButton.Text = "🚀 BOOST\n" .. Format.Short(Config.Launch.BoostCost)
+			end
+		end
 		local change = MarketClient.ChartChange(coin)
 		if coin.Rugged then
 			priceLabel.Text = string.format("%s  ·  RUGGED", Format.Price(coin.Price))
