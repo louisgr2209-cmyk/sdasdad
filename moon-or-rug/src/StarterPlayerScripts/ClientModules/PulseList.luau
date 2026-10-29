@@ -10,6 +10,7 @@ local Format = require(ReplicatedStorage.Shared.Format)
 local Screen = require(script.Parent.Screen)
 local MarketClient = require(script.Parent.MarketClient)
 local Indicators = require(ReplicatedStorage.Shared.Indicators)
+local CreatorStyle = require(ReplicatedStorage.Shared.CreatorStyle)
 
 local Colors = Screen.Colors
 local MAX_PER_COLUMN = 20
@@ -279,7 +280,10 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 						elseif rating == "Ok" then Colors.Accent
 						else Colors.Red
 				end
-				card.Stroke.Enabled = coin.Rugged == true
+				-- Rahmen: rot = gerugged, lila/gold = Coin eines Silber-/Gold-Creators (Highlight)
+				local creatorColor = CreatorStyle.Color(MarketClient.CreatorTier(coin.CreatorId))
+				card.Stroke.Enabled = coin.Rugged == true or creatorColor ~= nil
+				card.Stroke.Color = if coin.Rugged then Colors.Red else (creatorColor or Colors.Red)
 			end
 		end
 

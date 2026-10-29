@@ -107,7 +107,7 @@ local function serverBoards()
 	for _, player in PlayerDataService.LoadedPlayers() do
 		local v = values(player)
 		for _, board in BOARDS do
-			table.insert(boards[board], { N = player.DisplayName, V = math.floor(v[board]) })
+			table.insert(boards[board], { N = player.DisplayName, U = player.UserId, V = math.floor(v[board]) })
 		end
 	end
 	for _, list in boards do
@@ -184,8 +184,7 @@ local function readWorld()
 	end
 	for _, list in boards do
 		for _, entry in list do
-			entry.N = nameCache[entry.U] or ("Player " .. entry.U)
-			entry.U = nil
+			entry.N = nameCache[entry.U] or ("Player " .. entry.U) -- U bleibt: Creator-Abzeichen im Client
 		end
 	end
 	marketMap:Set("Leaderboards", { Boards = boards, At = now() })

@@ -2,6 +2,7 @@
 -- Vollbild-Terminal: Kopfleiste (Logo, Tabs, Cash + Level), Seiten (Pulse, Coin, Portfolio, Leaderboard),
 -- Ticker unten, Level-Up-Banner, Daily-Reward-Knopf. Platz für später: Shop (Phase 8).
 -- Breite (mind. 976): Logo 180 | 10 | Tabs 3 x 140 + 2 x 10 = 440 | Daily 64 | 10 | Cash/Level 230
+-- Admins: statt des Logos "🚀" 56 + ADMIN-Knopf 118 (gleiche Breite 180)
 --
 -- Höhen (Design-Pixel, mind. 520): 12 Rand | Kopf 72 | 10 | Seite (Rest, mind. 368) | 10 | Ticker 36 | 12 Rand
 
@@ -17,6 +18,7 @@ local Portfolio = require(script.Parent.Portfolio)
 local LeaderboardUI = require(script.Parent.LeaderboardUI)
 local DailyRewardUI = require(script.Parent.DailyRewardUI)
 local CreateCoinUI = require(script.Parent.CreateCoinUI)
+local AdminUI = require(script.Parent.AdminUI)
 local Levels = require(ReplicatedStorage.Shared.Levels)
 
 local Colors = Screen.Colors
@@ -40,11 +42,21 @@ function TerminalUI.Start()
 		BackgroundTransparency = 1,
 		Parent = root,
 	})
-	Screen.Label({
+	local logo = Screen.Label({
 		Text = "🚀 MOON OR RUG",
 		Font = Screen.Fonts.Bold,
 		TextSize = 24,
 		Size = UDim2.new(0, 180, 1, 0),
+		Parent = header,
+	})
+	-- ADMIN-Knopf: nur für Admins sichtbar (Server prüft jede Admin-Anfrage trotzdem)
+	local adminButton = Screen.Button({
+		Text = "ADMIN",
+		TextSize = 22,
+		BackgroundColor3 = Colors.Red,
+		Position = UDim2.fromOffset(62, 4),
+		Size = UDim2.fromOffset(118, 64),
+		Visible = false,
 		Parent = header,
 	})
 	local tabBar = Screen.New("Frame", {
@@ -246,7 +258,7 @@ function TerminalUI.Start()
 		Position = UDim2.new(0.5, 0, 0, HEADER + GAP + 4),
 		Size = UDim2.new(0.6, 0, 0, 44),
 		Visible = false,
-		ZIndex = 10,
+		ZIndex = 60, -- über allen Fenstern (z. B. Code einlösen)
 		Parent = root,
 	})
 	Screen.Corner(10).Parent = toast
@@ -304,12 +316,18 @@ function TerminalUI.Start()
 	local daily = DailyRewardUI.new(root)
 	createUI = CreateCoinUI.new(root)
 	dailyButton.Activated:Connect(daily.Show)
+	local admin = AdminUI.new(root)
+	adminButton.Activated:Connect(admin.Show)
 
 	local lastLevel = nil
 	MarketClient.Changed.Event:Connect(function()
 		local dailyState = MarketClient.Me.Daily
 		dailyButton.BackgroundColor3 = if dailyState and dailyState.CanClaim then Colors.Accent else Colors.PanelLight
 		daily.Refresh()
+		local isAdmin = MarketClient.Me.Extra ~= nil and MarketClient.Me.Extra.IsAdmin == true
+		adminButton.Visible = isAdmin
+		logo.Text = if isAdmin then "🚀" else "🚀 MOON OR RUG"
+		logo.Size = UDim2.new(0, if isAdmin then 56 else 180, 1, 0)
 		cashLabel.Text = "💵 " .. Format.Cash(MarketClient.Me.Cash)
 		local stats = MarketClient.Me.Stats
 		if stats then

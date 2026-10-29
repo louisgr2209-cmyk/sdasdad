@@ -189,6 +189,7 @@ local function applyInfo(info)
 				Ticker = coin.Ticker,
 				Side = t.S,
 				Trader = t.N,
+				TraderId = t.U, -- Spieler-Schlüssel (Creator-Abzeichen im Client)
 				IsNpc = t.B,
 				Tokens = t.K,
 				Cash = t.M,
@@ -285,8 +286,12 @@ local function afterTrade(wallet, coin, result, rug: boolean)
 			playerFees[result.CreatorKey] = (playerFees[result.CreatorKey] or 0) + result.Fee
 		end
 	end
+	local name = wallet.Name
+	if not wallet.IsNpc and MarketService.DecorateName then
+		name = MarketService.DecorateName(wallet.Key, name) -- 🎬 vor Creator-Namen
+	end
 	if rug then
-		MarketService.Announce("Rug", string.format("RUG PULL! %s dumped $%s", wallet.Name, coin.Ticker))
+		MarketService.Announce("Rug", string.format("RUG PULL! %s dumped $%s", name, coin.Ticker))
 		if MarketService.RugHandler then
 			task.spawn(MarketService.RugHandler, coin, result) -- Versicherung/Anfänger-Erstattung (ProtectionService)
 		end
@@ -296,7 +301,7 @@ local function afterTrade(wallet, coin, result, rug: boolean)
 			string.format(
 				"%s%s made %s Cash on $%s",
 				if wallet.IsNpc then "🤖 " else "",
-				wallet.Name,
+				name,
 				Format.Cash(result.Profit),
 				coin.Ticker
 			)
@@ -525,10 +530,13 @@ local function executeLaunch(player: Player, info, devFraction: number)
 	if MarketService.TickerTaken(info.Ticker) then
 		return false, "Ticker $" .. info.Ticker .. " is taken – pick another"
 	end
-	if wallet.Cash < LC.CreateCost then
-		return false, "You need " .. Format.Cash(LC.CreateCost) .. " Cash"
+	-- Gold-Creator: ein Coin pro Monat gratis (nur die Erstell-Gebühr, Dev-Buy kostet normal)
+	local freeMonth = MarketService.FreeCoinMonth and MarketService.FreeCoinMonth(player, wallet)
+	local fee = if freeMonth then 0 else LC.CreateCost
+	if wallet.Cash < fee then
+		return false, "You need " .. Format.Cash(fee) .. " Cash"
 	end
-	local devCash = Ledger.FloorCents((wallet.Cash - LC.CreateCost) * devFraction)
+	local devCash = Ledger.FloorCents((wallet.Cash - fee) * devFraction)
 	if devCash < Config.Trade.MinCash then
 		devCash = 0
 	end
@@ -536,10 +544,11 @@ local function executeLaunch(player: Player, info, devFraction: number)
 	local okBegin, begin = PlayerData.WalletUpdate(player, Ledger.WalletLaunchBegin, {
 		Job = WorldService.JobId,
 		Coin = coinId,
-		Fee = LC.CreateCost,
+		Fee = fee,
 		Cash = devCash,
 		Info = info,
 		Level = level,
+		FreeMonth = freeMonth,
 		Now = now(),
 	})
 	if not okBegin or not begin then
@@ -555,7 +564,7 @@ local function executeLaunch(player: Player, info, devFraction: number)
 		S = begin.Seq,
 		Side = "Launch",
 		Coin = coinId,
-		Fee = LC.CreateCost,
+		Fee = fee,
 		Cash = devCash,
 		Info = info,
 		L = level,
@@ -585,7 +594,8 @@ local function executeBoost(player: Player, coinId: string)
 	if coin.Dead then
 		return false, "This coin is dead"
 	end
-	if PlayerData.GetStats(player).Level < LC.BoostMinLevel then
+	local free = (wallet.FB or 0) > 0 -- Bronze-Creator: Gratis-Boost (ohne Level-Pflicht, ohne Kosten)
+	if not free and PlayerData.GetStats(player).Level < LC.BoostMinLevel then
 		return false, "Boost unlocks at level " .. LC.BoostMinLevel
 	end
 	-- schnelle Vorprüfung mit der lokalen Liste (spart Hin-und-her-Buchungen)
@@ -603,17 +613,26 @@ local function executeBoost(player: Player, coinId: string)
 	if active >= LC.BoostSlots then
 		return false, string.format("Boost slots full – next free in %dm", math.ceil(nextFree / 60))
 	end
-	if wallet.Cash < LC.BoostCost then
+	if not free and wallet.Cash < LC.BoostCost then
 		return false, "You need " .. Format.Cash(LC.BoostCost) .. " Cash"
 	end
 	local payId = HttpService:GenerateGUID(false)
-	local okPay, paid = PlayerData.WalletUpdate(player, Ledger.WalletAddCash, {
-		Job = WorldService.JobId,
-		Id = payId,
-		Delta = -LC.BoostCost,
-	})
+	local okPay, paid
+	if free then
+		okPay, paid = PlayerData.WalletUpdate(player, Ledger.WalletFreeBoost, {
+			Job = WorldService.JobId,
+			Id = payId,
+			Delta = -1,
+		})
+	else
+		okPay, paid = PlayerData.WalletUpdate(player, Ledger.WalletAddCash, {
+			Job = WorldService.JobId,
+			Id = payId,
+			Delta = -LC.BoostCost,
+		})
+	end
 	if not okPay or not paid or not paid.Ok then
-		return false, "Not enough cash"
+		return false, if free then "Boost failed – try again" else "Not enough cash"
 	end
 	local okClaim, claim, newBoosts = marketMap:Update("Boosts", Ledger.BoostClaim, {
 		Coin = coinId,
@@ -630,14 +649,28 @@ local function executeBoost(player: Player, coinId: string)
 			end
 			boostsChanged = true
 		end
-		return true, string.format("🚀 $%s boosted for %d min!", coin.Ticker, math.floor(LC.BoostSeconds / 60))
+		return true,
+			string.format(
+				"🚀 $%s boosted for %d min!%s",
+				coin.Ticker,
+				math.floor(LC.BoostSeconds / 60),
+				if free then " (free creator boost)" else ""
+			)
 	end
-	-- kein Platz (oder Fehler): Geld zurück, mit eigener Buchungsnummer (nie doppelt)
-	PlayerData.WalletUpdate(player, Ledger.WalletAddCash, {
-		Job = WorldService.JobId,
-		Id = HttpService:GenerateGUID(false),
-		Delta = LC.BoostCost,
-	})
+	-- kein Platz (oder Fehler): Geld bzw. Gratis-Boost zurück, mit eigener Buchungsnummer (nie doppelt)
+	if free then
+		PlayerData.WalletUpdate(player, Ledger.WalletFreeBoost, {
+			Job = WorldService.JobId,
+			Id = HttpService:GenerateGUID(false),
+			Delta = 1,
+		})
+	else
+		PlayerData.WalletUpdate(player, Ledger.WalletAddCash, {
+			Job = WorldService.JobId,
+			Id = HttpService:GenerateGUID(false),
+			Delta = LC.BoostCost,
+		})
+	end
 	if claim and claim.Full then
 		return false, string.format("Boost slots full – next free in %dm (refunded)", math.ceil(claim.NextFree / 60))
 	end
@@ -750,6 +783,9 @@ end
 
 -- Wird vom ProtectionService gesetzt: function(coin, ergebnis) nach einem Rugpull
 MarketService.RugHandler = nil :: ((any, any) -> ())?
+-- Vom CreatorService gesetzt: Name mit Creator-Abzeichen / Monat für den Gratis-Coin (Gold)
+MarketService.DecorateName = nil :: ((string, string) -> string)?
+MarketService.FreeCoinMonth = nil :: ((Player, any) -> number?)?
 
 function MarketService.GetCoins()
 	return coins

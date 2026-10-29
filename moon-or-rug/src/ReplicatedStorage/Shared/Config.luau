@@ -130,6 +130,30 @@ Config.Launch = {
 	},
 }
 
+-- Creator-Programm (eigenes Dokument „Moon or Rug – Creator-Programm“)
+Config.Creator = {
+	-- Roblox-UserIds der Admins (nur sie sehen das Admin-Panel). In Roblox Studio ist jeder Admin (nur zum Testen).
+	AdminIds = {
+		-- 123456789, -- Beispiel: eure UserId hier eintragen
+	},
+	-- Stufen: jede gibt es pro Spieler nur einmal; höhere ersetzt die Anzeige; übersprungene Stufen zahlen nichts nach
+	Tiers = {
+		{ Name = "Starter", Cash = 10_000 }, -- Titel "Creator"
+		{ Name = "Bronze", Cash = 25_000, FreeBoosts = 1 }, -- + Abzeichen 🎬
+		{ Name = "Silver", Cash = 50_000 }, -- + farbiger Name, Rahmen, Highlight auf eigenen Coins
+		{ Name = "Gold", Cash = 0, FreeCoinMonthly = true }, -- + Creator-Code, Gold-Rahmen, 1 Gratis-Coin pro Monat
+	},
+	CodeReward = 2_000, -- Spieler, der einen Code eingibt (einmal im ganzen Spiel)
+	CreatorPerRedeem = 500, -- Creator pro Einlösung (ins Postfach)
+	CreatorDailyCap = 50, -- max. bezahlte Einlösungen pro Creator und Tag
+	MinAccountAgeDays = 7, -- gegen Zweit-Accounts
+	MinPlaytimeMinutes = 30,
+	CodeMin = 4,
+	CodeMax = 12,
+	ListRefresh = 60, -- Server holen die Creator-Liste jede Minute (Freischaltungen kommen überall an)
+	LogKeep = 200, -- so viele Admin-Aktionen bleiben im Log
+}
+
 -- Ranglisten (nur echte Spieler)
 Config.Leaderboard = {
 	Size = 50, -- Top 50 weltweit

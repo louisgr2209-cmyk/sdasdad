@@ -18,11 +18,13 @@ MarketClient.Me = { Cash = 0, Positions = {}, Stats = nil }
 MarketClient.Leaderboard = { World = nil, Server = nil } -- Ranglisten vom Server
 MarketClient.Boosts = {} -- [coinId] = bis (Server-Zeit)
 MarketClient.MyKey = tostring(Players.LocalPlayer.UserId) -- vergleichbar mit coin.CreatorId
+MarketClient.Creators = {} -- [Spieler-Schlüssel] = Creator-Stufe (1-4), vom Server
 
 -- Signale für die Bildschirme
 MarketClient.Changed = Instance.new("BindableEvent") -- Markt oder eigene Daten geändert
 MarketClient.TradeResult = Instance.new("BindableEvent") -- (ok, message)
 MarketClient.News = Instance.new("BindableEvent") -- (news) z. B. Rugpull, großer Gewinn
+MarketClient.AdminResult = Instance.new("BindableEvent") -- ({ Ok, Message, Log }) nur für Admins
 
 local tradeRequest: RemoteEvent
 local remotes: Instance
@@ -122,6 +124,34 @@ function MarketClient.SetInsurance(coinId: string, on: boolean)
 	remote:FireServer(coinId, on)
 end
 
+-- Creator-Programm (der Server prüft alles: Admin, Gold-Stufe, Konto-Alter, Spielzeit, einmal pro Spieler)
+function MarketClient.CreatorTier(key: any): number
+	return if key ~= nil then MarketClient.Creators[tostring(key)] or 0 else 0
+end
+
+function MarketClient.RedeemCode(code: string)
+	local remote = remotes:WaitForChild("RedeemCode") :: RemoteEvent
+	remote:FireServer(code)
+end
+
+function MarketClient.SetCreatorCode(code: string)
+	local remote = remotes:WaitForChild("SetCreatorCode") :: RemoteEvent
+	remote:FireServer(code)
+end
+
+-- action: "grant" / "revoke"
+function MarketClient.AdminAction(action: string, name: string, tier: number?, video: string?)
+	local remote = remotes:WaitForChild("AdminAction") :: RemoteEvent
+	remote:FireServer(action, name, tier, video)
+end
+
+-- letzte 10 Admin-Aktionen (nil, wenn kein Admin)
+function MarketClient.AdminLog()
+	local remote = remotes:WaitForChild("AdminLog") :: RemoteFunction
+	local ok, log = pcall(remote.InvokeServer, remote)
+	return if ok then log else nil
+end
+
 -- Wert einer Position = was man jetzt beim Verkaufen bekäme (nach Gebühr)
 function MarketClient.PositionValue(coin, position): number
 	return Curve.CashForTokens(Config.Curve, coin.Supply, position.Amount) * (1 - FEE_TOTAL)
@@ -172,6 +202,15 @@ function MarketClient.Start()
 	end)
 	tradeResult.OnClientEvent:Connect(function(result)
 		MarketClient.TradeResult:Fire(result.Ok, result.Message)
+	end)
+	local creators = remotes:WaitForChild("Creators") :: RemoteEvent
+	creators.OnClientEvent:Connect(function(tiers)
+		MarketClient.Creators = if type(tiers) == "table" then tiers else {}
+		MarketClient.Changed:Fire()
+	end)
+	local adminResult = remotes:WaitForChild("AdminResult") :: RemoteEvent
+	adminResult.OnClientEvent:Connect(function(result)
+		MarketClient.AdminResult:Fire(result)
 	end)
 
 	-- Erste Daten holen (mit Wiederholung, falls der Server noch startet)

@@ -103,4 +103,40 @@ function TextFilter.CheckCoin(player: Player, name: any, ticker: any, desc: any,
 	return { Name = name, Ticker = ticker, Desc = desc, Icon = icon }, nil
 end
 
+-- Creator-Code prüfen (4–12 Zeichen A–Z/0–9, Sperrliste, Roblox-Filter). -> Code (groß) oder nil, fehlertext
+function TextFilter.CheckCode(player: Player, code: any)
+	if typeof(code) ~= "string" or #code > 50 then
+		return nil, "Invalid code"
+	end
+	code = string.upper((string.gsub(code, "%s", "")))
+	local C = Config.Creator
+	if #code < C.CodeMin or #code > C.CodeMax or not string.match(code, "^[%u%d]+$") then
+		return nil, string.format("Code: %d to %d letters/numbers", C.CodeMin, C.CodeMax)
+	end
+	if blocked[code] or hasBlockedWord(code) then
+		return nil, "That code is not allowed"
+	end
+	local ok, filtered = robloxFilter(code, player.UserId)
+	if not ok then
+		return nil, "Text check failed – please try again"
+	end
+	if filtered ~= code then
+		return nil, "That code is not allowed"
+	end
+	return code, nil
+end
+
+-- Nur Format prüfen (beim Einlösen: der Code wurde beim Anlegen schon gefiltert)
+function TextFilter.NormalizeCode(code: any): string?
+	if typeof(code) ~= "string" or #code > 50 then
+		return nil
+	end
+	code = string.upper((string.gsub(code, "%s", "")))
+	local C = Config.Creator
+	if #code < C.CodeMin or #code > C.CodeMax or not string.match(code, "^[%u%d]+$") then
+		return nil
+	end
+	return code
+end
+
 return TextFilter

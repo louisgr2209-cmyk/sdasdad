@@ -213,14 +213,16 @@ function CreateCoinUI.new(parent: GuiObject)
 			button.BackgroundColor3 = if i == devIndex then Colors.Border else Colors.PanelLight
 		end
 		local cash = MarketClient.Me.Cash or 0
-		local devCash = math.max(0, cash - L.CreateCost) * L.DevBuyOptions[devIndex]
+		local free = MarketClient.Me.Extra ~= nil and MarketClient.Me.Extra.FreeCoin == true -- Gold: 1 pro Monat
+		local fee = if free then 0 else L.CreateCost
+		local devCash = math.max(0, cash - fee) * L.DevBuyOptions[devIndex]
 		costLabel.Text = string.format(
 			"Cost: %s + dev buy %s · you get 5%% of the coins · %s Cash",
-			Format.Short(L.CreateCost),
+			if free then "FREE (Gold creator)" else Format.Short(L.CreateCost),
 			Format.Short(devCash),
-			if cash >= L.CreateCost then "enough" else "not enough"
+			if cash >= fee then "enough" else "not enough"
 		)
-		costLabel.TextColor3 = if cash >= L.CreateCost then Colors.Muted else Colors.Red
+		costLabel.TextColor3 = if cash >= fee then Colors.Muted else Colors.Red
 	end
 
 	function self.Show()

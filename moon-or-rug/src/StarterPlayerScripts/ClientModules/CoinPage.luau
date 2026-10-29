@@ -14,6 +14,7 @@ local Screen = require(script.Parent.Screen)
 local MarketClient = require(script.Parent.MarketClient)
 local ChartRenderer = require(script.Parent.ChartRenderer)
 local Indicators = require(ReplicatedStorage.Shared.Indicators)
+local CreatorStyle = require(ReplicatedStorage.Shared.CreatorStyle)
 
 local Colors = Screen.Colors
 local TRADE_ROWS = 8
@@ -396,6 +397,8 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 			local myStats = MarketClient.Me.Stats
 			if boostLeft > 0 then
 				boostButton.Text = "🚀 " .. Format.Duration(boostLeft)
+			elseif (MarketClient.Me.FreeBoosts or 0) > 0 then
+				boostButton.Text = "🚀 BOOST\nFREE ×" .. MarketClient.Me.FreeBoosts -- Bronze-Creator
 			elseif myStats and myStats.Level < Config.Launch.BoostMinLevel then
 				boostButton.Text = "🔒 Lv " .. Config.Launch.BoostMinLevel
 			else
@@ -419,7 +422,7 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 			math.min(100, math.floor(coin.MarketCap / Config.Curve.MigrationMarketCap * 100)),
 			Format.Duration(MarketClient.Age(coin)),
 			coin.Stage,
-			coin.CreatorName
+			CreatorStyle.Name(coin.CreatorName or "?", MarketClient.CreatorTier(coin.CreatorId))
 		)
 
 		for _, def in Indicators.List do
@@ -478,7 +481,7 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 				label.Text = string.format(
 					"%s%s %s %s",
 					if trade.IsNpc then "🤖 " else "",
-					trade.Trader,
+					CreatorStyle.Name(trade.Trader or "?", MarketClient.CreatorTier(trade.TraderId)),
 					if trade.Side == "Buy" then "bought" else "sold",
 					Format.Cash(trade.Cash)
 				)

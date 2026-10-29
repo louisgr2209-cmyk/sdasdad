@@ -31,6 +31,7 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `ReplicatedStorage/Shared/Format.luau` | ReplicatedStorage › Shared › Format | ModuleScript |
 | `ReplicatedStorage/Shared/Indicators.luau` | ReplicatedStorage › Shared › Indicators | ModuleScript |
 | `ReplicatedStorage/Shared/Levels.luau` | ReplicatedStorage › Shared › Levels | ModuleScript |
+| `ReplicatedStorage/Shared/CreatorStyle.luau` | ReplicatedStorage › Shared › CreatorStyle | ModuleScript |
 | `ServerScriptService/Main.server.luau` | ServerScriptService › Main | Script |
 | `ServerScriptService/Services/MarketService.luau` | ServerScriptService › Services › MarketService | ModuleScript |
 | `ServerScriptService/Services/PlayerDataService.luau` | ServerScriptService › Services › PlayerDataService | ModuleScript |
@@ -39,6 +40,7 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `ServerScriptService/Services/LeaderboardService.luau` | ServerScriptService › Services › LeaderboardService | ModuleScript |
 | `ServerScriptService/Services/ProtectionService.luau` | ServerScriptService › Services › ProtectionService | ModuleScript |
 | `ServerScriptService/Services/LaunchService.luau` | ServerScriptService › Services › LaunchService | ModuleScript |
+| `ServerScriptService/Services/CreatorService.luau` | ServerScriptService › Services › CreatorService | ModuleScript |
 | `ServerScriptService/Util/TextFilter.luau` | ServerScriptService › Util › TextFilter | ModuleScript |
 | `ServerScriptService/Util/Ledger.luau` | ServerScriptService › Util › Ledger | ModuleScript |
 | `ServerScriptService/Util/Store.luau` | ServerScriptService › Util › Store | ModuleScript |
@@ -55,6 +57,7 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `StarterPlayerScripts/ClientModules/LeaderboardUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › LeaderboardUI | ModuleScript |
 | `StarterPlayerScripts/ClientModules/DailyRewardUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › DailyRewardUI | ModuleScript |
 | `StarterPlayerScripts/ClientModules/CreateCoinUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › CreateCoinUI | ModuleScript |
+| `StarterPlayerScripts/ClientModules/AdminUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › AdminUI | ModuleScript |
 
 `DebugTerminal` (Phase 1–2) gibt es nicht mehr → in Studio löschen.
 RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStorage › Remotes` selbst.
@@ -73,7 +76,7 @@ RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStora
 | 7 Rugpull | offen |
 | 8 Robux-Produkte + Gamepässe | offen |
 | 9 Globales Leaderboard (globale Coins gibt es durch den Weltmarkt schon) | offen |
-| Creator-Programm A–D | geplant direkt **nach Phase 6** (eigenes Dokument „Moon or Rug – Creator-Programm“) |
+| Creator-Programm A–D | ✅ gebaut, wartet auf Test |
 
 ## Phase 1 – Markt-Engine
 
@@ -123,13 +126,33 @@ Neue Datei: `NpcTraderService`. Der Test-Coin `MTD` ist weg (die NPC-Coins erset
 Rugs ≈ 10 % der Coins. Fehler gefunden und behoben: Zufall-NPCs verkauften alte Coins nur teilweise → Coins starben nie.
 Jetzt steigen alle NPCs aus alten Coins komplett aus.
 
-## Creator-Programm (geplant)
+## Creator-Programm (A–D gebaut)
 
-Quelle: Dokument „Moon or Rug – Creator-Programm“. Start frühestens nach Phase 4, vorher Schritt 0 (Fragen gestellt, Antworten offen).
-- Phase A: `CreatorService` + Speichern + Admin-Liste + Log
-- Phase B: Admin-Panel (nur für Admins sichtbar)
-- Phase C: Titel, Abzeichen, Namensfarbe, Rahmen, Coin-Highlight in Terminal, Leaderboard, Ticker
-- Phase D: Creator-Codes (Eingabe für neue Spieler, Zähler im Creator-Profil)
+Quelle: Dokument „Moon or Rug – Creator-Programm“.
+- **A – `CreatorService`:** Creator-Liste im DataStore `MoR_Creators_v1` (Schlüssel `list`, dazu `log` mit max. 200
+  Admin-Aktionen). Alle Server holen die Liste jede Minute → Freischaltung kommt überall an, auch bei Spielern,
+  die offline waren (Auszahlung beim nächsten Join). Belohnung pro Stufe genau einmal (`Ledger.WalletCreatorGrant`).
+- **B – Admin-Panel (`AdminUI`):** roter „ADMIN“-Knopf oben links (nur Admins, Logo wird dann „🚀“).
+  Roblox-Name, Video-Link (nur Admins sehen ihn), 4 Stufen, GRANT/REVOKE, letzte 10 Aktionen.
+  **Admin-IDs in `Config.Creator.AdminIds` eintragen** (leer = im echten Spiel kein Admin; in Studio ist jeder Admin).
+- **C – Anzeige (`CreatorStyle`):** Starter = Titel, ab Bronze 🎬 vor dem Namen (Rangliste, Live-Trades, „by …“ auf
+  der Coin-Seite, Ticker-Meldungen), Silber = lila Name + lila Rahmen um die Coins in PULSE, Gold = gold.
+- **D – Creator-Code:** im 🎁-Fenster. Gold-Creator wählen ihren Code **einmal** (4–12 Buchstaben/Zahlen, gefiltert,
+  eindeutig über DataStore `MoR_CreatorCodes_v1`) und sehen, wie oft er benutzt wurde.
+  Einlösen: jeder Spieler **einmal im ganzen Spiel**, Konto ≥ 7 Tage, ≥ 30 Min. gespielt, nie der eigene Code →
+  Spieler +2.000 Cash, Creator +500 Cash pro Einlösung (max. 50 pro Tag, kommt übers Postfach, auch offline).
+
+| Stufe | Belohnung (einmal) |
+|---|---|
+| Starter | 10.000 Cash + Titel „Creator“ |
+| Bronze | 25.000 Cash + 🎬 + 1 Gratis-Boost (ohne Level-Pflicht) |
+| Silber | 50.000 Cash + lila Name/Rahmen/Coin-Highlight |
+| Gold | 1 Gratis-Coin pro Monat (nur die 50.000 Erstell-Gebühr fällt weg, Level 10 bleibt Pflicht) + eigener Code + Gold-Farbe |
+
+Schutz: Jede Admin-Anfrage prüft der Server (UserId-Liste / Studio), max. 1 Anfrage pro 2 Sek., Name nur
+`A–Z 0–9 _`. Code-Einlösung: `St.RC` in der Geldbörse (atomar, Wiederholung = nichts doppelt). Creator-Bezahlung
+ohne Wiederholung (im Zweifel fehlt mal 500, aber nie doppelt). Gratis-Boost/-Coin mit Buchungsnummer und
+Rückgabe bei vollen Boost-Plätzen bzw. fehlgeschlagenem Start.
 
 Antworten (Schritt 0):
 | Frage | Antwort |
@@ -137,7 +160,8 @@ Antworten (Schritt 0):
 | Zeitpunkt | direkt nach Phase 6 |
 | Admin-IDs | Platzhalter-Liste in `Config`; in Studio ist jeder Admin (nur zum Testen) |
 | Admin-Panel | „ADMIN“-Knopf (nur Admins) → Fenster: Name, 4 Stufen, Freischalten/Entziehen, letzte 10 Aktionen |
-| Creator-Code | Views bleiben die Hauptbelohnung. Code gibt neuen Spielern ein **Vorteil-Paket**, der Creator bekommt **pro eingelöstem Code extra Belohnung**. Inhalt der Pakete + Code-Format: klären vor Phase D |
+| Creator-Code | Views bleiben die Hauptbelohnung. Spieler: 2.000 Cash, Creator: 500 Cash pro Einlösung (max. 50/Tag). Gold-Creator wählt den Code einmal selbst (4–12, gefiltert, eindeutig) |
+| Missbrauch | Konto ≥ 7 Tage, ≥ 30 Min. gespielt, nie der eigene Code |
 | Wer darf Code eingeben | jeder Spieler genau **einmal** im ganzen Spiel, danach nie wieder |
 | Stufe übersprungen | nur Belohnung dieser Stufe |
 | Entziehen | Titel/Abzeichen/Farben/Highlight/Code weg, ausgezahltes Cash bleibt |
@@ -274,6 +298,8 @@ Ohne Roblox Studio geprüft (Luau ausführen ist hier nicht erlaubt, deshalb kei
 |---|---|
 | `TradeRequest` | Typ-Prüfung (String ≤ 20, "Buy"/"Sell", Zahl 0–1, kein NaN/∞), Coin muss existieren, Cash/Bestand prüft der Server, max. 5/Sek.; bei Spam höchstens 1 Antwort/Sek. |
 | `GetMarketSnapshot` | max. 3 pro 30 Sek., gibt nur eigene Daten + öffentliche Marktdaten zurück (keine fremden Positionen) |
+| `AdminAction` / `AdminLog` | nur Admins (Server prüft), 1 pro 2 Sek., Name `A–Z 0–9 _` 3–20, Link ≤ 200; Nicht-Admins werden geloggt |
+| `SetCreatorCode` / `RedeemCode` | 1 pro 2 Sek., Code-Format + Roblox-Filter, Gold-Pflicht bzw. Einlöse-Regeln (s. Creator-Programm) |
 
 Weitere Punkte: Geld entsteht nie durch Rundung (Auszahlungen abgerundet), Namen werden ohne RichText angezeigt
 (keine Formatierungs-Tricks), geheime NPC-Rug-Pläne bleiben auf dem Server, Gewinne ab 10.000 pro Verkauf
@@ -382,3 +408,6 @@ Postfach) werden nie automatisch wiederholt: im Zweifel geht ein kleiner Betrag 
 | Sicherheit | `GetMarketSnapshot` (große Datenmenge) 2x/Sek. abrufbar | max. 3 pro 30 Sek. |
 | Sicherheit | NPC-Tabellen wuchsen bei langen Servern unbegrenzt | Aufräumen jede Minute |
 | Prüfung | Auf Handys Buttons nur 39–41 pt (Richtwert 44), Text ca. 11 pt | Design-Höhe 560 → 520: Buttons 42–49 pt, Text ca. 12 pt |
+| Creator | Beim Laden wurde die Versicherungs-Liste (`Ins`) verworfen (Fehler aus Phase 5: Versicherung nach Rejoin aus) | `cleanProfile` behält jetzt `Ins`, `Cr`, `FB`, `FCM` |
+| Creator | Hinweis-Fenster (Toast) lag hinter offenen Fenstern → Meldung beim Code-Einlösen unsichtbar | Toast über allen Fenstern |
+| Creator | Spieler, die vor dem Skript joinen (Studio), hätten ihre Stufe erst nach 1 Min. bekommen | auch schon anwesende Spieler werden beim Start geprüft |

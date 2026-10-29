@@ -75,6 +75,7 @@ local function addTrade(coin, side: string, a, tokens: number, cash: number)
 		S = side,
 		N = a.Name,
 		B = a.IsNpc == true,
+		U = if a.IsNpc then nil else a.Key, -- Spieler (für Creator-Abzeichen)
 		K = tokens,
 		M = cash,
 		At = a.Now,
@@ -444,6 +445,9 @@ function Ledger.WalletCreate(wallet, a)
 		Coins = profile.Coins or {},
 		St = profile.St or {},
 		Ins = profile.Ins or {},
+		Cr = profile.Cr,
+		FB = profile.FB,
+		FCM = profile.FCM,
 		Owner = a.Job,
 		HB = a.Now,
 	}, { Ok = true }
@@ -533,6 +537,12 @@ function Ledger.WalletLaunchBegin(wallet, a)
 	if wallet.Cash < a.Fee + a.Cash then
 		return nil, { Error = "Not enough cash" }
 	end
+	if a.FreeMonth then
+		if wallet.FCM == a.FreeMonth then
+			return nil, { Error = "Free coin already used this month" }
+		end
+		wallet.FCM = a.FreeMonth -- Gold-Creator: Gratis-Coin dieses Monats verbraucht
+	end
 	wallet.Cash = floorCents(wallet.Cash - a.Fee - a.Cash)
 	wallet.Seq += 1
 	wallet.P = {
@@ -543,6 +553,7 @@ function Ledger.WalletLaunchBegin(wallet, a)
 		Cash = a.Cash,
 		Info = a.Info,
 		L = a.Level,
+		FM = a.FreeMonth,
 		At = a.Now,
 	}
 	return wallet, { Ok = true, Seq = wallet.Seq }
@@ -568,6 +579,9 @@ function Ledger.WalletFinish(wallet, a)
 			end
 		else
 			wallet.Cash = floorCents(wallet.Cash + (p.Fee or 0) + (p.Cash or 0)) -- alles zurück
+			if p.FM and wallet.FCM == p.FM then
+				wallet.FCM = nil -- Gratis-Coin nicht verbraucht
+			end
 		end
 		return wallet, { Ok = true }
 	end
@@ -593,6 +607,11 @@ function Ledger.WalletHeartbeat(wallet, a)
 		return nil, { Lost = true }
 	end
 	wallet.HB = a.Now
+	if a.Add then
+		local st = wallet.St or {}
+		wallet.St = st
+		st.PT = (st.PT or 0) + a.Add -- Spielzeit in Sek. (Creator-Code erst ab 30 Min.)
+	end
 	return wallet, { Ok = true }
 end
 
@@ -678,6 +697,54 @@ function Ledger.WalletInbox(wallet, a)
 	return wallet, { Ok = true }
 end
 
+-- Creator-Stufe auszahlen: nur wenn höher als alles bisher Bezahlte (jede Stufe einmal, keine Nachzahlung
+-- übersprungener Stufen, nach Gold keine niedrigere). a = { Job, Tier, Cash, FreeBoosts }
+function Ledger.WalletCreatorGrant(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false }
+	end
+	wallet.Cr = wallet.Cr or {}
+	if (wallet.Cr.Max or 0) >= a.Tier then
+		return nil, { Ok = false, Already = true }
+	end
+	wallet.Cr.Max = a.Tier
+	wallet.Cash = floorCents(wallet.Cash + (a.Cash or 0))
+	wallet.FB = (wallet.FB or 0) + (a.FreeBoosts or 0)
+	return wallet, { Ok = true }
+end
+
+-- Creator-Code einlösen: einmal im ganzen Spiel. a = { Job, Code, Cash }
+function Ledger.WalletRedeem(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false, Error = "Session lost – please rejoin" }
+	end
+	local st = wallet.St or {}
+	wallet.St = st
+	if st.RC then
+		return nil, { Ok = false, Error = "You already used a creator code" }
+	end
+	st.RC = a.Code
+	wallet.Cash = floorCents(wallet.Cash + a.Cash)
+	return wallet, { Ok = true }
+end
+
+-- Gratis-Boosts (Bronze-Creator) verbrauchen (-1) oder zurückgeben (+1). a = { Job, Id, Delta }
+function Ledger.WalletFreeBoost(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false }
+	end
+	if wallet.Op == a.Id then
+		return nil, { Ok = true, Already = true }
+	end
+	local count = (wallet.FB or 0) + a.Delta
+	if count < 0 then
+		return nil, { Ok = false }
+	end
+	wallet.Op = a.Id
+	wallet.FB = count
+	return wallet, { Ok = true }
+end
+
 -- Coins entfernen, die es nicht mehr gibt
 function Ledger.WalletForget(wallet, a)
 	if not wallet or wallet.Owner ~= a.Job then
@@ -707,6 +774,9 @@ function Ledger.ProfileFromWallet(wallet)
 		Coins = wallet.Coins,
 		St = wallet.St,
 		Ins = wallet.Ins,
+		Cr = wallet.Cr,
+		FB = wallet.FB,
+		FCM = wallet.FCM,
 		Version = 1,
 	}
 end

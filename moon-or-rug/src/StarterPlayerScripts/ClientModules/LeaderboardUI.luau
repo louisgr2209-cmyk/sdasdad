@@ -10,6 +10,7 @@ local Config = require(ReplicatedStorage.Shared.Config)
 local Format = require(ReplicatedStorage.Shared.Format)
 local Screen = require(script.Parent.Screen)
 local MarketClient = require(script.Parent.MarketClient)
+local CreatorStyle = require(ReplicatedStorage.Shared.CreatorStyle)
 
 local Colors = Screen.Colors
 local ROW = 30
@@ -201,10 +202,11 @@ function LeaderboardUI.new(parent: GuiObject)
 			local list = (boards and boards[board]) or {}
 			for index, entry in list do
 				local r = row(column, index)
-				r.Name.Text = index .. ". " .. entry.N
+				local tier = MarketClient.CreatorTier(entry.U)
+				r.Name.Text = index .. ". " .. CreatorStyle.Name(entry.N, tier)
 				r.Value.Text = Format.Short(entry.V)
 				r.Value.TextColor3 = if entry.V >= 0 then Colors.Green else Colors.Red
-				r.Name.TextColor3 = if index <= 3 then Colors.Accent else Colors.Text
+				r.Name.TextColor3 = CreatorStyle.Color(tier) or (if index <= 3 then Colors.Accent else Colors.Text)
 			end
 			for index = #list + 1, #column.Rows do
 				column.Rows[index].Frame.Visible = false

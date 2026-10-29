@@ -25,6 +25,7 @@ local PlayerDataService = {}
 -- Werden von Main gesetzt (MarketService), damit es keine gegenseitigen requires gibt
 PlayerDataService.RecoverPending = nil :: ((Player) -> boolean)?
 PlayerDataService.WaitIdle = nil :: ((Player, number) -> ())?
+PlayerDataService.ExtraState = nil :: ((Player) -> any)? -- zusätzliche Infos für den Client (CreatorService)
 
 local walletsMap = Store.Map(W.WalletsMap, W.WalletExpiration)
 local coinsMap = Store.Map(W.CoinsMap, W.CoinExpiration)
@@ -177,6 +178,8 @@ function PlayerDataService.BuildState(player: Player)
 		Stats = PlayerDataService.GetStats(player),
 		Insured = profile.Wallet.Ins or {},
 		MyCoin = profile.Wallet.MyCoin,
+		FreeBoosts = profile.Wallet.FB or 0,
+		Extra = if PlayerDataService.ExtraState then PlayerDataService.ExtraState(player) else nil, -- Creator-Infos
 		Daily = {
 			CanClaim = not claimed,
 			Streak = if claimed then st.DS else nextStreak - 1, -- bereits geschaffte Tage in Folge
@@ -223,6 +226,10 @@ local function cleanProfile(data)
 		P = if type(data.P) == "table" then data.P else nil,
 		Coins = coins,
 		St = stats,
+		Ins = if type(data.Ins) == "table" then data.Ins else nil,
+		Cr = if type(data.Cr) == "table" and isValidNumber(data.Cr.Max) then { Max = data.Cr.Max } else nil,
+		FB = if isValidNumber(data.FB) and data.FB >= 0 then math.floor(data.FB) else nil,
+		FCM = if isValidNumber(data.FCM) then data.FCM else nil,
 	}
 end
 
@@ -269,6 +276,9 @@ local function drainInbox(player: Player)
 	-- Hinweise, woher das Geld kommt
 	if isValidNumber(content.Refund) and content.Refund > 0 then
 		PlayerDataService.Notify(player, true, string.format("🛡 Rug refund: +%.2f Cash", content.Refund))
+	end
+	if isValidNumber(content.Code) and content.Code > 0 then
+		PlayerDataService.Notify(player, true, string.format("🎬 Your creator code was used: +%.2f Cash", content.Code))
 	end
 	if isValidNumber(content.SL) and content.SL > 0 then
 		PlayerDataService.Notify(player, true, string.format("🛑 Stop-loss sold while you were away: +%.2f Cash", content.SL))
@@ -424,6 +434,7 @@ function PlayerDataService.Init()
 					local ok, result = PlayerDataService.WalletUpdate(player, Ledger.WalletHeartbeat, {
 						Job = WorldService.JobId,
 						Now = now(),
+						Add = W.HeartbeatInterval, -- Spielzeit mitzählen
 					})
 					if ok and result and result.Lost and player.Parent then
 						-- Geldbörse gehört inzwischen einem anderen Server: sicherheitshalber raus
