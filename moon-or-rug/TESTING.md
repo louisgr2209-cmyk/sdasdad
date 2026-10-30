@@ -5,11 +5,15 @@ Kurz und der Reihe nach. Wenn etwas nicht geht: **Screenshot vom Output-Fenster*
 ## 1. Vorbereiten (einmal)
 
 - [ ] Neue Place in Studio öffnen (am besten eine **eigene Test-Place**, nicht das echte Spiel).
-- [ ] In ReplicatedStorage einen Ordner **Shared**, in ServerScriptService die Ordner **Services** und **Util**,
-      in StarterPlayer › StarterPlayerScripts einen Ordner **ClientModules** anlegen.
-- [ ] Jede Datei aus `moon-or-rug/src/` als Script einfügen – **Name und Typ** stehen in `PROGRESS.md`
-      (Tabelle „So kommen die Dateien nach Studio“). Wichtig: `Main` = **Script**, `ClientMain` = **LocalScript**,
-      alles andere = **ModuleScript**. Name ohne `.luau`.
+- [ ] `moon-or-rug/MoonOrRug.rbxmx` von GitHub herunterladen (Branch `moon-or-rug`).
+- [ ] Im Explorer Rechtsklick auf **Workspace › „Insert from File…“** → die Datei wählen.
+      Es erscheinen 3 Ordner mit allen Skripten (Namen und Typen stimmen schon).
+- [ ] **Vor dem Play-Drücken** verschieben (ziehen):
+      - Ordner `Shared` → in **ReplicatedStorage**
+      - `Main`, `Services`, `Util` → in **ServerScriptService**
+      - `ClientMain`, `ClientModules` → in **StarterPlayer › StarterPlayerScripts**
+      - die 3 leeren Ordner im Workspace löschen.
+- [ ] (Ohne Import-Datei geht es auch von Hand: Tabelle in `PROGRESS.md`.)
 - [ ] Output-Fenster öffnen (Ansicht › Output).
 - [ ] Erst **ohne** API-Zugriff testen (lokaler Testmodus, nichts wird gespeichert).
       Später: Spieleinstellungen › Sicherheit › „Studio-Zugriff auf API-Dienste“ an (dann wird gespeichert).
@@ -17,7 +21,10 @@ Kurz und der Reihe nach. Wenn etwas nicht geht: **Screenshot vom Output-Fenster*
 ## 2. Start
 
 - [ ] Play drücken. Im Output steht `[MoonOrRug] Server ready`.
+- [ ] **Tutorial** (Pflicht): alles ist abgedunkelt außer der Aufgabe → Coin antippen → BUY → SELL ALL → „LET'S TRADE“.
+      Ohne API-Zugriff wird nichts gespeichert, das Tutorial kommt dann bei jedem Play wieder (gewollt).
 - [ ] Vollbild-Terminal, kein Avatar. Oben: Logo bzw. 🚀 + **ADMIN**, Tabs, 🛒, 🎁, Cash.
+- [ ] Sounds: leiser Klick bei Knöpfen, Ping bei Erfolg. Im 🛒-Fenster oben „🔊 SOUND ON/OFF“.
 - [ ] Nach ein paar Sekunden erscheinen NPC-Coins in PULSE, Ticker unten läuft.
 
 ## 3. Traden

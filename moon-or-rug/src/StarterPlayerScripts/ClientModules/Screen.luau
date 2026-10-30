@@ -10,6 +10,7 @@ local StarterGui = game:GetService("StarterGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Config = require(ReplicatedStorage.Shared.Config)
+local SoundFx = require(script.Parent.SoundFx)
 
 local Screen = {}
 
@@ -96,6 +97,9 @@ function Screen.Button(props: { [string]: any }): TextButton
 	end
 	local button = Screen.New("TextButton", defaults)
 	Screen.Corner(10).Parent = button
+	button.Activated:Connect(function()
+		SoundFx.Play("Click") -- dezenter Klick (abschaltbar)
+	end)
 	return button
 end
 

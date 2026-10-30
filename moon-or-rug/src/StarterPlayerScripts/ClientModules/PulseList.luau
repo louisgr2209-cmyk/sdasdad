@@ -141,6 +141,7 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 			Parent = column,
 		})
 		self.Columns[def.Stage] = { Title = title, List = list, Name = def.Title }
+		self.ColumnsArea = columnsArea -- für das Tutorial (Schritt 1: Coin antippen)
 	end
 
 	-- Eine Karte pro Coin, wird wiederverwendet

@@ -171,6 +171,16 @@ Config.Shop = {
 	VipCacheSeconds = 1800, -- Host merkt sich VIP-Status für die weltweite Rangliste 30 Min.
 }
 
+-- Sounds (dezent, im Portfolio abschaltbar). Eingebaute Roblox-Dateien; bei Bedarf durch "rbxassetid://…" ersetzen.
+Config.Sounds = {
+	Volume = 0.35,
+	Click = { Id = "rbxasset://sounds/button.wav", Speed = 1.2 },
+	Success = { Id = "rbxasset://sounds/electronicpingshort.wav", Speed = 1.2 },
+	Error = { Id = "rbxasset://sounds/electronicpingshort.wav", Speed = 0.7 },
+	LevelUp = { Id = "rbxasset://sounds/electronicpingshort.wav", Speed = 1.6 },
+	Rug = { Id = "rbxasset://sounds/electronicpingshort.wav", Speed = 0.45 },
+}
+
 -- Creator-Programm (eigenes Dokument „Moon or Rug – Creator-Programm“)
 Config.Creator = {
 	-- Roblox-UserIds der Admins (nur sie sehen das Admin-Panel). In Roblox Studio ist jeder Admin (nur zum Testen).

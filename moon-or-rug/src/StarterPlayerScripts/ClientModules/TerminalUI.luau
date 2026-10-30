@@ -20,6 +20,8 @@ local DailyRewardUI = require(script.Parent.DailyRewardUI)
 local CreateCoinUI = require(script.Parent.CreateCoinUI)
 local AdminUI = require(script.Parent.AdminUI)
 local ShopUI = require(script.Parent.ShopUI)
+local TutorialUI = require(script.Parent.TutorialUI)
+local SoundFx = require(script.Parent.SoundFx)
 local CreatorStyle = require(ReplicatedStorage.Shared.CreatorStyle)
 local Levels = require(ReplicatedStorage.Shared.Levels)
 
@@ -243,6 +245,9 @@ function TerminalUI.Start()
 	})
 	local newsQueue = {}
 	MarketClient.News.Event:Connect(function(news)
+		if news.Kind == "Rug" then
+			SoundFx.Play("Rug")
+		end
 		table.insert(newsQueue, news)
 		while #newsQueue > 10 do
 			table.remove(newsQueue, 1)
@@ -281,6 +286,7 @@ function TerminalUI.Start()
 	Screen.Corner(10).Parent = toast
 	local toastId = 0
 	MarketClient.TradeResult.Event:Connect(function(ok: boolean, message: string)
+		SoundFx.Play(if ok then "Success" else "Error")
 		toastId += 1
 		local myId = toastId
 		toast.Text = message
@@ -338,8 +344,35 @@ function TerminalUI.Start()
 	local admin = AdminUI.new(root)
 	adminButton.Activated:Connect(admin.Show)
 
+	-- Pflicht-Tutorial für neue Spieler (einmal, sobald die Daten da sind)
+	local tutorialStarted = false
+	local function checkTutorial()
+		local settings = MarketClient.Me.Settings
+		if tutorialStarted or not settings or settings.Tutorial then
+			return
+		end
+		tutorialStarted = true
+		show("Pulse")
+		TutorialUI.Start(root, {
+			Pulse = function()
+				return pages.Pulse.View.ColumnsArea
+			end,
+			Buy = function()
+				return pages.Coin.View.BuyRow
+			end,
+			Sell = function()
+				return pages.Coin.View.SellRow
+			end,
+			CoinOpen = function()
+				return if current == "Coin" then pages.Coin.View.CoinId else nil
+			end,
+		})
+	end
+
 	local lastLevel = nil
 	MarketClient.Changed.Event:Connect(function()
+		SoundFx.Muted = MarketClient.Me.Settings ~= nil and MarketClient.Me.Settings.Mute == true
+		checkTutorial()
 		local dailyState = MarketClient.Me.Daily
 		dailyButton.BackgroundColor3 = if dailyState and dailyState.CanClaim then Colors.Accent else Colors.PanelLight
 		daily.Refresh()
@@ -361,6 +394,7 @@ function TerminalUI.Start()
 			levelLabel.Text = string.format("Lv %d · %s", level, Levels.Rank(level).Rank)
 			xpFill.Size = UDim2.fromScale(math.clamp(progress, 0, 1), 1)
 			if lastLevel and level > lastLevel then
+				SoundFx.Play("LevelUp")
 				showLevelUp(level)
 			end
 			lastLevel = level

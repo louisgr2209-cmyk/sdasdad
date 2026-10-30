@@ -260,9 +260,10 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 				end
 			end)
 		end
+		return row
 	end
-	tradeRow(2, "Buy", Colors.Green)
-	tradeRow(3, "Sell", Colors.Red)
+	self.BuyRow = tradeRow(2, "Buy", Colors.Green) -- für das Tutorial
+	self.SellRow = tradeRow(3, "Sell", Colors.Red)
 
 	-- Schutz: Stop-Loss (ab Level 3) und Versicherung (ab Level 5)
 	local protectRow = Screen.New("Frame", {

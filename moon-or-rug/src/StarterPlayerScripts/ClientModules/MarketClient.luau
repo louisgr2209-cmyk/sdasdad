@@ -243,6 +243,12 @@ function MarketClient.ProInfo(coinId: string)
 	return if ok then list else nil
 end
 
+-- Einstellung speichern: "Tutorial" (erledigt) oder "Mute" (true/false)
+function MarketClient.SetFlag(name: string, value: boolean?)
+	local remote = remotes:WaitForChild("SetFlag") :: RemoteEvent
+	remote:FireServer(name, value)
+end
+
 -- Roblox-Freund? (key = UserId als Text oder Zahl)
 function MarketClient.IsFriend(key: any): boolean
 	return key ~= nil and MarketClient.Friends[tostring(key)] == true

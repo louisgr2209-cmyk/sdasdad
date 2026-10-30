@@ -77,7 +77,11 @@ function WorldService.Start()
 	task.spawn(function()
 		while true do
 			task.wait(W.TickInterval)
-			tick()
+			local ok, err = pcall(tick)
+			if not ok then
+				isHost = false -- im Zweifel nicht Host (nie zwei Hosts gleichzeitig)
+				warn("[World] tick: " .. tostring(err))
+			end
 		end
 	end)
 	game:BindToClose(function()

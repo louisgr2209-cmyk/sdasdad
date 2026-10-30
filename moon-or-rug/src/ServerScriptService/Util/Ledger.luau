@@ -804,6 +804,20 @@ function Ledger.WalletRedeem(wallet, a)
 	return wallet, { Ok = true }
 end
 
+-- Einstellung/Fortschritt merken (nur erlaubte Schlüssel, prüft der Service). a = { Job, Key, Value }
+function Ledger.WalletSetFlag(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false }
+	end
+	local st = wallet.St or {}
+	wallet.St = st
+	if st[a.Key] == a.Value then
+		return nil, { Ok = true }
+	end
+	st[a.Key] = a.Value
+	return wallet, { Ok = true }
+end
+
 -- Rug-Lizenz kaufen (gilt für LicenseUses Rugpulls). a = { Job, Id, Cost, Uses }. Gleiche Id = nichts doppelt.
 function Ledger.WalletBuyLicense(wallet, a)
 	if not wallet or wallet.Owner ~= a.Job then

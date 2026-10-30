@@ -60,6 +60,11 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `StarterPlayerScripts/ClientModules/CreateCoinUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › CreateCoinUI | ModuleScript |
 | `StarterPlayerScripts/ClientModules/AdminUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › AdminUI | ModuleScript |
 | `StarterPlayerScripts/ClientModules/ShopUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › ShopUI | ModuleScript |
+| `StarterPlayerScripts/ClientModules/TutorialUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › TutorialUI | ModuleScript |
+| `StarterPlayerScripts/ClientModules/SoundFx.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › SoundFx | ModuleScript |
+
+**Schneller:** `MoonOrRug.rbxmx` enthält alle Skripte mit richtigem Namen/Typ (Studio: Rechtsklick › Insert from File,
+dann die Ordner verschieben – siehe `TESTING.md`). Neu bauen nach Code-Änderungen: `python3 tools/build_rbxmx.py`.
 
 `DebugTerminal` (Phase 1–2) gibt es nicht mehr → in Studio löschen.
 RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStorage › Remotes` selbst.
@@ -127,6 +132,23 @@ Neue Datei: `NpcTraderService`. Der Test-Coin `MTD` ist weg (die NPC-Coins erset
 **Simulation (Python-Nachbau, 3 Std. ohne Spieler):** ca. 1,3 Trades/Sek., 25–32 lebende Coins, NPC-Geld stabil,
 Rugs ≈ 10 % der Coins. Fehler gefunden und behoben: Zufall-NPCs verkauften alte Coins nur teilweise → Coins starben nie.
 Jetzt steigen alle NPCs aus alten Coins komplett aus.
+
+## Zusatz (nach Phase 9, deine Entscheidungen)
+
+| Frage | Antwort |
+|---|---|
+| Import-Datei | ja: `MoonOrRug.rbxmx`, gebaut aus `src/` (Prüfung: alle 36 Skripte zeichengleich) |
+| Tutorial | **Pflicht** für neue Spieler, kurz: Coin antippen → BUY → SELL ALL → fertig. Nicht überspringbar. |
+| Sounds | wenige, dezent: Klick, Erfolg, Fehler, Level-Up, Rugpull. Schalter im 🛒-Fenster, wird gespeichert |
+| Prestige-Reset | später (nach dem Test) |
+
+- Tutorial: alles außer der aktuellen Aufgabe ist abgedunkelt und gesperrt (4 Flächen um ein „Loch“, folgt jeder
+  Bildschirmgröße). Erledigt wird im Spielstand gespeichert (`St.TU`), Remote `SetFlag` erlaubt nur „Tutorial
+  erledigt“ und „Sounds an/aus“.
+- Sounds: eingebaute Roblox-Dateien (`rbxasset://sounds/…`) in `Config.Sounds` – falls einer nicht klingt,
+  dort durch eine `rbxassetid://…` aus dem Creator Store ersetzen.
+- Prüfung: neuer strengerer Prüfer (`scope_check.py`) findet Variablen, die in einer Funktion vor ihrem `local`
+  benutzt werden (hätte den `stats`-Fehler aus Phase 9 gefunden). Alle Endlos-Schleifen haben jetzt Fehlerschutz.
 
 ## Phase 9 – Test + Balancing (Plan-Roadmap)
 
@@ -379,6 +401,7 @@ Ohne Roblox Studio geprüft (Luau ausführen ist hier nicht erlaubt, deshalb kei
 | `ShopTestBuy` | nur in Studio und nur für Ids = 0 (sonst ignoriert), 1 pro 2 Sek. |
 | `ProInfo` | nur mit Pro-Gamepass, 1 pro 2 Sek., Coin-Id ≤ 20; gibt nur Namen + Anteile der Top 10 zurück |
 | `RugPull` / `BuyLicense` | 1 pro 2 Sek., Coin-Id ≤ 20 Zeichen, alles Weitere prüft der Server (Ersteller, Level 25, Lizenz, Alter, Cooldown) |
+| `SetFlag` | max. 2 pro Sek., nur „Tutorial“ (kann nur auf erledigt) und „Mute“ (true/false) |
 | `SetCreatorCode` / `RedeemCode` | 1 pro 2 Sek., Code-Format + Roblox-Filter, Gold-Pflicht bzw. Einlöse-Regeln (s. Creator-Programm) |
 
 Weitere Punkte: Geld entsteht nie durch Rundung (Auszahlungen abgerundet), Namen werden ohne RichText angezeigt
@@ -492,5 +515,7 @@ Postfach) werden nie automatisch wiederholt: im Zweifel geht ein kleiner Betrag 
 | 7 | Beim Laden aus dem DataStore gingen Text-Werte verloren (eingelöster Creator-Code) → nach langer Pause hätte man nochmal einlösen können | Statistik behält jetzt auch kurze Texte |
 | 7 | „Mein Coin“ wurde nicht gespeichert → nach langer Pause ein zweiter aktiver Coin möglich | `MyCoin` (und `RL`) im Profil gespeichert |
 | 7 | Ersteller hätte die 1-Min.-Regel mit einem Mini-Kauf zurücksetzen können | letzter Verkauf bleibt beim Kauf erhalten |
+| Prüfung | Lebenszeichen-, Postfach- und Autosave-Schleife ohne Fehlerschutz: ein Fehler hätte z. B. das Lebenszeichen für immer gestoppt (Geldbörse wirkt verwaist) | alle mit `pcall`; Welt-Takt setzt bei Fehler „nicht Host“ (nie zwei Hosts) |
+| 9 | Legend-Rahmen nutzte eine Variable vor ihrer Deklaration (wäre immer aus gewesen) | behoben + neuer Prüfer `scope_check.py` |
 | Creator | Hinweis-Fenster (Toast) lag hinter offenen Fenstern → Meldung beim Code-Einlösen unsichtbar | Toast über allen Fenstern |
 | Creator | Spieler, die vor dem Skript joinen (Studio), hätten ihre Stufe erst nach 1 Min. bekommen | auch schon anwesende Spieler werden beim Start geprüft |

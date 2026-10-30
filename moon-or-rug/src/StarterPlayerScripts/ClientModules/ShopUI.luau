@@ -1,5 +1,6 @@
 -- ShopUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/ShopUI
 -- Shop-Fenster (🛒 oben): alle Robux-Produkte (Gutscheine) und Gamepässe auf einen Blick.
+-- Oben rechts zusätzlich der Sound-Schalter (wird gespeichert).
 -- Fester Inhalt, keine Zufalls-Käufe. Der Server bucht jeden Kauf genau einmal.
 --
 -- Platz: Fenster 85 % breit, 484 hoch (passt in die kleinste Höhe von 496), Liste scrollt.
@@ -55,16 +56,16 @@ function ShopUI.new(parent: GuiObject)
 		Text = "🛒 SHOP",
 		Font = Screen.Fonts.Bold,
 		TextSize = 30,
-		Size = UDim2.new(1, -180, 0, 36),
+		Size = UDim2.new(1, -360, 0, 36),
 		ZIndex = 42,
 		Parent = panel,
 	})
 	Screen.Label({
-		Text = "Fixed items only · Cash can never be turned back into Robux",
+		Text = "Fixed items · Cash never turns into Robux",
 		TextSize = 20,
 		TextColor3 = Colors.Muted,
 		Position = UDim2.fromOffset(0, 38),
-		Size = UDim2.new(1, -180, 0, 24),
+		Size = UDim2.new(1, -360, 0, 24),
 		ZIndex = 42,
 		Parent = panel,
 	})
@@ -76,6 +77,19 @@ function ShopUI.new(parent: GuiObject)
 		ZIndex = 42,
 		Parent = panel,
 	})
+
+	local soundButton = Screen.Button({
+		TextSize = 22,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -172, 0, 0),
+		Size = UDim2.fromOffset(176, 72),
+		ZIndex = 42,
+		Parent = panel,
+	})
+	soundButton.Activated:Connect(function()
+		local muted = MarketClient.Me.Settings ~= nil and MarketClient.Me.Settings.Mute == true
+		MarketClient.SetFlag("Mute", not muted)
+	end)
 
 	local list = Screen.Scroller({
 		Position = UDim2.fromOffset(0, 84),
@@ -143,6 +157,8 @@ function ShopUI.new(parent: GuiObject)
 
 	function self.Refresh()
 		local me = MarketClient.Me
+		local muted = me.Settings ~= nil and me.Settings.Mute == true
+		soundButton.Text = if muted then "🔇 SOUND OFF" else "🔊 SOUND ON"
 		local vouchers = me.Vouchers or {}
 		local have = {
 			CreateCoin = vouchers.CT or 0,

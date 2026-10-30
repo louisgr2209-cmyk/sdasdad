@@ -14,6 +14,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Levels = require(ReplicatedStorage.Shared.Levels)
 local Remotes = require(ServerScriptService.Util.Remotes)
+local RateLimiter = require(ServerScriptService.Util.RateLimiter)
 local Store = require(ServerScriptService.Util.Store)
 local Ledger = require(ServerScriptService.Util.Ledger)
 local WorldService = require(ServerScriptService.Services.WorldService)
@@ -189,6 +190,10 @@ function PlayerDataService.BuildState(player: Player)
 			CanClaim = not claimed,
 			Streak = if claimed then st.DS else nextStreak - 1, -- bereits geschaffte Tage in Folge
 			Next = nextStreak, -- dieser Tag ist als Nächstes dran
+		},
+		Settings = {
+			Tutorial = st.TU == 1, -- Pflicht-Tutorial erledigt
+			Mute = st.MU == 1, -- Sounds aus
 		},
 	}
 end
@@ -449,62 +454,94 @@ end
 
 ------------------------------------------------------------------------
 
+-- Einstellungen vom Client: nur Tutorial (einmal auf "fertig") und Sounds an/aus
+local flagLimiter = RateLimiter.new(2, 1)
+local function onSetFlag(player: Player, name: any, on: any)
+	if not flagLimiter:Allow(player) or not PlayerDataService.GetWallet(player) then
+		return
+	end
+	local key, value
+	if name == "Tutorial" then
+		key, value = "TU", 1 -- kann nur erledigt werden, nie zurück
+	elseif name == "Mute" and typeof(on) == "boolean" then
+		key, value = "MU", if on then 1 else 0
+	else
+		return
+	end
+	local ok = PlayerDataService.WalletUpdate(player, Ledger.WalletSetFlag, {
+		Job = WorldService.JobId,
+		Key = key,
+		Value = value,
+	})
+	if ok then
+		PlayerDataService.PushState(player)
+	end
+end
+
 function PlayerDataService.Init()
 	stateEvent = Remotes.Event("PlayerState")
+	Remotes.Event("SetFlag").OnServerEvent:Connect(onSetFlag)
+	Players.PlayerRemoving:Connect(function(player)
+		flagLimiter:Remove(player)
+	end)
 	Players.PlayerAdded:Connect(load)
 	Players.PlayerRemoving:Connect(unload)
 	for _, player in Players:GetPlayers() do
 		task.spawn(load, player)
 	end
 
-	-- Lebenszeichen: zeigt allen Servern, dass dieser Server die Geldbörse noch hält
-	task.spawn(function()
-		while true do
-			task.wait(W.HeartbeatInterval)
-			-- Kopie der Liste: während der Speicherzugriffe kommen/gehen Spieler
-			local list = {}
-			for player, profile in profiles do
-				table.insert(list, { player, profile })
+	-- Endlos-Takt mit Fehlerschutz: ein Fehler stoppt nie die Schleife (sonst z. B. kein Lebenszeichen mehr)
+	local function loop(name: string, interval: number, fn: () -> ())
+		task.spawn(function()
+			while true do
+				task.wait(interval)
+				local ok, err = pcall(fn)
+				if not ok then
+					warn("[PlayerData] " .. name .. ": " .. tostring(err))
+				end
 			end
-			for _, entry in list do
-				local player, profile = entry[1], entry[2]
-				if profile.Loaded and profiles[player] == profile then
-					local ok, result = PlayerDataService.WalletUpdate(player, Ledger.WalletHeartbeat, {
-						Job = WorldService.JobId,
-						Now = now(),
-						Add = W.HeartbeatInterval, -- Spielzeit mitzählen
-					})
-					if ok and result and result.Lost and player.Parent then
-						-- Geldbörse gehört inzwischen einem anderen Server: sicherheitshalber raus
-						profiles[player] = nil
-						player:Kick("Your session moved to another server. Please rejoin.")
-					end
+		end)
+	end
+
+	-- Lebenszeichen: zeigt allen Servern, dass dieser Server die Geldbörse noch hält
+	loop("heartbeat", W.HeartbeatInterval, function()
+		-- Kopie der Liste: während der Speicherzugriffe kommen/gehen Spieler
+		local list = {}
+		for player, profile in profiles do
+			table.insert(list, { player, profile })
+		end
+		for _, entry in list do
+			local player, profile = entry[1], entry[2]
+			if profile.Loaded and profiles[player] == profile then
+				local ok, result = PlayerDataService.WalletUpdate(player, Ledger.WalletHeartbeat, {
+					Job = WorldService.JobId,
+					Now = now(),
+					Add = W.HeartbeatInterval, -- Spielzeit mitzählen
+				})
+				if ok and result and result.Lost and player.Parent then
+					-- Geldbörse gehört inzwischen einem anderen Server: sicherheitshalber raus
+					profiles[player] = nil
+					player:Kick("Your session moved to another server. Please rejoin.")
 				end
 			end
 		end
 	end)
 
 	-- Postfach der Spieler regelmäßig prüfen
-	task.spawn(function()
-		while true do
-			task.wait(W.InboxInterval)
-			for _, player in Players:GetPlayers() do
-				local profile = profiles[player]
-				if profile and profile.Loaded then
-					task.spawn(drainInbox, player)
-				end
+	loop("inbox", W.InboxInterval, function()
+		for _, player in Players:GetPlayers() do
+			local profile = profiles[player]
+			if profile and profile.Loaded then
+				task.spawn(drainInbox, player)
 			end
 		end
 	end)
 
 	-- Automatisch speichern
-	task.spawn(function()
-		while true do
-			task.wait(W.AutosaveInterval)
-			for player, profile in profiles do
-				if profile.Loaded and profile.Dirty then
-					task.spawn(save, player)
-				end
+	loop("autosave", W.AutosaveInterval, function()
+		for player, profile in profiles do
+			if profile.Loaded and profile.Dirty then
+				task.spawn(save, player)
 			end
 		end
 	end)
