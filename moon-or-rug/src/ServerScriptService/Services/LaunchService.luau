@@ -29,7 +29,9 @@ local function onCreateCoin(player: Player, name: any, ticker: any, desc: any, i
 	if typeof(devIndex) ~= "number" or not L.DevBuyOptions[devIndex] then
 		return
 	end
-	if PlayerDataService.GetStats(player).Level < L.CreateMinLevel then
+	local wallet = PlayerDataService.GetWallet(player)
+	local voucher = ((wallet.V and wallet.V.CT) or 0) > 0 -- Robux-Gutschein: ohne Level
+	if not voucher and PlayerDataService.GetStats(player).Level < L.CreateMinLevel then
 		PlayerDataService.Notify(player, false, "Creating coins unlocks at level " .. L.CreateMinLevel)
 		return
 	end

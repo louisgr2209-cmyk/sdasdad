@@ -76,6 +76,7 @@ local function addTrade(coin, side: string, a, tokens: number, cash: number)
 		N = a.Name,
 		B = a.IsNpc == true,
 		U = if a.IsNpc then nil else a.Key, -- Spieler (für Creator-Abzeichen)
+		P = if a.Vip then true else nil, -- VIP-Gamepass (⭐)
 		K = tokens,
 		M = cash,
 		At = a.Now,
@@ -486,6 +487,8 @@ function Ledger.WalletCreate(wallet, a)
 		FCM = profile.FCM,
 		MyCoin = profile.MyCoin,
 		RL = profile.RL,
+		V = profile.V,
+		Rc = profile.Rc,
 		Owner = a.Job,
 		HB = a.Now,
 	}, { Ok = true }
@@ -591,6 +594,14 @@ function Ledger.WalletLaunchBegin(wallet, a)
 	if wallet.Cash < a.Fee + a.Cash then
 		return nil, { Error = "Not enough cash" }
 	end
+	if a.Voucher then
+		local v = wallet.V or {}
+		if (v.CT or 0) <= 0 then
+			return nil, { Error = "No coin voucher left" }
+		end
+		v.CT -= 1 -- Robux-Gutschein verbraucht (bei Fehlschlag zurück)
+		wallet.V = v
+	end
 	if a.FreeMonth then
 		if wallet.FCM == a.FreeMonth then
 			return nil, { Error = "Free coin already used this month" }
@@ -608,6 +619,7 @@ function Ledger.WalletLaunchBegin(wallet, a)
 		Info = a.Info,
 		L = a.Level,
 		FM = a.FreeMonth,
+		VC = a.Voucher or nil,
 		At = a.Now,
 	}
 	return wallet, { Ok = true, Seq = wallet.Seq }
@@ -635,6 +647,10 @@ function Ledger.WalletFinish(wallet, a)
 			wallet.Cash = floorCents(wallet.Cash + (p.Fee or 0) + (p.Cash or 0)) -- alles zurück
 			if p.FM and wallet.FCM == p.FM then
 				wallet.FCM = nil -- Gratis-Coin nicht verbraucht
+			end
+			if p.VC then
+				wallet.V = wallet.V or {}
+				wallet.V.CT = (wallet.V.CT or 0) + 1 -- Gutschein zurück
 			end
 		end
 		return wallet, { Ok = true }
@@ -807,6 +823,63 @@ function Ledger.WalletBuyLicense(wallet, a)
 	return wallet, { Ok = true }
 end
 
+-- Robux-Kauf gutschreiben (ProcessReceipt). a = { Job, Receipt, Grant ("CT"/"FB"/"HT"/"RL"), Uses }
+-- Die Kauf-Nummer wird gemerkt: Roblox wiederholt ProcessReceipt, bis "granted" kommt -> nie doppelt.
+function Ledger.WalletGrantProduct(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false }
+	end
+	wallet.Rc = wallet.Rc or {}
+	if table.find(wallet.Rc, a.Receipt) then
+		return nil, { Ok = true, Already = true }
+	end
+	table.insert(wallet.Rc, a.Receipt)
+	while #wallet.Rc > Config.Shop.ReceiptsKept do
+		table.remove(wallet.Rc, 1)
+	end
+	if a.Grant == "FB" then
+		wallet.FB = (wallet.FB or 0) + 1
+	elseif a.Grant == "RL" then
+		wallet.RL = (wallet.RL or 0) + a.Uses
+	else
+		wallet.V = wallet.V or {}
+		wallet.V[a.Grant] = (wallet.V[a.Grant] or 0) + 1
+	end
+	return wallet, { Ok = true }
+end
+
+-- Gutschein verbrauchen (-1) oder zurückgeben (+1). a = { Job, Id, Kind, Delta }. Gleiche Id = nichts doppelt.
+function Ledger.WalletVoucher(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false }
+	end
+	if wallet.Op == a.Id then
+		return nil, { Ok = true, Already = true }
+	end
+	wallet.V = wallet.V or {}
+	local count = (wallet.V[a.Kind] or 0) + a.Delta
+	if count < 0 then
+		return nil, { Ok = false }
+	end
+	wallet.Op = a.Id
+	wallet.V[a.Kind] = count
+	return wallet, { Ok = true }
+end
+
+-- Highlight am eigenen Coin (rein optisch). a = { Key, Id, Now, Seconds }. Gleiche Id = schon gebucht.
+function Ledger.CoinHighlight(coin, a)
+	if not coin or coin.CK ~= a.Key or coin.Dead then
+		return nil, { Ok = false, Error = "Coin not found" }
+	end
+	if coin.HLI == a.Id then
+		return nil, { Ok = true }
+	end
+	coin.HL = math.max(coin.HL or 0, a.Now) + a.Seconds -- läuft schon eins: verlängern
+	coin.HLI = a.Id
+	coin.V += 1
+	return coin, { Ok = true, Until = coin.HL }
+end
+
 -- Gratis-Boosts (Bronze-Creator) verbrauchen (-1) oder zurückgeben (+1). a = { Job, Id, Delta }
 function Ledger.WalletFreeBoost(wallet, a)
 	if not wallet or wallet.Owner ~= a.Job then
@@ -858,6 +931,8 @@ function Ledger.ProfileFromWallet(wallet)
 		FCM = wallet.FCM,
 		MyCoin = wallet.MyCoin,
 		RL = wallet.RL,
+		V = wallet.V,
+		Rc = wallet.Rc,
 		Version = 1,
 	}
 end

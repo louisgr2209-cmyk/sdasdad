@@ -76,10 +76,27 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		Visible = false,
 		Parent = left,
 	})
+	-- Mit Cash, wenn möglich; sonst Robux-Kauf (49 R$, ohne Level), danach automatisch boosten
+	local function canBoostWithCash(): boolean
+		local me = MarketClient.Me
+		local level = if me.Stats then me.Stats.Level else 1
+		return level >= Config.Launch.BoostMinLevel and (me.Cash or 0) >= Config.Launch.BoostCost
+	end
 	boostButton.Activated:Connect(function()
-		if self.CoinId then
-			MarketClient.Boost(self.CoinId)
+		local coinId = self.CoinId
+		if not coinId then
+			return
 		end
+		if (MarketClient.Me.FreeBoosts or 0) > 0 or canBoostWithCash() or MarketClient.BoostLeft(coinId) > 0 then
+			MarketClient.Boost(coinId)
+			return
+		end
+		local before = MarketClient.Me.FreeBoosts or 0
+		MarketClient.BuyThen("Boost", function()
+			return (MarketClient.Me.FreeBoosts or 0) > before
+		end, function()
+			MarketClient.Boost(coinId)
+		end)
 	end)
 	-- Rugpull: nur beim eigenen Coin mit Lizenz, ein Klick verkauft alles (Phase 7)
 	local rugButton = Screen.Button({
@@ -104,6 +121,25 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		Parent = left,
 	})
 	local chart = ChartRenderer.new(chartHolder)
+	-- Pro: Kerzen-Chart an/aus (ohne Pro: 🔒, antippen = kaufen)
+	local candles = false
+	local candleButton = Screen.Button({
+		TextSize = 20,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -4, 0, 4),
+		Size = UDim2.fromOffset(112, 72),
+		BackgroundTransparency = 0.2,
+		Parent = chartHolder,
+	})
+	candleButton.Activated:Connect(function()
+		if not MarketClient.HasPass("Pro") then
+			MarketClient.Buy("Pro")
+			return
+		end
+		candles = not candles
+		chart:SetCandles(candles)
+		self.Refresh()
+	end)
 
 	------------------------------------------------------------------
 	-- Ampel-Indikatoren (antippen = Erklärung)
@@ -349,13 +385,61 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 	for i = 1, 3 do
 		helpRules[i] = helpLabel(2 + i, 26, {})
 	end
-	local okButton = Screen.Button({
-		Text = "OK",
-		Size = UDim2.fromOffset(200, 72),
+	-- Pro: Top-10-Namen (2 Spalten à 5) bzw. Dev-Verkäufe; ohne Pro gesperrte Kachel "🔒 PRO"
+	local proList = Screen.New("Frame", {
+		Size = UDim2.new(1, 0, 0, 5 * 26),
+		BackgroundTransparency = 1,
+		Visible = false,
+		LayoutOrder = 6,
+		ZIndex = 22,
+		Parent = helpPanel,
+	}, {
+		Screen.New("UIGridLayout", {
+			CellSize = UDim2.new(0.5, -6, 0, 26),
+			CellPadding = UDim2.fromOffset(6, 0),
+			FillDirection = Enum.FillDirection.Vertical,
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	})
+	local proRows = {}
+	for i = 1, 10 do
+		proRows[i] = Screen.Label({ TextSize = 20, LayoutOrder = i, ZIndex = 23, Parent = proList })
+	end
+	local buttonRow = Screen.New("Frame", {
+		Size = UDim2.new(1, 0, 0, 72),
+		BackgroundTransparency = 1,
 		LayoutOrder = 10,
 		ZIndex = 22,
 		Parent = helpPanel,
+	}, {
+		Screen.New("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			Padding = UDim.new(0, 8),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
 	})
+	local okButton = Screen.Button({
+		Text = "OK",
+		Size = UDim2.fromOffset(200, 72),
+		LayoutOrder = 1,
+		ZIndex = 22,
+		Parent = buttonRow,
+	})
+	local proButton = Screen.Button({
+		BackgroundColor3 = Colors.Accent,
+		TextColor3 = Colors.Background,
+		TextSize = 20,
+		Size = UDim2.new(1, -208, 1, 0),
+		Visible = false,
+		LayoutOrder = 2,
+		ZIndex = 22,
+		Parent = buttonRow,
+	})
+	proButton.Activated:Connect(function()
+		MarketClient.Buy("Pro")
+	end)
+	local proTop = nil -- zuletzt geladene Top-10-Liste
+	local proTopCoin = nil
 
 	updateHelp = function()
 		local coin = self.CoinId and MarketClient.Coins[self.CoinId]
@@ -371,11 +455,76 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		for i, label in helpRules do
 			label.Text = rules[i] or ""
 		end
+
+		-- Pro-Teile: Top 10 mit Namen, Dev-Verkäufe live
+		local pro = MarketClient.HasPass("Pro")
+		local proTopic = helpDef.Id == "Top10" or helpDef.Id == "Dev"
+		proButton.Visible = proTopic and not pro
+		proButton.Text = if helpDef.Id == "Top10" then "🔒 PRO: see top 10 names" else "🔒 PRO: dev sells live"
+		local showList = proTopic and pro
+		proList.Visible = showList
+		helpText.Visible = not showList
+		for _, label in helpRules do
+			label.Visible = not showList
+		end
+		if not showList then
+			return
+		end
+		for _, label in proRows do
+			label.Text = ""
+			label.TextColor3 = Colors.Text
+		end
+		if helpDef.Id == "Top10" then
+			if proTopCoin ~= coin.Id or not proTop then
+				proRows[1].Text = "Loading…"
+				return
+			end
+			for i, entry in proTop do
+				proRows[i].Text = string.format(
+					"%d. %s%s %s",
+					i,
+					if entry.D then "👨‍💻 " else "",
+					CreatorStyle.Name(entry.N, MarketClient.CreatorTier(entry.U)),
+					Indicators.Display("Top10", entry.S)
+				)
+				proRows[i].TextColor3 = if entry.D then Colors.Accent else Colors.Text
+			end
+		else
+			-- Dev-Trades aus den letzten Live-Trades
+			local shown = 0
+			local trades = coin.Trades or {}
+			for i = #trades, 1, -1 do
+				local trade = trades[i]
+				if MarketClient.IsDevTrade(coin, trade) and shown < 10 then
+					shown += 1
+					proRows[shown].Text = string.format(
+						"%s %s · %s ago",
+						if trade.Side == "Buy" then "🟢 bought" else "🔴 sold",
+						Format.Cash(trade.Cash),
+						Format.Duration(workspace:GetServerTimeNow() - (trade.Time or 0))
+					)
+				end
+			end
+			if shown == 0 then
+				proRows[1].Text = "No dev trades in the last " .. Config.Market.RecentTrades .. " trades"
+			end
+		end
 	end
 	showHelp = function(def)
 		helpDef = def
 		updateHelp()
 		overlay.Visible = true
+		local coinId = self.CoinId
+		if def.Id == "Top10" and coinId and MarketClient.HasPass("Pro") then
+			proTop, proTopCoin = nil, coinId
+			task.spawn(function()
+				local list = MarketClient.ProInfo(coinId)
+				if helpDef == def and self.CoinId == coinId then
+					proTop = list or {}
+					updateHelp()
+				end
+			end)
+		end
 	end
 	local function hideHelp()
 		helpDef = nil
@@ -427,9 +576,9 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 			if boostLeft > 0 then
 				boostButton.Text = "🚀 " .. Format.Duration(boostLeft)
 			elseif (MarketClient.Me.FreeBoosts or 0) > 0 then
-				boostButton.Text = "🚀 BOOST\nFREE ×" .. MarketClient.Me.FreeBoosts -- Bronze-Creator
-			elseif myStats and myStats.Level < Config.Launch.BoostMinLevel then
-				boostButton.Text = "🔒 Lv " .. Config.Launch.BoostMinLevel
+				boostButton.Text = "🚀 BOOST\nFREE ×" .. MarketClient.Me.FreeBoosts -- Bronze-Creator / Robux
+			elseif not canBoostWithCash() then
+				boostButton.Text = "🚀 BOOST\nR$ " .. Config.Shop.Products.Boost.Robux -- ohne Level, mit Robux
 			else
 				boostButton.Text = "🚀 BOOST\n" .. Format.Short(Config.Launch.BoostCost)
 			end
@@ -444,6 +593,12 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		end
 
 		chart:SetData(coin.Chart or {}, coin.Candle)
+		local pro = MarketClient.HasPass("Pro")
+		if not pro and candles then
+			candles = false
+			chart:SetCandles(false)
+		end
+		candleButton.Text = if not pro then "🕯 🔒 PRO" elseif candles then "📈 LINE" else "🕯 CANDLE"
 
 		infoLabel.Text = string.format(
 			"MC %s · Migration %d%% · %s · %s · by %s",
@@ -508,14 +663,17 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 			local trade = trades[#trades - i + 1]
 			local label = tradeLabels[i]
 			if trade then
+				-- Pro: Käufe/Verkäufe des Erstellers live markiert
+				local isDev = pro and MarketClient.IsDevTrade(coin, trade)
 				label.Text = string.format(
-					"%s%s %s %s",
+					"%s%s%s %s %s",
+					if isDev then "👨‍💻 DEV " else "",
 					if trade.IsNpc then "🤖 " else "",
-					CreatorStyle.Name(trade.Trader or "?", MarketClient.CreatorTier(trade.TraderId)),
+					CreatorStyle.Name(trade.Trader or "?", MarketClient.CreatorTier(trade.TraderId), trade.Vip),
 					if trade.Side == "Buy" then "bought" else "sold",
 					Format.Cash(trade.Cash)
 				)
-				label.TextColor3 = if trade.Side == "Buy" then Colors.Green else Colors.Red
+				label.TextColor3 = if isDev then Colors.Accent elseif trade.Side == "Buy" then Colors.Green else Colors.Red
 			else
 				label.Text = ""
 			end

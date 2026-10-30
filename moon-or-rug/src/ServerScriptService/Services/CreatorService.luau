@@ -58,8 +58,8 @@ function CreatorService.TierOf(key: string?): number
 end
 
 -- Name mit Creator-Abzeichen (für Ticker-Meldungen)
-function CreatorService.DisplayName(key: string?, name: string): string
-	return CreatorStyle.Name(name, CreatorService.TierOf(key))
+function CreatorService.DisplayName(key: string?, name: string, vip: boolean?): string
+	return CreatorStyle.Name(name, CreatorService.TierOf(key), vip)
 end
 
 -- Gold-Creator: Monat für den Gratis-Coin (oder nil, wenn kein Gold oder schon benutzt)

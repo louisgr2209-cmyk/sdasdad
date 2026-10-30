@@ -1,6 +1,8 @@
 -- CreateCoinUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/CreateCoinUI
 -- Formular "Coin erstellen": Name, Ticker, Beschreibung, Icon (feste Auswahl), Dev-Buy (0/10/25/50 %).
 -- Unten rechts: Rug-Lizenz kaufen (Phase 7, ab Level 25, zweimal tippen zum Bestätigen).
+-- Robux (Phase 8): "R$ 99" erstellt den Coin ohne Level/Cash, "R$ 299" gibt eine Lizenz ohne Level.
+-- Breite Knopfzeile (kleinster Fall 798): CREATE 200 | R$ 110 | CANCEL 130 | Lizenz Cash | Lizenz R$
 -- Der Server prüft alles noch einmal (Level, Cash, Regeln, Roblox-Filter, Sperrliste).
 --
 -- Platz: Fenster 85 % breit, 484 hoch (passt in die kleinste Höhe von 496)
@@ -194,15 +196,25 @@ function CreateCoinUI.new(parent: GuiObject)
 	local createButton = Screen.Button({
 		Text = "CREATE",
 		BackgroundColor3 = Colors.Green,
-		Size = UDim2.new(0, 240, 1, 0),
+		Size = UDim2.new(0, 200, 1, 0),
 		LayoutOrder = 1,
+		ZIndex = 43,
+		Parent = buttonRow,
+	})
+	local robuxButton = Screen.Button({
+		Text = "R$ " .. Config.Shop.Products.CreateCoin.Robux,
+		TextSize = 22,
+		BackgroundColor3 = Colors.Accent,
+		TextColor3 = Colors.Background,
+		Size = UDim2.new(0, 110, 1, 0),
+		LayoutOrder = 2,
 		ZIndex = 43,
 		Parent = buttonRow,
 	})
 	local cancelButton = Screen.Button({
 		Text = "CANCEL",
-		Size = UDim2.new(0, 160, 1, 0),
-		LayoutOrder = 2,
+		Size = UDim2.new(0, 130, 1, 0),
+		LayoutOrder = 3,
 		ZIndex = 43,
 		Parent = buttonRow,
 	})
@@ -211,29 +223,43 @@ function CreateCoinUI.new(parent: GuiObject)
 	local licenseButton = Screen.Button({
 		TextSize = 20,
 		BackgroundColor3 = Colors.Red,
-		Size = UDim2.new(1, -416, 1, 0),
-		LayoutOrder = 3,
+		Size = UDim2.new(0.5, -244, 1, 0),
+		LayoutOrder = 4,
 		ZIndex = 43,
 		Parent = buttonRow,
 	})
+	local licenseRobux = Screen.Button({
+		Text = "☠ R$ " .. Config.Shop.Products.License.Robux,
+		TextSize = 20,
+		BackgroundColor3 = Colors.Red,
+		Size = UDim2.new(0.5, -244, 1, 0),
+		LayoutOrder = 5,
+		ZIndex = 43,
+		Parent = buttonRow,
+	})
+	licenseRobux.Activated:Connect(function()
+		MarketClient.Buy("License")
+	end)
 	local confirmUntil = 0
 	local function licenseText()
 		local me = MarketClient.Me
 		local level = if me.Stats then me.Stats.Level else 1
 		if (me.RugLicense or 0) > 0 then
-			return string.format("☠ LICENSE: %d rug pulls left", me.RugLicense), false
+			return string.format("☠ %d rugs left", me.RugLicense), false
 		elseif level < RG.MinLevel then
-			return "☠ RUG LICENSE 🔒 Lv " .. RG.MinLevel, false
+			return "☠ 🔒 Lv " .. RG.MinLevel, false
 		elseif os.clock() < confirmUntil then
-			return "TAP AGAIN: buy for " .. Format.Short(RG.LicenseCost), true
+			return "TAP AGAIN", true
 		end
-		return string.format("☠ RUG LICENSE %s · %d rugs", Format.Short(RG.LicenseCost), RG.LicenseUses), true
+		return string.format("☠ %s · %d rugs", Format.Short(RG.LicenseCost), RG.LicenseUses), true
 	end
 	-- nur den Lizenz-Knopf neu zeichnen (läuft bei jeder Änderung; lässt Fehlermeldungen im Formular stehen)
 	function self.RefreshLicense()
 		local text, canBuy = licenseText()
 		licenseButton.Text = text
 		licenseButton.BackgroundColor3 = if canBuy then Colors.Red else Colors.PanelLight
+		local vouchers = MarketClient.Me.Vouchers or {}
+		createButton.Text = if (vouchers.CT or 0) > 0 then "CREATE (FREE)" else "CREATE"
 	end
 	licenseButton.Activated:Connect(function()
 		local _, canBuy = licenseText()
@@ -258,12 +284,18 @@ function CreateCoinUI.new(parent: GuiObject)
 			button.BackgroundColor3 = if i == devIndex then Colors.Border else Colors.PanelLight
 		end
 		local cash = MarketClient.Me.Cash or 0
-		local free = MarketClient.Me.Extra ~= nil and MarketClient.Me.Extra.FreeCoin == true -- Gold: 1 pro Monat
+		local level = if MarketClient.Me.Stats then MarketClient.Me.Stats.Level else 1
+		local gold = level >= L.CreateMinLevel and MarketClient.Me.Extra ~= nil and MarketClient.Me.Extra.FreeCoin == true
+		local voucher = ((MarketClient.Me.Vouchers or {}).CT or 0) > 0 -- Robux-Gutschein
+		local free = gold or voucher
 		local fee = if free then 0 else L.CreateCost
 		local devCash = math.max(0, cash - fee) * L.DevBuyOptions[devIndex]
 		costLabel.Text = string.format(
 			"Cost: %s + dev buy %s · you get 5%% of the coins · %s Cash",
-			if free then "FREE (Gold creator)" else Format.Short(L.CreateCost),
+			if gold then "FREE (Gold creator)"
+				elseif voucher then "FREE (Robux)"
+				elseif level < L.CreateMinLevel then string.format("Lv %d + %s, or R$", L.CreateMinLevel, Format.Short(L.CreateCost))
+				else Format.Short(L.CreateCost),
 			Format.Short(devCash),
 			if cash >= fee then "enough" else "not enough"
 		)
@@ -282,7 +314,7 @@ function CreateCoinUI.new(parent: GuiObject)
 
 	-- Fenster bleibt offen, bis der Server antwortet: Erfolg -> zu, Fehler -> im Fenster anzeigen (nichts neu tippen)
 	local waiting = false
-	createButton.Activated:Connect(function()
+	local function submit()
 		if waiting then
 			return
 		end
@@ -292,6 +324,27 @@ function CreateCoinUI.new(parent: GuiObject)
 		MarketClient.CreateCoin(nameBox.Text, tickerBox.Text, descBox.Text, selectedIcon, devIndex)
 		task.delay(8, function()
 			waiting = false -- falls keine Antwort kommt: wieder klickbar
+		end)
+	end
+	createButton.Activated:Connect(submit)
+	-- Robux: Gutschein kaufen, danach automatisch erstellen (Name/Ticker bleiben im Formular)
+	robuxButton.Activated:Connect(function()
+		local before = (MarketClient.Me.Vouchers or {}).CT or 0
+		if before > 0 then
+			submit()
+			return
+		end
+		if #nameBox.Text < L.NameMin or #tickerBox.Text < L.TickerMin then
+			costLabel.Text = "❌ Enter name and ticker first"
+			costLabel.TextColor3 = Colors.Red
+			return
+		end
+		MarketClient.BuyThen("CreateCoin", function()
+			return ((MarketClient.Me.Vouchers or {}).CT or 0) > before
+		end, function()
+			if overlay.Visible then
+				submit()
+			end
 		end)
 	end)
 	MarketClient.TradeResult.Event:Connect(function(ok: boolean, message: string)

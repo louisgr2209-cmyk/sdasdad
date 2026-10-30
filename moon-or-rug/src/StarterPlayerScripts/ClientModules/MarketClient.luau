@@ -4,6 +4,8 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local MarketplaceService = game:GetService("MarketplaceService")
+local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Curve = require(ReplicatedStorage.Shared.BondingCurve)
@@ -25,6 +27,7 @@ MarketClient.Changed = Instance.new("BindableEvent") -- Markt oder eigene Daten 
 MarketClient.TradeResult = Instance.new("BindableEvent") -- (ok, message)
 MarketClient.News = Instance.new("BindableEvent") -- (news) z. B. Rugpull, großer Gewinn
 MarketClient.AdminResult = Instance.new("BindableEvent") -- ({ Ok, Message, Log }) nur für Admins
+MarketClient.Purchased = Instance.new("BindableEvent") -- (name, gekauft?) nach einem Robux-Kauf-Fenster
 
 local tradeRequest: RemoteEvent
 local remotes: Instance
@@ -72,6 +75,13 @@ local function applyUpdate(update)
 		local coin = MarketClient.Coins[trade.CoinId]
 		if coin then
 			addTrade(coin, trade)
+			-- Pro: Warnung, wenn der Ersteller eines Coins verkauft, den man hält
+			local held = MarketClient.Me.Positions ~= nil and MarketClient.Me.Positions[trade.CoinId] ~= nil
+			local devSold = trade.Side == "Sell" and trade.TraderId ~= MarketClient.MyKey and MarketClient.IsDevTrade(coin, trade)
+			if devSold and held and MarketClient.HasPass("Pro") then
+				local text = string.format("⚠ PRO: Dev sold $%s for %d Cash", coin.Ticker, math.floor(trade.Cash or 0))
+				MarketClient.TradeResult:Fire(false, text)
+			end
 		end
 	end
 	if update.Boosts then
@@ -163,6 +173,83 @@ function MarketClient.AdminLog()
 	return if ok then log else nil
 end
 
+-- Robux (Phase 8). name = Schlüssel aus Config.Shop.Products/Passes
+function MarketClient.HasPass(name: string): boolean
+	return MarketClient.Me.Passes ~= nil and MarketClient.Me.Passes[name] == true
+end
+
+function MarketClient.Buy(name: string)
+	local shop = Config.Shop
+	local product, pass = shop.Products[name], shop.Passes[name]
+	local item = product or pass
+	if not item then
+		return
+	end
+	if item.Id == 0 then
+		if RunService:IsStudio() then
+			-- noch nicht angelegt: Studio-Test (Server prüft, dass es Studio ist)
+			local remote = remotes:WaitForChild("ShopTestBuy") :: RemoteEvent
+			remote:FireServer(name)
+			MarketClient.Purchased:Fire(name, true)
+		else
+			MarketClient.TradeResult:Fire(false, "Coming soon")
+		end
+		return
+	end
+	if product then
+		MarketplaceService:PromptProductPurchase(Players.LocalPlayer, item.Id)
+	else
+		MarketplaceService:PromptGamePassPurchase(Players.LocalPlayer, item.Id)
+	end
+end
+
+-- Kaufen und danach automatisch weitermachen: wartet (max. 60 Sek.), bis ready() stimmt, dann action()
+function MarketClient.BuyThen(name: string, ready: () -> boolean, action: () -> ())
+	local done = false
+	local connection
+	connection = MarketClient.Purchased.Event:Connect(function(boughtName: string, purchased: boolean)
+		if boughtName ~= name or done then
+			return
+		end
+		done = true
+		connection:Disconnect()
+		if not purchased then
+			return
+		end
+		task.spawn(function()
+			local started = os.clock()
+			while not ready() and os.clock() - started < 60 do
+				MarketClient.Changed.Event:Wait()
+			end
+			if ready() then
+				action()
+			end
+		end)
+	end)
+	task.delay(300, function() -- Kauf-Fenster nie beantwortet: aufräumen
+		if not done then
+			done = true
+			connection:Disconnect()
+		end
+	end)
+	MarketClient.Buy(name)
+end
+
+-- Pro: Top 10 Holder mit Namen { { N, S, D, U } } oder nil
+function MarketClient.ProInfo(coinId: string)
+	local remote = remotes:WaitForChild("ProInfo") :: RemoteFunction
+	local ok, list = pcall(remote.InvokeServer, remote, coinId)
+	return if ok then list else nil
+end
+
+-- Ist dieser Trade ein Verkauf/Kauf des Erstellers?
+function MarketClient.IsDevTrade(coin, trade): boolean
+	if trade.TraderId then
+		return trade.TraderId == coin.CreatorId
+	end
+	return trade.IsNpc == true and trade.Trader == coin.CreatorName
+end
+
 -- Wert einer Position = was man jetzt beim Verkaufen bekäme (nach Gebühr)
 function MarketClient.PositionValue(coin, position): number
 	return Curve.CashForTokens(Config.Curve, coin.Supply, position.Amount) * (1 - FEE_TOTAL)
@@ -218,6 +305,26 @@ function MarketClient.Start()
 	creators.OnClientEvent:Connect(function(tiers)
 		MarketClient.Creators = if type(tiers) == "table" then tiers else {}
 		MarketClient.Changed:Fire()
+	end)
+	MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, productId, purchased)
+		if userId ~= Players.LocalPlayer.UserId then
+			return
+		end
+		for name, product in Config.Shop.Products do
+			if product.Id == productId then
+				MarketClient.Purchased:Fire(name, purchased)
+			end
+		end
+	end)
+	MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, purchased)
+		if player ~= Players.LocalPlayer then
+			return
+		end
+		for name, pass in Config.Shop.Passes do
+			if pass.Id == passId then
+				MarketClient.Purchased:Fire(name, purchased)
+			end
+		end
 	end)
 	local adminResult = remotes:WaitForChild("AdminResult") :: RemoteEvent
 	adminResult.OnClientEvent:Connect(function(result)

@@ -41,6 +41,7 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `ServerScriptService/Services/ProtectionService.luau` | ServerScriptService › Services › ProtectionService | ModuleScript |
 | `ServerScriptService/Services/LaunchService.luau` | ServerScriptService › Services › LaunchService | ModuleScript |
 | `ServerScriptService/Services/CreatorService.luau` | ServerScriptService › Services › CreatorService | ModuleScript |
+| `ServerScriptService/Services/MonetizationService.luau` | ServerScriptService › Services › MonetizationService | ModuleScript |
 | `ServerScriptService/Util/TextFilter.luau` | ServerScriptService › Util › TextFilter | ModuleScript |
 | `ServerScriptService/Util/Ledger.luau` | ServerScriptService › Util › Ledger | ModuleScript |
 | `ServerScriptService/Util/Store.luau` | ServerScriptService › Util › Store | ModuleScript |
@@ -58,6 +59,7 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `StarterPlayerScripts/ClientModules/DailyRewardUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › DailyRewardUI | ModuleScript |
 | `StarterPlayerScripts/ClientModules/CreateCoinUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › CreateCoinUI | ModuleScript |
 | `StarterPlayerScripts/ClientModules/AdminUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › AdminUI | ModuleScript |
+| `StarterPlayerScripts/ClientModules/ShopUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › ShopUI | ModuleScript |
 
 `DebugTerminal` (Phase 1–2) gibt es nicht mehr → in Studio löschen.
 RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStorage › Remotes` selbst.
@@ -74,7 +76,7 @@ RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStora
 | 5 Schutz | ✅ gebaut, wartet auf Test |
 | 6 Coin erstellen + Boost | ✅ gebaut, wartet auf Test |
 | 7 Rugpull | ✅ gebaut, wartet auf Test |
-| 8 Robux-Produkte + Gamepässe | offen |
+| 8 Robux-Produkte + Gamepässe | ✅ gebaut, wartet auf Test (Ids im Creator Dashboard anlegen) |
 | 9 Globales Leaderboard (globale Coins gibt es durch den Weltmarkt schon) | offen |
 | Creator-Programm A–D | ✅ gebaut, wartet auf Test |
 
@@ -125,6 +127,40 @@ Neue Datei: `NpcTraderService`. Der Test-Coin `MTD` ist weg (die NPC-Coins erset
 **Simulation (Python-Nachbau, 3 Std. ohne Spieler):** ca. 1,3 Trades/Sek., 25–32 lebende Coins, NPC-Geld stabil,
 Rugs ≈ 10 % der Coins. Fehler gefunden und behoben: Zufall-NPCs verkauften alte Coins nur teilweise → Coins starben nie.
 Jetzt steigen alle NPCs aus alten Coins komplett aus.
+
+## Phase 8 – Robux-Produkte + Gamepässe
+
+| Frage | Antwort |
+|---|---|
+| Wo kaufen | direkt am Ort (Create, Boost, Lizenz) **und** 🛒-Shop oben |
+| „Global schalten“ | ersatzlos gestrichen (alle Coins sind schon weltweit) |
+| Level-Pflicht bei Robux | **nein** – Robux überspringt Level (Coin, Boost, Lizenz; Rug dann auch ohne Lv 25) |
+| VIP | ⭐ vor dem Namen + türkis (Ranglisten, Live-Trades, Ticker), türkiser Rahmen um die Wallet-Box |
+| Kauf geht gerade nicht | Gutschein, sofort oder später nutzbar |
+| Highlight | leuchtender, pulsierender Rahmen + ✨ vor dem Ticker in PULSE, 30 Min. |
+| Pro für Nicht-Käufer | gesperrte Stellen „🔒 PRO“ (antippen = kaufen) |
+| Preise | wie im Plan, alle in `Config.Shop` |
+
+| Produkt | Typ | R$ | Was passiert |
+|---|---|---|---|
+| Coin erstellen | Developer Product | 99 | Gutschein `CT`: nächster Coin ohne Level und ohne 50.000 Cash (Formular „R$ 99“ erstellt danach automatisch) |
+| Boost 10 Min. | Developer Product | 49 | Gratis-Boost `FB` (wie Bronze-Creator), ohne Level; Knopf boostet danach automatisch |
+| Highlight 30 Min. | Developer Product | 25 | Gutschein `HT`: startet sofort am aktiven Coin, sonst mit dem nächsten Coin |
+| Rug-Lizenz (3x) | Developer Product | 299 | +3 Rugpulls (`RL`), ohne Level |
+| Pro-Terminal | Gamepass | 249 | Kerzen-Chart (🕯-Knopf im Chart), Top 10 mit Namen (Kachel „Top 10“), Dev-Trades live markiert (👨‍💻 DEV) + Warnung, wenn der Dev eines gehaltenen Coins verkauft |
+| Versicherung ½ Preis | Gamepass | 149 | 2,5 % statt 5 %, Auszahlung bleibt 60 % |
+| Doppelter Daily | Gamepass | 99 | jede Daily-Belohnung x2 |
+| VIP | Gamepass | 99 | ⭐ + türkis (Creator-Farbe geht vor) |
+
+**So geht es live:** Im Creator Dashboard die 4 Developer Products und 4 Gamepässe anlegen und die Ids in
+`Config.Shop` eintragen. Id = 0 → im echten Spiel „Coming soon“, **in Studio Test-Kauf** (Knopf drücken =
+sofort gutgeschrieben bzw. Gamepass bis zum Verlassen freigeschaltet) – so lässt sich alles ohne Robux testen.
+
+**Duplikat-Schutz:** `ProcessReceipt` bucht nur mit geladener Geldbörse auf diesem Server und merkt sich die
+letzten 30 Kauf-Nummern in der Geldbörse (`Rc`). Erst nach erfolgreicher Buchung „PurchaseGranted“ – sonst
+wiederholt Roblox später (nichts geht verloren). Gutscheine werden wie Boosts mit Buchungsnummer verbraucht und
+bei Fehlschlag zurückgegeben. Python-Test `receipt_test.py` (verlorene Antworten, Wiederholungen): 0 doppelt, 0 verloren.
+Keine Zufalls-Käufe, Cash nie zurück in Robux.
 
 ## Phase 7 – Rugpull
 
@@ -326,6 +362,8 @@ Ohne Roblox Studio geprüft (Luau ausführen ist hier nicht erlaubt, deshalb kei
 | `TradeRequest` | Typ-Prüfung (String ≤ 20, "Buy"/"Sell", Zahl 0–1, kein NaN/∞), Coin muss existieren, Cash/Bestand prüft der Server, max. 5/Sek.; bei Spam höchstens 1 Antwort/Sek. |
 | `GetMarketSnapshot` | max. 3 pro 30 Sek., gibt nur eigene Daten + öffentliche Marktdaten zurück (keine fremden Positionen) |
 | `AdminAction` / `AdminLog` | nur Admins (Server prüft), 1 pro 2 Sek., Name `A–Z 0–9 _` 3–20, Link ≤ 200; Nicht-Admins werden geloggt |
+| `ShopTestBuy` | nur in Studio und nur für Ids = 0 (sonst ignoriert), 1 pro 2 Sek. |
+| `ProInfo` | nur mit Pro-Gamepass, 1 pro 2 Sek., Coin-Id ≤ 20; gibt nur Namen + Anteile der Top 10 zurück |
 | `RugPull` / `BuyLicense` | 1 pro 2 Sek., Coin-Id ≤ 20 Zeichen, alles Weitere prüft der Server (Ersteller, Level 25, Lizenz, Alter, Cooldown) |
 | `SetCreatorCode` / `RedeemCode` | 1 pro 2 Sek., Code-Format + Roblox-Filter, Gold-Pflicht bzw. Einlöse-Regeln (s. Creator-Programm) |
 
@@ -398,8 +436,8 @@ Postfach) werden nie automatisch wiederholt: im Zweifel geht ein kleiner Betrag 
 
 - Phase 8: Pro-Terminal zeigt Top-10-Holder mit Namen, Kerzen-Chart, Dev-Verkäufe live (entschieden).
 - Kopfleiste: Level (Phase 4b), Daily Reward (Phase 5) und Shop (Phase 8) kommen rechts neben die Tabs.
-- Highlight (25 R$) und Coin per Robux erstellen (99 R$) kommen mit Phase 8. „Global schalten“ (199 R$) entfällt –
-  durch den Weltmarkt sind alle Coins global (Frage dazu in Phase 8).
+- ~~Robux-Produkte~~ → Phase 8 gebaut. **Offen: Ids im Creator Dashboard anlegen und in `Config.Shop` eintragen.**
+- Admin-UserIds in `Config.Creator.AdminIds` eintragen (sonst gibt es im echten Spiel keinen Admin).
 
 - **Balancing (beim Test entscheiden):** Ohne Spieler erreicht fast nie ein Coin die Migration (69.000).
   Selbst mit doppeltem NPC-Geld nur ca. 1 Coin in 3 Std. Mit Spielern fließt mehr Geld. Falls die Spalte

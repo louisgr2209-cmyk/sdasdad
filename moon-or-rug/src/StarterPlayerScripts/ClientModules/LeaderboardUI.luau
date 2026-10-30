@@ -203,10 +203,10 @@ function LeaderboardUI.new(parent: GuiObject)
 			for index, entry in list do
 				local r = row(column, index)
 				local tier = MarketClient.CreatorTier(entry.U)
-				r.Name.Text = index .. ". " .. CreatorStyle.Name(entry.N, tier)
+				r.Name.Text = index .. ". " .. CreatorStyle.Name(entry.N, tier, entry.P) -- P = VIP
 				r.Value.Text = Format.Short(entry.V)
 				r.Value.TextColor3 = if entry.V >= 0 then Colors.Green else Colors.Red
-				r.Name.TextColor3 = CreatorStyle.Color(tier) or (if index <= 3 then Colors.Accent else Colors.Text)
+				r.Name.TextColor3 = CreatorStyle.Color(tier, entry.P) or (if index <= 3 then Colors.Accent else Colors.Text)
 			end
 			for index = #list + 1, #column.Rows do
 				column.Rows[index].Frame.Visible = false

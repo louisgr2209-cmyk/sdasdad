@@ -143,6 +143,29 @@ Config.Rug = {
 	DevSellCooldown = 60, -- … und max. 1 Verkauf pro Minute (alles raus dauert mind. ca. 4 Min.)
 }
 
+-- Robux (Phase 8): Developer Products geben Gutscheine (nie verloren, nie doppelt), Gamepässe schalten Extras frei.
+-- Id = 0: noch nicht im Creator Dashboard angelegt -> im echten Spiel nicht kaufbar, in Studio Test-Kauf.
+-- Robux überspringt Level-Pflichten (Entscheidung Phase 8). Cash ist nie gegen Robux zurücktauschbar.
+Config.Shop = {
+	Products = {
+		CreateCoin = { Id = 0, Robux = 99, Grant = "CT", Title = "Create a coin", Info = "No level, no cash needed" },
+		Boost = { Id = 0, Robux = 49, Grant = "FB", Title = "Boost 10 min", Info = "Your coin on top (no level needed)" },
+		Highlight = { Id = 0, Robux = 25, Grant = "HT", Title = "Highlight 30 min", Info = "Glowing frame for your coin" },
+		License = { Id = 0, Robux = 299, Grant = "RL", Title = "Rug pull license", Info = "3 rug pulls, no level needed" },
+	},
+	Passes = {
+		Pro = { Id = 0, Robux = 249, Title = "Pro Terminal", Info = "Top 10 names, candle chart, dev sells live" },
+		HalfInsurance = { Id = 0, Robux = 149, Title = "Insurance ½ price", Info = "Rug insurance costs 2.5% instead of 5%" },
+		DoubleDaily = { Id = 0, Robux = 99, Title = "Double daily reward", Info = "Every daily reward x2" },
+		Vip = { Id = 0, Robux = 99, Title = "VIP", Info = "⭐ name, turquoise color and frame" },
+	},
+	Order = { "CreateCoin", "Boost", "Highlight", "License", "Pro", "HalfInsurance", "DoubleDaily", "Vip" },
+	HighlightSeconds = 1800, -- 30 Min.
+	ReceiptsKept = 30, -- so viele Kauf-Nummern merkt sich die Geldbörse (Schutz gegen doppelte Gutschrift)
+	ProInfoCooldown = 2, -- Top-10-Namen höchstens alle 2 Sek. abfragen
+	VipCacheSeconds = 1800, -- Host merkt sich VIP-Status für die weltweite Rangliste 30 Min.
+}
+
 -- Creator-Programm (eigenes Dokument „Moon or Rug – Creator-Programm“)
 Config.Creator = {
 	-- Roblox-UserIds der Admins (nur sie sehen das Admin-Panel). In Roblox Studio ist jeder Admin (nur zum Testen).

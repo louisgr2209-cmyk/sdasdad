@@ -30,6 +30,8 @@ local FEE_TOTAL = Config.Fees.Creator + Config.Fees.Burn
 local BOARDS = { "Wealth", "Pnl", "Best", "WeekPnl", "WeekBest", "DayPnl", "DayBest" }
 
 local LeaderboardService = {}
+LeaderboardService.HasPass = nil :: ((Player, string) -> boolean)? -- vom MonetizationService (VIP)
+LeaderboardService.IsVipUserId = nil :: ((number) -> boolean)?
 
 local marketMap = Store.Map(W.MarketMap, W.Expiration)
 local event: RemoteEvent
@@ -107,7 +109,12 @@ local function serverBoards()
 	for _, player in PlayerDataService.LoadedPlayers() do
 		local v = values(player)
 		for _, board in BOARDS do
-			table.insert(boards[board], { N = player.DisplayName, U = player.UserId, V = math.floor(v[board]) })
+			table.insert(boards[board], {
+				N = player.DisplayName,
+				U = player.UserId,
+				P = if LeaderboardService.HasPass and LeaderboardService.HasPass(player, "Vip") then true else nil,
+				V = math.floor(v[board]),
+			})
 		end
 	end
 	for _, list in boards do
@@ -185,6 +192,9 @@ local function readWorld()
 	for _, list in boards do
 		for _, entry in list do
 			entry.N = nameCache[entry.U] or ("Player " .. entry.U) -- U bleibt: Creator-Abzeichen im Client
+			if LeaderboardService.IsVipUserId and LeaderboardService.IsVipUserId(entry.U) then
+				entry.P = true -- VIP (⭐)
+			end
 		end
 	end
 	marketMap:Set("Leaderboards", { Boards = boards, At = now() })

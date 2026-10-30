@@ -7,9 +7,13 @@ local CreatorStyle = {}
 CreatorStyle.Badge = "🎬"
 CreatorStyle.Silver = Color3.fromRGB(192, 132, 252)
 CreatorStyle.Gold = Color3.fromRGB(250, 204, 21)
+CreatorStyle.Vip = Color3.fromRGB(45, 212, 191) -- VIP-Gamepass (Phase 8): ⭐ + türkis
 
--- Name mit Abzeichen (ab Bronze)
-function CreatorStyle.Name(name: string, tier: number?): string
+-- Name mit Abzeichen (🎬 ab Bronze, ⭐ für VIP)
+function CreatorStyle.Name(name: string, tier: number?, vip: boolean?): string
+	if vip then
+		name = "⭐ " .. name
+	end
 	if (tier or 0) >= 2 then
 		return CreatorStyle.Badge .. " " .. name
 	end
@@ -21,12 +25,14 @@ function CreatorStyle.Title(tier: number?): string?
 	return if (tier or 0) >= 1 then "Creator" else nil
 end
 
--- Namensfarbe / Rahmenfarbe / Coin-Highlight (ab Silber), sonst nil
-function CreatorStyle.Color(tier: number?): Color3?
+-- Namensfarbe / Rahmenfarbe / Coin-Highlight (ab Silber, Creator-Farbe vor VIP), sonst nil
+function CreatorStyle.Color(tier: number?, vip: boolean?): Color3?
 	if (tier or 0) >= 4 then
 		return CreatorStyle.Gold
 	elseif (tier or 0) >= 3 then
 		return CreatorStyle.Silver
+	elseif vip then
+		return CreatorStyle.Vip
 	end
 	return nil
 end

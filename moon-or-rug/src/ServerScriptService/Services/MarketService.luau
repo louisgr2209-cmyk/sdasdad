@@ -117,6 +117,7 @@ local function publicInfo(value)
 		Dead = value.Dead,
 		Rug = value.Rug,
 		Vol = value.Vol,
+		HL = value.HL, -- Highlight bis (Robux, rein optisch)
 		HC = count,
 		Dev = (if dev then dev.A else 0) / C.TotalSupply,
 		Top = top / C.TotalSupply,
@@ -173,6 +174,7 @@ local function applyInfo(info)
 	coin.Dead = info.Dead == true
 	coin.Rugged = info.Rug == true
 	coin.Volume = info.Vol
+	coin.Highlight = info.HL
 	coin.Holders = info.HC
 	coin.DevShare = info.Dev
 	coin.Top10 = info.Top
@@ -190,6 +192,7 @@ local function applyInfo(info)
 				Trader = t.N,
 				TraderId = t.U, -- Spieler-Schlüssel (Creator-Abzeichen im Client)
 				IsNpc = t.B,
+				Vip = t.P, -- VIP-Gamepass (⭐)
 				Tokens = t.K,
 				Cash = t.M,
 				Time = t.At,
@@ -254,6 +257,7 @@ local function summary(coin)
 		Top10 = coin.Top10,
 		EarlyShare = coin.EarlyShare,
 		Volume = coin.Volume,
+		Highlight = coin.Highlight,
 		Candle = coin.Candle,
 		NewPoints = coin.NewPoints,
 	}
@@ -350,6 +354,7 @@ local function settle(player: Player, p)
 			Frac = p.Frac,
 			Insure = p.Ins,
 			Level = p.L,
+			Vip = if MarketService.HasPass then MarketService.HasPass(player, "Vip") else nil,
 			Rug = p.Rug, -- Rugpull (auch bei Wiederholung nach Absturz)
 			Now = now(),
 		})
@@ -440,6 +445,9 @@ local function executeTrade(player: Player, coinId: string, side: string, fracti
 		-- Versicherung (Schalter pro Coin, ab Level 5): 5 % zusätzlich, Einsatz so, dass beides ins Cash passt
 		insure = wallet.Ins ~= nil and wallet.Ins[coinId] == true and level >= Config.Protection.InsuranceMinLevel
 		local rate = if insure then Config.Protection.InsurancePremium else 0
+		if insure and MarketService.HasPass and MarketService.HasPass(player, "HalfInsurance") then
+			rate /= 2 -- Gamepass: Versicherung zum halben Preis (Auszahlung bleibt 60 %)
+		end
 		cash = Ledger.FloorCents(wallet.Cash * fraction / (1 + rate))
 		premium = if insure then Ledger.FloorCents(cash * rate) else nil
 		if cash < Config.Trade.MinCash then
@@ -531,7 +539,13 @@ local function executeLaunch(player: Player, info, devFraction: number)
 	end
 	wallet = PlayerData.GetWallet(player)
 	local level = PlayerData.GetStats(player).Level
-	if level < LC.CreateMinLevel then
+	-- Gold-Creator: ein Coin pro Monat gratis (nur die Erstell-Gebühr, Dev-Buy kostet normal).
+	-- Sonst Robux-Gutschein: kostenlos und ohne Level-Pflicht.
+	local freeMonth = level >= LC.CreateMinLevel
+		and MarketService.FreeCoinMonth
+		and MarketService.FreeCoinMonth(player, wallet)
+	local voucher = not freeMonth and ((wallet.V and wallet.V.CT) or 0) > 0
+	if level < LC.CreateMinLevel and not voucher then
 		return false, "Creating coins unlocks at level " .. LC.CreateMinLevel
 	end
 	local mine = wallet.MyCoin and coins[wallet.MyCoin]
@@ -541,9 +555,7 @@ local function executeLaunch(player: Player, info, devFraction: number)
 	if MarketService.TickerTaken(info.Ticker) then
 		return false, "Ticker $" .. info.Ticker .. " is taken – pick another"
 	end
-	-- Gold-Creator: ein Coin pro Monat gratis (nur die Erstell-Gebühr, Dev-Buy kostet normal)
-	local freeMonth = MarketService.FreeCoinMonth and MarketService.FreeCoinMonth(player, wallet)
-	local fee = if freeMonth then 0 else LC.CreateCost
+	local fee = if freeMonth or voucher then 0 else LC.CreateCost
 	if wallet.Cash < fee then
 		return false, "You need " .. Format.Cash(fee) .. " Cash"
 	end
@@ -559,7 +571,8 @@ local function executeLaunch(player: Player, info, devFraction: number)
 		Cash = devCash,
 		Info = info,
 		Level = level,
-		FreeMonth = freeMonth,
+		FreeMonth = freeMonth or nil,
+		Voucher = voucher or nil,
 		Now = now(),
 	})
 	if not okBegin or not begin then
@@ -588,6 +601,10 @@ function MarketService.Launch(player: Player, info, devFraction: number): boolea
 		if player.Parent then
 			reply(player, ok, message)
 			PlayerData.PushState(player)
+		end
+		local wallet = PlayerData.GetWallet(player)
+		if ok and wallet and ((wallet.V and wallet.V.HT) or 0) > 0 then
+			MarketService.Highlight(player) -- gespeichertes Highlight startet mit dem neuen Coin
 		end
 	end)
 end
@@ -712,10 +729,7 @@ local function executeRug(player: Player, coinId: string)
 	if coin.Rugged or coin.Dead then
 		return false, "This coin can't be rugged anymore"
 	end
-	if PlayerData.GetStats(player).Level < RG.MinLevel then
-		return false, "Rug pulls unlock at level " .. RG.MinLevel
-	end
-	if (wallet.RL or 0) <= 0 then
+	if (wallet.RL or 0) <= 0 then -- Lizenz = Freischaltung (per Cash ab Lv 25, per Robux ohne Level)
 		return false, "You need a rug pull license"
 	end
 	if now() - coin.CreatedAt < RG.MinCoinAge then
@@ -766,6 +780,79 @@ function MarketService.BuyLicense(player: Player): boolean
 			PlayerData.PushState(player)
 		end
 	end)
+end
+
+-- Highlight (Robux-Gutschein) am eigenen aktiven Coin: erst Gutschein abbuchen, dann Coin, sonst zurück
+local function executeHighlight(player: Player)
+	local wallet = PlayerData.GetWallet(player)
+	if not wallet then
+		return false, "Still loading your data…"
+	end
+	if ((wallet.V and wallet.V.HT) or 0) <= 0 then
+		return false, "No highlight left"
+	end
+	local coin = wallet.MyCoin and coins[wallet.MyCoin]
+	if not coin or coin.Dead then
+		return true, "✨ Highlight saved – it starts with your next coin"
+	end
+	local useId = HttpService:GenerateGUID(false)
+	local okUse, used = PlayerData.WalletUpdate(player, Ledger.WalletVoucher, {
+		Job = WorldService.JobId,
+		Id = useId,
+		Kind = "HT",
+		Delta = -1,
+	})
+	if not okUse or not used or not used.Ok then
+		return false, "Please try again"
+	end
+	local ok, result, newValue = coinsMap:Update(coin.Id, Ledger.CoinHighlight, {
+		Key = PlayerData.Key(player),
+		Id = useId,
+		Now = now(),
+		Seconds = Config.Shop.HighlightSeconds,
+	})
+	if ok and result and result.Ok then
+		if newValue then
+			onCoinValue(newValue)
+		end
+		return true, string.format("✨ $%s highlighted for %d min!", coin.Ticker, math.floor(Config.Shop.HighlightSeconds / 60))
+	end
+	PlayerData.WalletUpdate(player, Ledger.WalletVoucher, {
+		Job = WorldService.JobId,
+		Id = HttpService:GenerateGUID(false),
+		Kind = "HT",
+		Delta = 1,
+	})
+	return false, "Highlight failed – you keep it, try again"
+end
+
+function MarketService.Highlight(player: Player): boolean
+	return enqueue(player, function()
+		local ok, message = executeHighlight(player)
+		if player.Parent then
+			reply(player, ok, message)
+			PlayerData.PushState(player)
+		end
+	end)
+end
+
+-- Pro-Terminal: Top 10 Holder eines Coins -> { { Key, Share } } (Namen holt der MonetizationService)
+function MarketService.TopHolders(coinId: string)
+	local value = MarketService.ReadCoin(coinId)
+	if type(value) ~= "table" or type(value.H) ~= "table" then
+		return nil
+	end
+	local list = {}
+	for key, h in value.H do
+		table.insert(list, { Key = key, Share = h.A / C.TotalSupply, Dev = key == value.CK })
+	end
+	table.sort(list, function(a, b)
+		return a.Share > b.Share
+	end)
+	while #list > 10 do
+		table.remove(list)
+	end
+	return list
 end
 
 -- Verkauf im Auftrag des Spielers einreihen (Stop-Loss, solange er online ist)
@@ -867,6 +954,8 @@ MarketService.RugHandler = nil :: ((any, any) -> ())?
 -- Vom CreatorService gesetzt: Name mit Creator-Abzeichen / Monat für den Gratis-Coin (Gold)
 MarketService.DecorateName = nil :: ((string, string) -> string)?
 MarketService.FreeCoinMonth = nil :: ((Player, any) -> number?)?
+-- Vom MonetizationService gesetzt: hat der Spieler diesen Gamepass?
+MarketService.HasPass = nil :: ((Player, string) -> boolean)?
 
 function MarketService.GetCoins()
 	return coins

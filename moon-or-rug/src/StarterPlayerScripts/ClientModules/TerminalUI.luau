@@ -1,7 +1,7 @@
 -- TerminalUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/TerminalUI
 -- Vollbild-Terminal: Kopfleiste (Logo, Tabs, Cash + Level), Seiten (Pulse, Coin, Portfolio, Leaderboard),
--- Ticker unten, Level-Up-Banner, Daily-Reward-Knopf. Platz für später: Shop (Phase 8).
--- Breite (mind. 976): Logo 180 | 10 | Tabs 3 x 140 + 2 x 10 = 440 | Daily 64 | 10 | Cash/Level 230
+-- Ticker unten, Level-Up-Banner, Daily-Reward-Knopf, Shop (🛒, Phase 8).
+-- Breite (mind. 976): Logo 180 | 10 | Tabs 3 x 124 + 2 x 10 = 392 | 20 | Shop 64 | 6 | Daily 64 | 10 | Cash/Level 230
 -- Admins: statt des Logos "🚀" 56 + ADMIN-Knopf 118 (gleiche Breite 180)
 --
 -- Höhen (Design-Pixel, mind. 520): 12 Rand | Kopf 72 | 10 | Seite (Rest, mind. 368) | 10 | Ticker 36 | 12 Rand
@@ -19,6 +19,8 @@ local LeaderboardUI = require(script.Parent.LeaderboardUI)
 local DailyRewardUI = require(script.Parent.DailyRewardUI)
 local CreateCoinUI = require(script.Parent.CreateCoinUI)
 local AdminUI = require(script.Parent.AdminUI)
+local ShopUI = require(script.Parent.ShopUI)
+local CreatorStyle = require(ReplicatedStorage.Shared.CreatorStyle)
 local Levels = require(ReplicatedStorage.Shared.Levels)
 
 local Colors = Screen.Colors
@@ -61,7 +63,7 @@ function TerminalUI.Start()
 	})
 	local tabBar = Screen.New("Frame", {
 		Position = UDim2.fromOffset(190, 0),
-		Size = UDim2.new(1, -190 - 240 - 74, 1, 0),
+		Size = UDim2.new(1, -190 - 240 - 74 - 70, 1, 0),
 		BackgroundTransparency = 1,
 		Parent = header,
 	}, {
@@ -81,6 +83,16 @@ function TerminalUI.Start()
 		Parent = header,
 	})
 
+	-- Shop-Knopf (Robux-Produkte + Gamepässe)
+	local shopButton = Screen.Button({
+		Text = "🛒",
+		TextSize = 32,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -310, 0, 4),
+		Size = UDim2.fromOffset(64, 64),
+		Parent = header,
+	})
+
 	-- Rechts: Cash, darunter Level + XP-Balken
 	local wallet = Screen.New("Frame", {
 		AnchorPoint = Vector2.new(1, 0),
@@ -89,6 +101,15 @@ function TerminalUI.Start()
 		BackgroundTransparency = 1,
 		Parent = header,
 	})
+	-- VIP-Gamepass: türkiser Profilrahmen um die Wallet-Box
+	local vipFrame = Screen.New("UIStroke", {
+		Color = CreatorStyle.Vip,
+		Thickness = 2,
+		Enabled = false,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		Parent = wallet,
+	})
+	Screen.Corner(10).Parent = wallet
 	local cashLabel = Screen.Label({
 		Font = Screen.Fonts.Bold,
 		TextSize = 26,
@@ -170,12 +191,7 @@ function TerminalUI.Start()
 	pages.Pulse = {
 		Frame = pulseFrame,
 		View = PulseList.new(pulseFrame, openCoin, function()
-			local stats = MarketClient.Me.Stats
-			if stats and stats.Level < Config.Launch.CreateMinLevel then
-				MarketClient.TradeResult:Fire(false, "Creating coins unlocks at level " .. Config.Launch.CreateMinLevel)
-				return
-			end
-			createUI.Show()
+			createUI.Show() -- Level prüft das Fenster/der Server (mit Robux auch ohne Level)
 		end),
 	}
 	local coinFrame = page("Coin")
@@ -190,11 +206,12 @@ function TerminalUI.Start()
 	local leaderboardFrame = page("Leaderboard")
 	pages.Leaderboard = { Frame = leaderboardFrame, View = LeaderboardUI.new(leaderboardFrame) }
 
+	local TAB_TEXT = { Pulse = "PULSE", Portfolio = "PORTFOLIO", Leaderboard = "RANKING" }
 	for i, tabName in { "Pulse", "Portfolio", "Leaderboard" } do
 		local button = Screen.Button({
-			Text = string.upper(tabName),
+			Text = TAB_TEXT[tabName],
 			TextSize = 20,
-			Size = UDim2.new(0, 140, 1, -8),
+			Size = UDim2.new(0, 124, 1, -8),
 			LayoutOrder = i,
 			Parent = tabBar,
 		})
@@ -316,6 +333,8 @@ function TerminalUI.Start()
 	local daily = DailyRewardUI.new(root)
 	createUI = CreateCoinUI.new(root)
 	dailyButton.Activated:Connect(daily.Show)
+	local shop = ShopUI.new(root)
+	shopButton.Activated:Connect(shop.Show)
 	local admin = AdminUI.new(root)
 	adminButton.Activated:Connect(admin.Show)
 
@@ -325,6 +344,8 @@ function TerminalUI.Start()
 		dailyButton.BackgroundColor3 = if dailyState and dailyState.CanClaim then Colors.Accent else Colors.PanelLight
 		daily.Refresh()
 		createUI.RefreshLicense() -- z. B. Lizenz gekauft
+		shop.Refresh()
+		vipFrame.Enabled = MarketClient.HasPass("Vip")
 		local isAdmin = MarketClient.Me.Extra ~= nil and MarketClient.Me.Extra.IsAdmin == true
 		adminButton.Visible = isAdmin
 		logo.Text = if isAdmin then "🚀" else "🚀 MOON OR RUG"

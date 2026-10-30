@@ -26,6 +26,7 @@ local P = Config.Protection
 local W = Config.World
 
 local ProtectionService = {}
+ProtectionService.HasPass = nil :: ((Player, string) -> boolean)? -- vom MonetizationService (Doppelter Daily)
 
 local marketMap = Store.Map(W.MarketMap, W.Expiration)
 local inboxMap = Store.Map(W.InboxMap, W.CoinExpiration)
@@ -53,7 +54,7 @@ local function onClaimDaily(player: Player)
 	local ok, result = PlayerDataService.WalletUpdate(player, Ledger.WalletDaily, {
 		Job = WorldService.JobId,
 		Day = day,
-		Multiplier = 1, -- Gamepass "Doppelter Daily Reward" kommt in Phase 8
+		Multiplier = if ProtectionService.HasPass and ProtectionService.HasPass(player, "DoubleDaily") then 2 else 1,
 	})
 	if ok and result and result.Ok then
 		PlayerDataService.Notify(

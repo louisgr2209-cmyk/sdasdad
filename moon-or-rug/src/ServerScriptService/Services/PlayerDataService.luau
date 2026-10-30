@@ -26,6 +26,7 @@ local PlayerDataService = {}
 PlayerDataService.RecoverPending = nil :: ((Player) -> boolean)?
 PlayerDataService.WaitIdle = nil :: ((Player, number) -> ())?
 PlayerDataService.ExtraState = nil :: ((Player) -> any)? -- zusätzliche Infos für den Client (CreatorService)
+PlayerDataService.PassState = nil :: ((Player) -> any)? -- eigene Gamepässe (MonetizationService)
 
 local walletsMap = Store.Map(W.WalletsMap, W.WalletExpiration)
 local coinsMap = Store.Map(W.CoinsMap, W.CoinExpiration)
@@ -181,6 +182,8 @@ function PlayerDataService.BuildState(player: Player)
 		FreeBoosts = profile.Wallet.FB or 0,
 		RugLicense = profile.Wallet.RL or 0, -- übrige Rugpulls
 		RugReadyAt = (st.LR or 0) + Config.Rug.Cooldown, -- ab dann wieder (Server-Zeit)
+		Vouchers = profile.Wallet.V or {}, -- Robux-Gutscheine (CT = Coin, HT = Highlight)
+		Passes = if PlayerDataService.PassState then PlayerDataService.PassState(player) else {}, -- Gamepässe
 		Extra = if PlayerDataService.ExtraState then PlayerDataService.ExtraState(player) else nil, -- Creator-Infos
 		Daily = {
 			CanClaim = not claimed,
@@ -200,6 +203,34 @@ end
 ------------------------------------------------------------------------
 -- Speichern
 ------------------------------------------------------------------------
+
+-- Gutscheine { CT = n, HT = n }
+local function cleanCounts(data)
+	if type(data) ~= "table" then
+		return nil
+	end
+	local result = {}
+	for key, value in data do
+		if type(key) == "string" and #key <= 4 and isValidNumber(value) and value >= 0 then
+			result[key] = math.floor(value)
+		end
+	end
+	return result
+end
+
+-- Kauf-Nummern (Liste von Texten)
+local function cleanReceipts(data)
+	if type(data) ~= "table" then
+		return nil
+	end
+	local result = {}
+	for _, id in data do
+		if type(id) == "string" and #id <= 64 then
+			table.insert(result, id)
+		end
+	end
+	return result
+end
 
 -- Gespeichertes Profil prüfen (kaputte oder manipulierte Daten nie übernehmen)
 local function cleanProfile(data)
@@ -235,6 +266,8 @@ local function cleanProfile(data)
 		FCM = if isValidNumber(data.FCM) then data.FCM else nil,
 		MyCoin = if type(data.MyCoin) == "string" and #data.MyCoin <= 20 then data.MyCoin else nil,
 		RL = if isValidNumber(data.RL) and data.RL >= 0 then math.floor(data.RL) else nil,
+		V = cleanCounts(data.V), -- Robux-Gutscheine
+		Rc = cleanReceipts(data.Rc), -- gemerkte Kauf-Nummern
 	}
 end
 

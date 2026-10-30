@@ -12,6 +12,7 @@ local LeaderboardService = require(ServerScriptService.Services.LeaderboardServi
 local ProtectionService = require(ServerScriptService.Services.ProtectionService)
 local LaunchService = require(ServerScriptService.Services.LaunchService)
 local CreatorService = require(ServerScriptService.Services.CreatorService)
+local MonetizationService = require(ServerScriptService.Services.MonetizationService)
 
 -- Reines Terminal: kein Avatar
 Players.CharacterAutoLoads = false
@@ -19,7 +20,16 @@ Players.CharacterAutoLoads = false
 -- Verbindungen zwischen den Services (ohne gegenseitige requires)
 PlayerDataService.RecoverPending = MarketService.RecoverPending
 PlayerDataService.WaitIdle = MarketService.WaitIdle
-MarketService.DecorateName = CreatorService.DisplayName
+-- Ticker-Namen: 🎬 Creator, ⭐ VIP
+MarketService.DecorateName = function(key: string, name: string): string
+	local player = PlayerDataService.GetPlayerByKey(key)
+	local vip = player ~= nil and MonetizationService.HasPass(player, "Vip")
+	return CreatorService.DisplayName(key, name, vip)
+end
+MarketService.HasPass = MonetizationService.HasPass
+ProtectionService.HasPass = MonetizationService.HasPass
+LeaderboardService.HasPass = MonetizationService.HasPass
+LeaderboardService.IsVipUserId = MonetizationService.IsVipUserId
 MarketService.FreeCoinMonth = CreatorService.FreeCoinMonth
 
 WorldService.Start() -- meldet den Server in der Welt, wählt den NPC-Host
@@ -31,6 +41,7 @@ LeaderboardService.Init()
 ProtectionService.Init()
 LaunchService.Init()
 CreatorService.Init() -- vor PlayerData: Zusatz-Infos im Spieler-Zustand
+MonetizationService.Init() -- vor PlayerData: Gamepässe im Spieler-Zustand, ProcessReceipt
 PlayerDataService.Init() -- erst jetzt Spieler laden: Markt ist bereit
 LeaderboardService.Start()
 ProtectionService.Start()

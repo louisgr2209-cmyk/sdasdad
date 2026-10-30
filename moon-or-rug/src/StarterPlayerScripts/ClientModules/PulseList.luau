@@ -11,6 +11,22 @@ local Screen = require(script.Parent.Screen)
 local MarketClient = require(script.Parent.MarketClient)
 local Indicators = require(ReplicatedStorage.Shared.Indicators)
 local CreatorStyle = require(ReplicatedStorage.Shared.CreatorStyle)
+local TweenService = game:GetService("TweenService")
+
+local HIGHLIGHT = Color3.fromRGB(255, 255, 255)
+local GLOW = TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+
+-- Highlight-Rahmen pulsiert (Tween läuft nur, solange das Highlight aktiv ist)
+local function setGlow(card, on: boolean)
+	if on and not card.Glow then
+		card.Glow = TweenService:Create(card.Stroke, GLOW, { Transparency = 0.7 })
+		card.Glow:Play()
+	elseif not on and card.Glow then
+		card.Glow:Cancel()
+		card.Glow = nil
+		card.Stroke.Transparency = 0
+	end
+end
 
 local Colors = Screen.Colors
 local MAX_PER_COLUMN = 20
@@ -229,7 +245,7 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 		if myCoin and myCoin.Stage ~= "Dead" then
 			createButton.Text = "👑 MY COIN $" .. myCoin.Ticker
 		elseif stats and stats.Level < Config.Launch.CreateMinLevel then
-			createButton.Text = "🔒 CREATE · Lv " .. Config.Launch.CreateMinLevel
+			createButton.Text = "+ CREATE · Lv " .. Config.Launch.CreateMinLevel .. " or R$"
 		else
 			createButton.Text = "+ CREATE COIN"
 		end
@@ -263,7 +279,13 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 				card.Frame.LayoutOrder = index
 				card.Frame.Parent = column.List
 				card.Icon.Text = coin.Icon
-				card.Top.Text = string.format("$%s · %s", coin.Ticker, Format.Duration(MarketClient.Age(coin)))
+				local highlighted = (coin.Highlight or 0) > workspace:GetServerTimeNow() -- Robux-Highlight (30 Min.)
+				card.Top.Text = string.format(
+					"%s$%s · %s",
+					if highlighted then "✨" else "",
+					coin.Ticker,
+					Format.Duration(MarketClient.Age(coin))
+				)
 				card.Middle.Text = string.format("MC %s · 👥%d", Format.Short(coin.MarketCap), coin.Holders)
 				if coin.Rugged then
 					card.Bottom.Text = "RUGGED"
@@ -276,16 +298,21 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 						elseif rating == "Ok" then Colors.Accent
 						else Colors.Red
 				end
-				-- Rahmen: rot = gerugged, lila/gold = Coin eines Silber-/Gold-Creators (Highlight)
+				-- Rahmen: rot = gerugged, leuchtend = Robux-Highlight, lila/gold = Silber-/Gold-Creator
 				local creatorColor = CreatorStyle.Color(MarketClient.CreatorTier(coin.CreatorId))
-				card.Stroke.Enabled = coin.Rugged == true or creatorColor ~= nil
-				card.Stroke.Color = if coin.Rugged then Colors.Red else (creatorColor or Colors.Red)
+				card.Stroke.Enabled = coin.Rugged == true or highlighted or creatorColor ~= nil
+				card.Stroke.Color = if coin.Rugged then Colors.Red
+					elseif highlighted then HIGHLIGHT
+					else (creatorColor or Colors.Red)
+				card.Stroke.Thickness = if highlighted and not coin.Rugged then 3 else 2
+				setGlow(card, highlighted and not coin.Rugged)
 			end
 		end
 
 		-- Karten von Coins, die nicht mehr angezeigt werden, entfernen
 		for coinId, card in self.Cards do
 			if not shown[coinId] then
+				setGlow(card, false)
 				card.Frame:Destroy()
 				self.Cards[coinId] = nil
 			end
