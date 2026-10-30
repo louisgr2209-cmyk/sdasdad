@@ -16,6 +16,7 @@ local ProtectionService = require(ServerScriptService.Services.ProtectionService
 local LaunchService = require(ServerScriptService.Services.LaunchService)
 local CreatorService = require(ServerScriptService.Services.CreatorService)
 local MonetizationService = require(ServerScriptService.Services.MonetizationService)
+local TradeLogService = require(ServerScriptService.Services.TradeLogService)
 
 -- Reines Terminal: kein Avatar
 Players.CharacterAutoLoads = false
@@ -31,6 +32,8 @@ MarketService.DecorateName = function(key: string, name: string): string
 	return CreatorService.DisplayName(key, name, vip, legend)
 end
 MarketService.HasPass = MonetizationService.HasPass
+MarketService.OnTrade = TradeLogService.Add
+PlayerDataService.OnTrade = TradeLogService.Add
 ProtectionService.HasPass = MonetizationService.HasPass
 LeaderboardService.HasPass = MonetizationService.HasPass
 LeaderboardService.IsVipUserId = MonetizationService.IsVipUserId
@@ -46,6 +49,7 @@ ProtectionService.Init()
 LaunchService.Init()
 CreatorService.Init() -- vor PlayerData: Zusatz-Infos im Spieler-Zustand
 MonetizationService.Init() -- vor PlayerData: Gamepässe im Spieler-Zustand, ProcessReceipt
+TradeLogService.Init() -- Trade-Verlauf (eigener Speicher)
 PlayerDataService.Init() -- erst jetzt Spieler laden: Markt ist bereit
 LeaderboardService.Start()
 ProtectionService.Start()

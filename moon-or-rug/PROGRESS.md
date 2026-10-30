@@ -42,6 +42,7 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `ServerScriptService/Services/LaunchService.luau` | ServerScriptService › Services › LaunchService | ModuleScript |
 | `ServerScriptService/Services/CreatorService.luau` | ServerScriptService › Services › CreatorService | ModuleScript |
 | `ServerScriptService/Services/MonetizationService.luau` | ServerScriptService › Services › MonetizationService | ModuleScript |
+| `ServerScriptService/Services/TradeLogService.luau` | ServerScriptService › Services › TradeLogService | ModuleScript |
 | `ServerScriptService/Util/TextFilter.luau` | ServerScriptService › Util › TextFilter | ModuleScript |
 | `ServerScriptService/Util/Ledger.luau` | ServerScriptService › Util › Ledger | ModuleScript |
 | `ServerScriptService/Util/Store.luau` | ServerScriptService › Util › Store | ModuleScript |
@@ -141,6 +142,15 @@ Jetzt steigen alle NPCs aus alten Coins komplett aus.
 | Tutorial | **Pflicht** für neue Spieler, kurz: Coin antippen → BUY → SELL ALL → fertig. Nicht überspringbar. |
 | Sounds | wenige, dezent: Klick, Erfolg, Fehler, Level-Up, Rugpull. Schalter im 🛒-Fenster, wird gespeichert |
 | Prestige-Reset | später (nach dem Test) |
+| Extras | Favoriten ⭐ + Trade-Verlauf mit Zeiträumen und PNL. Warnzeit beim Rugpull: nein |
+
+- **Favoriten ⭐:** ⭐-Knopf neben ◀ auf der Coin-Seite, ⭐ vor dem Ticker in PULSE und im Portfolio,
+  ☆/⭐-Filter oben in PULSE (nur Favoriten zeigen). Max. 30 pro Spieler (voll: ältester fällt raus), im Spielstand.
+- **Trade-Verlauf:** Portfolio › „📜 HISTORY“: Zeitraum TODAY → WEEK → ALL (UTC, wie die Ranglisten), oben Anzahl
+  Trades, realisierter Gewinn/Verlust, Gewinnquote, bester Trade; darunter jeder Trade mit Uhrzeit, Coin, Kauf/Verkauf,
+  Betrag und bei Verkäufen Gewinn in Cash und %. Auch Dev-Buy, Rugpull und Stop-Loss (offline) erscheinen.
+  Eigener DataStore `MoR_TradeLog_v1` (letzte 500 Trades), wird jede Minute **angehängt** (nie überschrieben →
+  beim Server-Wechsel geht nichts verloren). Nur Anzeige, kein Geld.
 
 - Tutorial: alles außer der aktuellen Aufgabe ist abgedunkelt und gesperrt (4 Flächen um ein „Loch“, folgt jeder
   Bildschirmgröße). Erledigt wird im Spielstand gespeichert (`St.TU`), Remote `SetFlag` erlaubt nur „Tutorial
@@ -401,6 +411,8 @@ Ohne Roblox Studio geprüft (Luau ausführen ist hier nicht erlaubt, deshalb kei
 | `ShopTestBuy` | nur in Studio und nur für Ids = 0 (sonst ignoriert), 1 pro 2 Sek. |
 | `ProInfo` | nur mit Pro-Gamepass, 1 pro 2 Sek., Coin-Id ≤ 20; gibt nur Namen + Anteile der Top 10 zurück |
 | `RugPull` / `BuyLicense` | 1 pro 2 Sek., Coin-Id ≤ 20 Zeichen, alles Weitere prüft der Server (Ersteller, Level 25, Lizenz, Alter, Cooldown) |
+| `SetFavorite` | max. 2 pro Sek., Coin-Id ≤ 20 Zeichen, true/false |
+| `TradeLog` | 1 pro 2 Sek., gibt nur den eigenen Verlauf zurück |
 | `SetFlag` | max. 2 pro Sek., nur „Tutorial“ (kann nur auf erledigt) und „Mute“ (true/false) |
 | `SetCreatorCode` / `RedeemCode` | 1 pro 2 Sek., Code-Format + Roblox-Filter, Gold-Pflicht bzw. Einlöse-Regeln (s. Creator-Programm) |
 

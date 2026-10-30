@@ -377,6 +377,17 @@ local function settle(player: Player, p)
 	end
 	PlayerData.SetHolding(player, p.Coin, result.Amount or 0, result.Cost or 0)
 	-- Gebühren/Meldungen nur bei frischer Buchung (bei Wiederholung nie doppelt)
+	-- Trade-Verlauf (nur Anzeige): nur frisch gebuchte Trades, nie Wiederholungen
+	if result.Ok and newValue and coin and MarketService.OnTrade and ((result.Cash or 0) > 0) then
+		MarketService.OnTrade(player, {
+			C = coin.Id,
+			T = coin.Ticker,
+			I = coin.Icon,
+			S = if isLaunch then "Dev" elseif p.Rug then "Rug" else p.Side,
+			M = result.Cash,
+			P = if p.Side == "Sell" then result.Profit else nil,
+		})
+	end
 	if isLaunch then
 		if not result.Ok then
 			return false, result.Error or "Launch failed – your cash was refunded"
@@ -957,6 +968,8 @@ MarketService.DecorateName = nil :: ((string, string) -> string)?
 MarketService.FreeCoinMonth = nil :: ((Player, any) -> number?)?
 -- Vom MonetizationService gesetzt: hat der Spieler diesen Gamepass?
 MarketService.HasPass = nil :: ((Player, string) -> boolean)?
+-- Vom TradeLogService gesetzt: Eintrag im Trade-Verlauf
+MarketService.OnTrade = nil :: ((Player, any) -> ())?
 
 function MarketService.GetCoins()
 	return coins

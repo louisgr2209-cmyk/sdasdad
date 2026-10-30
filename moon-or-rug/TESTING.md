@@ -32,6 +32,8 @@ Kurz und der Reihe nach. Wenn etwas nicht geht: **Screenshot vom Output-Fenster*
 - [ ] Coin antippen → Coin-Seite mit Chart und 4 Ampeln (antippen = Erklärung).
 - [ ] BUY 10 % / SELL ALL → Meldung oben, Cash ändert sich, Coin im PORTFOLIO.
 - [ ] Ganz schnell oft tippen → „Too fast“ statt Absturz.
+- [ ] ⭐ auf der Coin-Seite → Coin hat ⭐ in PULSE; oben ☆ antippen → nur Favoriten.
+- [ ] Portfolio › 📜 HISTORY → deine Trades mit Gewinn/Verlust; Knopf TODAY → WEEK → ALL wechselt den Zeitraum.
 
 ## 4. Geräte (Studio: Test › Gerät-Emulator)
 

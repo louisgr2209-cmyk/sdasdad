@@ -50,19 +50,33 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		Parent = left,
 	})
 	back.Activated:Connect(onBack)
+	-- Favorit ⭐ an/aus
+	local favButton = Screen.Button({
+		Text = "☆",
+		TextSize = 34,
+		Position = UDim2.fromOffset(80, 0),
+		Size = UDim2.fromOffset(72, 72),
+		Parent = left,
+	})
+	favButton.Activated:Connect(function()
+		if self.CoinId then
+			MarketClient.SetFavorite(self.CoinId, not MarketClient.IsFavorite(self.CoinId))
+		end
+	end)
 
+	local NAME_X = 162 -- ◀ 72 | 8 | ⭐ 72 | 10
 	local nameLabel = Screen.Label({
 		Font = Screen.Fonts.Bold,
 		TextSize = 28,
-		Position = UDim2.fromOffset(84, 2),
-		Size = UDim2.new(1, -84, 0, 36),
+		Position = UDim2.fromOffset(NAME_X, 2),
+		Size = UDim2.new(1, -NAME_X, 0, 36),
 		Parent = left,
 	})
 	local priceLabel = Screen.Label({
 		Font = Screen.Fonts.Bold,
 		TextSize = 24,
-		Position = UDim2.fromOffset(84, 40),
-		Size = UDim2.new(1, -84, 0, 30),
+		Position = UDim2.fromOffset(NAME_X, 40),
+		Size = UDim2.new(1, -NAME_X, 0, 30),
 		Parent = left,
 	})
 	-- Boost: nur beim eigenen Coin (ab Level 15, 25.000 Cash, 10 Min.)
@@ -556,7 +570,10 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		local canRug = mine and (MarketClient.Me.RugLicense or 0) > 0 and not coin.Rugged and coin.Stage ~= "Dead"
 		boostButton.Visible = mine
 		rugButton.Visible = canRug
-		local labelWidth = if canRug then -84 - 256 elseif mine then -84 - 128 else -84
+		local labelWidth = if canRug then -NAME_X - 256 elseif mine then -NAME_X - 128 else -NAME_X
+		local favorite = MarketClient.IsFavorite(coin.Id)
+		favButton.Text = if favorite then "⭐" else "☆"
+		favButton.BackgroundColor3 = if favorite then Colors.Accent else Colors.PanelLight
 		if canRug then
 			local t = workspace:GetServerTimeNow()
 			local ageLeft = Config.Rug.MinCoinAge - (t - coin.CreatedAt)

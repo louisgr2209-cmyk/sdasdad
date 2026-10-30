@@ -28,6 +28,7 @@ PlayerDataService.RecoverPending = nil :: ((Player) -> boolean)?
 PlayerDataService.WaitIdle = nil :: ((Player, number) -> ())?
 PlayerDataService.ExtraState = nil :: ((Player) -> any)? -- zusätzliche Infos für den Client (CreatorService)
 PlayerDataService.PassState = nil :: ((Player) -> any)? -- eigene Gamepässe (MonetizationService)
+PlayerDataService.OnTrade = nil :: ((Player, any) -> ())? -- Trade-Verlauf (TradeLogService)
 
 local walletsMap = Store.Map(W.WalletsMap, W.WalletExpiration)
 local coinsMap = Store.Map(W.CoinsMap, W.CoinExpiration)
@@ -184,6 +185,7 @@ function PlayerDataService.BuildState(player: Player)
 		RugLicense = profile.Wallet.RL or 0, -- übrige Rugpulls
 		RugReadyAt = (st.LR or 0) + Config.Rug.Cooldown, -- ab dann wieder (Server-Zeit)
 		Vouchers = profile.Wallet.V or {}, -- Robux-Gutscheine (CT = Coin, HT = Highlight)
+		Favorites = profile.Wallet.Fav or {}, -- Favoriten ⭐ (Liste von Coin-Ids)
 		Passes = if PlayerDataService.PassState then PlayerDataService.PassState(player) else {}, -- Gamepässe
 		Extra = if PlayerDataService.ExtraState then PlayerDataService.ExtraState(player) else nil, -- Creator-Infos
 		Daily = {
@@ -273,6 +275,7 @@ local function cleanProfile(data)
 		RL = if isValidNumber(data.RL) and data.RL >= 0 then math.floor(data.RL) else nil,
 		V = cleanCounts(data.V), -- Robux-Gutscheine
 		Rc = cleanReceipts(data.Rc), -- gemerkte Kauf-Nummern
+		Fav = cleanReceipts(data.Fav), -- Favoriten (Liste von Coin-Ids)
 	}
 end
 
@@ -325,6 +328,9 @@ local function drainInbox(player: Player)
 	end
 	if isValidNumber(content.SL) and content.SL > 0 then
 		PlayerDataService.Notify(player, true, string.format("🛑 Stop-loss sold while you were away: +%.2f Cash", content.SL))
+		if PlayerDataService.OnTrade then
+			PlayerDataService.OnTrade(player, { S = "SL", T = "", I = "🛑", M = content.SL, P = profit })
+		end
 		refreshHoldings(player)
 	end
 	PlayerDataService.PushState(player)
@@ -478,9 +484,28 @@ local function onSetFlag(player: Player, name: any, on: any)
 	end
 end
 
+-- Favorit ⭐ an/aus (nur Anzeige)
+local function onSetFavorite(player: Player, coinId: any, on: any)
+	if not flagLimiter:Allow(player) or not PlayerDataService.GetWallet(player) then
+		return
+	end
+	if typeof(coinId) ~= "string" or #coinId > 20 or typeof(on) ~= "boolean" then
+		return
+	end
+	local ok = PlayerDataService.WalletUpdate(player, Ledger.WalletFavorite, {
+		Job = WorldService.JobId,
+		Coin = coinId,
+		On = on,
+	})
+	if ok then
+		PlayerDataService.PushState(player)
+	end
+end
+
 function PlayerDataService.Init()
 	stateEvent = Remotes.Event("PlayerState")
 	Remotes.Event("SetFlag").OnServerEvent:Connect(onSetFlag)
+	Remotes.Event("SetFavorite").OnServerEvent:Connect(onSetFavorite)
 	Players.PlayerRemoving:Connect(function(player)
 		flagLimiter:Remove(player)
 	end)

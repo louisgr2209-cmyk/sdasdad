@@ -490,6 +490,7 @@ function Ledger.WalletCreate(wallet, a)
 		RL = profile.RL,
 		V = profile.V,
 		Rc = profile.Rc,
+		Fav = profile.Fav,
 		Owner = a.Job,
 		HB = a.Now,
 	}, { Ok = true }
@@ -818,6 +819,29 @@ function Ledger.WalletSetFlag(wallet, a)
 	return wallet, { Ok = true }
 end
 
+-- Favorit an/aus. Liste (älteste zuerst), max. MaxFavorites: ist sie voll, fällt der älteste raus.
+-- a = { Job, Coin, On }
+function Ledger.WalletFavorite(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false }
+	end
+	local list = wallet.Fav or {}
+	local index = table.find(list, a.Coin)
+	if a.On == (index ~= nil) then
+		return nil, { Ok = true }
+	end
+	if a.On then
+		table.insert(list, a.Coin)
+		while #list > Config.Market.MaxFavorites do
+			table.remove(list, 1)
+		end
+	else
+		table.remove(list, index)
+	end
+	wallet.Fav = list
+	return wallet, { Ok = true }
+end
+
 -- Rug-Lizenz kaufen (gilt für LicenseUses Rugpulls). a = { Job, Id, Cost, Uses }. Gleiche Id = nichts doppelt.
 function Ledger.WalletBuyLicense(wallet, a)
 	if not wallet or wallet.Owner ~= a.Job then
@@ -948,6 +972,7 @@ function Ledger.ProfileFromWallet(wallet)
 		RL = wallet.RL,
 		V = wallet.V,
 		Rc = wallet.Rc,
+		Fav = wallet.Fav,
 		Version = 1,
 	}
 end

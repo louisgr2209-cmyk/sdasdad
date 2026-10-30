@@ -154,6 +154,8 @@ Config.Market = {
 	ChartInterval = 5, -- Sekunden pro Chart-Punkt
 	ChartPoints = 60, -- Punkte pro Chart
 	RecentTrades = 20, -- gespeicherte Live-Trades pro Coin
+	MaxFavorites = 30, -- Favoriten ⭐ pro Spieler (voll: ältester fällt raus)
+	TradeLogKeep = 500, -- Trade-Verlauf pro Spieler (DataStore)
 	DeadAfter = 30 * 60, -- Sekunden ohne Trade, dann "Dead" (verschwindet aus den Listen)
 }
 
@@ -761,7 +763,7 @@ return Levels
 			</Item>
 		</Item>
 	</Item>
-	<Item class="Folder" referent="RBX26">
+	<Item class="Folder" referent="RBX27">
 		<Properties><string name="Name">ServerScriptService</string></Properties>
 		<Item class="Script" referent="RBX9">
 			<Properties>
@@ -784,6 +786,7 @@ local ProtectionService = require(ServerScriptService.Services.ProtectionService
 local LaunchService = require(ServerScriptService.Services.LaunchService)
 local CreatorService = require(ServerScriptService.Services.CreatorService)
 local MonetizationService = require(ServerScriptService.Services.MonetizationService)
+local TradeLogService = require(ServerScriptService.Services.TradeLogService)
 
 -- Reines Terminal: kein Avatar
 Players.CharacterAutoLoads = false
@@ -799,6 +802,8 @@ MarketService.DecorateName = function(key: string, name: string): string
 	return CreatorService.DisplayName(key, name, vip, legend)
 end
 MarketService.HasPass = MonetizationService.HasPass
+MarketService.OnTrade = TradeLogService.Add
+PlayerDataService.OnTrade = TradeLogService.Add
 ProtectionService.HasPass = MonetizationService.HasPass
 LeaderboardService.HasPass = MonetizationService.HasPass
 LeaderboardService.IsVipUserId = MonetizationService.IsVipUserId
@@ -814,6 +819,7 @@ ProtectionService.Init()
 LaunchService.Init()
 CreatorService.Init() -- vor PlayerData: Zusatz-Infos im Spieler-Zustand
 MonetizationService.Init() -- vor PlayerData: Gamepässe im Spieler-Zustand, ProcessReceipt
+TradeLogService.Init() -- Trade-Verlauf (eigener Speicher)
 PlayerDataService.Init() -- erst jetzt Spieler laden: Markt ist bereit
 LeaderboardService.Start()
 ProtectionService.Start()
@@ -823,7 +829,7 @@ print("[MoonOrRug] Server ready")
 ]]></ProtectedString>
 			</Properties>
 		</Item>
-		<Item class="Folder" referent="RBX19">
+		<Item class="Folder" referent="RBX20">
 			<Properties><string name="Name">Services</string></Properties>
 			<Item class="ModuleScript" referent="RBX10">
 				<Properties>
@@ -2038,6 +2044,17 @@ local function settle(player: Player, p)
 	end
 	PlayerData.SetHolding(player, p.Coin, result.Amount or 0, result.Cost or 0)
 	-- Gebühren/Meldungen nur bei frischer Buchung (bei Wiederholung nie doppelt)
+	-- Trade-Verlauf (nur Anzeige): nur frisch gebuchte Trades, nie Wiederholungen
+	if result.Ok and newValue and coin and MarketService.OnTrade and ((result.Cash or 0) > 0) then
+		MarketService.OnTrade(player, {
+			C = coin.Id,
+			T = coin.Ticker,
+			I = coin.Icon,
+			S = if isLaunch then "Dev" elseif p.Rug then "Rug" else p.Side,
+			M = result.Cash,
+			P = if p.Side == "Sell" then result.Profit else nil,
+		})
+	end
 	if isLaunch then
 		if not result.Ok then
 			return false, result.Error or "Launch failed – your cash was refunded"
@@ -2618,6 +2635,8 @@ MarketService.DecorateName = nil :: ((string, string) -> string)?
 MarketService.FreeCoinMonth = nil :: ((Player, any) -> number?)?
 -- Vom MonetizationService gesetzt: hat der Spieler diesen Gamepass?
 MarketService.HasPass = nil :: ((Player, string) -> boolean)?
+-- Vom TradeLogService gesetzt: Eintrag im Trade-Verlauf
+MarketService.OnTrade = nil :: ((Player, any) -> ())?
 
 function MarketService.GetCoins()
 	return coins
@@ -3842,6 +3861,7 @@ PlayerDataService.RecoverPending = nil :: ((Player) -> boolean)?
 PlayerDataService.WaitIdle = nil :: ((Player, number) -> ())?
 PlayerDataService.ExtraState = nil :: ((Player) -> any)? -- zusätzliche Infos für den Client (CreatorService)
 PlayerDataService.PassState = nil :: ((Player) -> any)? -- eigene Gamepässe (MonetizationService)
+PlayerDataService.OnTrade = nil :: ((Player, any) -> ())? -- Trade-Verlauf (TradeLogService)
 
 local walletsMap = Store.Map(W.WalletsMap, W.WalletExpiration)
 local coinsMap = Store.Map(W.CoinsMap, W.CoinExpiration)
@@ -3998,6 +4018,7 @@ function PlayerDataService.BuildState(player: Player)
 		RugLicense = profile.Wallet.RL or 0, -- übrige Rugpulls
 		RugReadyAt = (st.LR or 0) + Config.Rug.Cooldown, -- ab dann wieder (Server-Zeit)
 		Vouchers = profile.Wallet.V or {}, -- Robux-Gutscheine (CT = Coin, HT = Highlight)
+		Favorites = profile.Wallet.Fav or {}, -- Favoriten ⭐ (Liste von Coin-Ids)
 		Passes = if PlayerDataService.PassState then PlayerDataService.PassState(player) else {}, -- Gamepässe
 		Extra = if PlayerDataService.ExtraState then PlayerDataService.ExtraState(player) else nil, -- Creator-Infos
 		Daily = {
@@ -4087,6 +4108,7 @@ local function cleanProfile(data)
 		RL = if isValidNumber(data.RL) and data.RL >= 0 then math.floor(data.RL) else nil,
 		V = cleanCounts(data.V), -- Robux-Gutscheine
 		Rc = cleanReceipts(data.Rc), -- gemerkte Kauf-Nummern
+		Fav = cleanReceipts(data.Fav), -- Favoriten (Liste von Coin-Ids)
 	}
 end
 
@@ -4139,6 +4161,9 @@ local function drainInbox(player: Player)
 	end
 	if isValidNumber(content.SL) and content.SL > 0 then
 		PlayerDataService.Notify(player, true, string.format("🛑 Stop-loss sold while you were away: +%.2f Cash", content.SL))
+		if PlayerDataService.OnTrade then
+			PlayerDataService.OnTrade(player, { S = "SL", T = "", I = "🛑", M = content.SL, P = profit })
+		end
 		refreshHoldings(player)
 	end
 	PlayerDataService.PushState(player)
@@ -4292,9 +4317,28 @@ local function onSetFlag(player: Player, name: any, on: any)
 	end
 end
 
+-- Favorit ⭐ an/aus (nur Anzeige)
+local function onSetFavorite(player: Player, coinId: any, on: any)
+	if not flagLimiter:Allow(player) or not PlayerDataService.GetWallet(player) then
+		return
+	end
+	if typeof(coinId) ~= "string" or #coinId > 20 or typeof(on) ~= "boolean" then
+		return
+	end
+	local ok = PlayerDataService.WalletUpdate(player, Ledger.WalletFavorite, {
+		Job = WorldService.JobId,
+		Coin = coinId,
+		On = on,
+	})
+	if ok then
+		PlayerDataService.PushState(player)
+	end
+end
+
 function PlayerDataService.Init()
 	stateEvent = Remotes.Event("PlayerState")
 	Remotes.Event("SetFlag").OnServerEvent:Connect(onSetFlag)
+	Remotes.Event("SetFavorite").OnServerEvent:Connect(onSetFavorite)
 	Players.PlayerRemoving:Connect(function(player)
 		flagLimiter:Remove(player)
 	end)
@@ -4682,6 +4726,155 @@ return ProtectionService
 			</Item>
 			<Item class="ModuleScript" referent="RBX18">
 				<Properties>
+					<string name="Name">TradeLogService</string>
+					<ProtectedString name="Source"><![CDATA[-- TradeLogService (ModuleScript) – ServerScriptService/Services/TradeLogService
+-- Trade-Verlauf pro Spieler (nur Anzeige, kein Geld): die letzten 500 Trades mit Gewinn/Verlust.
+-- Eigener DataStore "MoR_TradeLog_v1", damit die Geldbörse klein bleibt (32-KB-Grenze im Weltmarkt).
+-- Neue Einträge werden gesammelt und jede Minute (und beim Verlassen) ANGEHÄNGT, nie überschrieben:
+-- so gehen beim Server-Wechsel keine Einträge verloren. Im Zweifel fehlt mal ein Eintrag (Absturz),
+-- am Geld ändert das nichts.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Remotes = require(ServerScriptService.Util.Remotes)
+local RateLimiter = require(ServerScriptService.Util.RateLimiter)
+local Store = require(ServerScriptService.Util.Store)
+
+local KEEP = Config.Market.TradeLogKeep
+local FLUSH_INTERVAL = 60
+
+local TradeLogService = {}
+
+local logStore = Store.Data("MoR_TradeLog_v1")
+local logs = {} -- [player] = { Loaded, List = gesamt (für die Anzeige), Unsaved = noch nicht gespeichert }
+local limiter = RateLimiter.new(1, 2)
+
+local function key(player: Player): string
+	return "u_" .. player.UserId
+end
+
+local function trim(list)
+	while #list > KEEP do
+		table.remove(list, 1)
+	end
+end
+
+-- Eintrag hinzufügen. entry = { C = coinId, T = Ticker, I = Icon, S = "Buy"/"Sell"/"Rug"/"Dev"/"SL", M = Cash, P = Gewinn? }
+function TradeLogService.Add(player: Player, entry)
+	local log = logs[player]
+	if not log then
+		return
+	end
+	entry.At = math.floor(workspace:GetServerTimeNow())
+	table.insert(log.List, entry)
+	trim(log.List)
+	table.insert(log.Unsaved, entry)
+end
+
+local function flush(player: Player)
+	local log = logs[player]
+	if not log or #log.Unsaved == 0 then -- nur Anhängen: geht auch, wenn das Laden noch fehlt
+		return
+	end
+	local batch = log.Unsaved
+	log.Unsaved = {}
+	local ok = logStore:Update(key(player), function(old)
+		local list = if type(old) == "table" then old else {}
+		for _, entry in batch do
+			table.insert(list, entry)
+		end
+		trim(list)
+		return list
+	end)
+	if not ok then
+		-- nicht gespeichert: beim nächsten Mal nochmal (vorne einreihen)
+		for i = #batch, 1, -1 do
+			table.insert(log.Unsaved, 1, batch[i])
+		end
+	end
+end
+
+local function load(player: Player)
+	local log = { Loaded = false, List = {}, Unsaved = {} }
+	logs[player] = log
+	local ok, stored = logStore:Get(key(player))
+	if logs[player] ~= log then
+		return
+	end
+	local list = if ok and type(stored) == "table" then stored else {}
+	-- schon während des Ladens hinzugekommene Einträge hinten anhängen
+	for _, entry in log.List do
+		table.insert(list, entry)
+	end
+	trim(list)
+	log.List = list
+	log.Loaded = ok
+	if not ok then -- Laden fehlgeschlagen: in 30 Sek. nochmal (nur für die Anzeige)
+		task.delay(30, function()
+			if logs[player] == log and player.Parent then
+				local okRetry, storedRetry = logStore:Get(key(player))
+				if okRetry then
+					local merged = if type(storedRetry) == "table" then storedRetry else {}
+					for _, entry in log.Unsaved do
+						table.insert(merged, entry)
+					end
+					trim(merged)
+					log.List = merged
+					log.Loaded = true
+				end
+			end
+		end)
+	end
+end
+
+-- Client fragt seinen Verlauf ab (nur den eigenen)
+local function onGet(player: Player)
+	if not limiter:Allow(player) then
+		return nil
+	end
+	local log = logs[player]
+	return if log then log.List else nil
+end
+
+function TradeLogService.Init()
+	Remotes.Function("TradeLog").OnServerInvoke = onGet
+	Players.PlayerAdded:Connect(load)
+	for _, player in Players:GetPlayers() do
+		task.spawn(load, player)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		limiter:Remove(player)
+		pcall(flush, player)
+		logs[player] = nil
+	end)
+	task.spawn(function()
+		while true do
+			task.wait(FLUSH_INTERVAL)
+			for _, player in Players:GetPlayers() do
+				local ok, err = pcall(flush, player)
+				if not ok then
+					warn("[TradeLog] flush: " .. tostring(err))
+				end
+			end
+		end
+	end)
+	game:BindToClose(function()
+		for _, player in Players:GetPlayers() do
+			task.spawn(pcall, flush, player)
+		end
+		task.wait(3)
+	end)
+end
+
+return TradeLogService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX19">
+				<Properties>
 					<string name="Name">WorldService</string>
 					<ProtectedString name="Source"><![CDATA[-- WorldService (ModuleScript) – ServerScriptService/Services/WorldService
 -- Weltmarkt-Verwaltung über alle Server:
@@ -4779,9 +4972,9 @@ return WorldService
 				</Properties>
 			</Item>
 		</Item>
-		<Item class="Folder" referent="RBX25">
+		<Item class="Folder" referent="RBX26">
 			<Properties><string name="Name">Util</string></Properties>
-			<Item class="ModuleScript" referent="RBX20">
+			<Item class="ModuleScript" referent="RBX21">
 				<Properties>
 					<string name="Name">Ledger</string>
 					<ProtectedString name="Source"><![CDATA[-- Ledger (ModuleScript) – ServerScriptService/Util/Ledger
@@ -5276,6 +5469,7 @@ function Ledger.WalletCreate(wallet, a)
 		RL = profile.RL,
 		V = profile.V,
 		Rc = profile.Rc,
+		Fav = profile.Fav,
 		Owner = a.Job,
 		HB = a.Now,
 	}, { Ok = true }
@@ -5604,6 +5798,29 @@ function Ledger.WalletSetFlag(wallet, a)
 	return wallet, { Ok = true }
 end
 
+-- Favorit an/aus. Liste (älteste zuerst), max. MaxFavorites: ist sie voll, fällt der älteste raus.
+-- a = { Job, Coin, On }
+function Ledger.WalletFavorite(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false }
+	end
+	local list = wallet.Fav or {}
+	local index = table.find(list, a.Coin)
+	if a.On == (index ~= nil) then
+		return nil, { Ok = true }
+	end
+	if a.On then
+		table.insert(list, a.Coin)
+		while #list > Config.Market.MaxFavorites do
+			table.remove(list, 1)
+		end
+	else
+		table.remove(list, index)
+	end
+	wallet.Fav = list
+	return wallet, { Ok = true }
+end
+
 -- Rug-Lizenz kaufen (gilt für LicenseUses Rugpulls). a = { Job, Id, Cost, Uses }. Gleiche Id = nichts doppelt.
 function Ledger.WalletBuyLicense(wallet, a)
 	if not wallet or wallet.Owner ~= a.Job then
@@ -5734,6 +5951,7 @@ function Ledger.ProfileFromWallet(wallet)
 		RL = wallet.RL,
 		V = wallet.V,
 		Rc = wallet.Rc,
+		Fav = wallet.Fav,
 		Version = 1,
 	}
 end
@@ -5889,7 +6107,7 @@ return Ledger
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX21">
+			<Item class="ModuleScript" referent="RBX22">
 				<Properties>
 					<string name="Name">RateLimiter</string>
 					<ProtectedString name="Source"><![CDATA[-- RateLimiter (ModuleScript) – ServerScriptService/Util/RateLimiter
@@ -5927,7 +6145,7 @@ return RateLimiter
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX22">
+			<Item class="ModuleScript" referent="RBX23">
 				<Properties>
 					<string name="Name">Remotes</string>
 					<ProtectedString name="Source"><![CDATA[-- Remotes (ModuleScript) – ServerScriptService/Util/Remotes
@@ -5967,7 +6185,7 @@ return Remotes
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX23">
+			<Item class="ModuleScript" referent="RBX24">
 				<Properties>
 					<string name="Name">Store</string>
 					<ProtectedString name="Source"><![CDATA[-- Store (ModuleScript) – ServerScriptService/Util/Store
@@ -6175,7 +6393,7 @@ return Store
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX24">
+			<Item class="ModuleScript" referent="RBX25">
 				<Properties>
 					<string name="Name">TextFilter</string>
 					<ProtectedString name="Source"><![CDATA[-- TextFilter (ModuleScript) – ServerScriptService/Util/TextFilter
@@ -6325,9 +6543,9 @@ return TextFilter
 			</Item>
 		</Item>
 	</Item>
-	<Item class="Folder" referent="RBX43">
+	<Item class="Folder" referent="RBX44">
 		<Properties><string name="Name">StarterPlayerScripts</string></Properties>
-		<Item class="LocalScript" referent="RBX27">
+		<Item class="LocalScript" referent="RBX28">
 			<Properties>
 				<string name="Name">ClientMain</string>
 				<ProtectedString name="Source"><![CDATA[-- ClientMain (LocalScript) – StarterPlayer/StarterPlayerScripts/ClientMain
@@ -6342,9 +6560,9 @@ TerminalUI.Start()
 ]]></ProtectedString>
 			</Properties>
 		</Item>
-		<Item class="Folder" referent="RBX42">
+		<Item class="Folder" referent="RBX43">
 			<Properties><string name="Name">ClientModules</string></Properties>
-			<Item class="ModuleScript" referent="RBX28">
+			<Item class="ModuleScript" referent="RBX29">
 				<Properties>
 					<string name="Name">AdminUI</string>
 					<ProtectedString name="Source"><![CDATA[-- AdminUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/AdminUI
@@ -6625,7 +6843,7 @@ return AdminUI
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX29">
+			<Item class="ModuleScript" referent="RBX30">
 				<Properties>
 					<string name="Name">ChartRenderer</string>
 					<ProtectedString name="Source"><![CDATA[-- ChartRenderer (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/ChartRenderer
@@ -6820,7 +7038,7 @@ return ChartRenderer
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX30">
+			<Item class="ModuleScript" referent="RBX31">
 				<Properties>
 					<string name="Name">CoinPage</string>
 					<ProtectedString name="Source"><![CDATA[-- CoinPage (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/CoinPage
@@ -6875,19 +7093,33 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		Parent = left,
 	})
 	back.Activated:Connect(onBack)
+	-- Favorit ⭐ an/aus
+	local favButton = Screen.Button({
+		Text = "☆",
+		TextSize = 34,
+		Position = UDim2.fromOffset(80, 0),
+		Size = UDim2.fromOffset(72, 72),
+		Parent = left,
+	})
+	favButton.Activated:Connect(function()
+		if self.CoinId then
+			MarketClient.SetFavorite(self.CoinId, not MarketClient.IsFavorite(self.CoinId))
+		end
+	end)
 
+	local NAME_X = 162 -- ◀ 72 | 8 | ⭐ 72 | 10
 	local nameLabel = Screen.Label({
 		Font = Screen.Fonts.Bold,
 		TextSize = 28,
-		Position = UDim2.fromOffset(84, 2),
-		Size = UDim2.new(1, -84, 0, 36),
+		Position = UDim2.fromOffset(NAME_X, 2),
+		Size = UDim2.new(1, -NAME_X, 0, 36),
 		Parent = left,
 	})
 	local priceLabel = Screen.Label({
 		Font = Screen.Fonts.Bold,
 		TextSize = 24,
-		Position = UDim2.fromOffset(84, 40),
-		Size = UDim2.new(1, -84, 0, 30),
+		Position = UDim2.fromOffset(NAME_X, 40),
+		Size = UDim2.new(1, -NAME_X, 0, 30),
 		Parent = left,
 	})
 	-- Boost: nur beim eigenen Coin (ab Level 15, 25.000 Cash, 10 Min.)
@@ -7381,7 +7613,10 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		local canRug = mine and (MarketClient.Me.RugLicense or 0) > 0 and not coin.Rugged and coin.Stage ~= "Dead"
 		boostButton.Visible = mine
 		rugButton.Visible = canRug
-		local labelWidth = if canRug then -84 - 256 elseif mine then -84 - 128 else -84
+		local labelWidth = if canRug then -NAME_X - 256 elseif mine then -NAME_X - 128 else -NAME_X
+		local favorite = MarketClient.IsFavorite(coin.Id)
+		favButton.Text = if favorite then "⭐" else "☆"
+		favButton.BackgroundColor3 = if favorite then Colors.Accent else Colors.PanelLight
 		if canRug then
 			local t = workspace:GetServerTimeNow()
 			local ageLeft = Config.Rug.MinCoinAge - (t - coin.CreatedAt)
@@ -7514,7 +7749,7 @@ return CoinPage
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX31">
+			<Item class="ModuleScript" referent="RBX32">
 				<Properties>
 					<string name="Name">CreateCoinUI</string>
 					<ProtectedString name="Source"><![CDATA[-- CreateCoinUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/CreateCoinUI
@@ -7890,7 +8125,7 @@ return CreateCoinUI
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX32">
+			<Item class="ModuleScript" referent="RBX33">
 				<Properties>
 					<string name="Name">DailyRewardUI</string>
 					<ProtectedString name="Source"><![CDATA[-- DailyRewardUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/DailyRewardUI
@@ -8179,7 +8414,7 @@ return DailyRewardUI
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX33">
+			<Item class="ModuleScript" referent="RBX34">
 				<Properties>
 					<string name="Name">LeaderboardUI</string>
 					<ProtectedString name="Source"><![CDATA[-- LeaderboardUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/LeaderboardUI
@@ -8408,7 +8643,7 @@ return LeaderboardUI
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX34">
+			<Item class="ModuleScript" referent="RBX35">
 				<Properties>
 					<string name="Name">MarketClient</string>
 					<ProtectedString name="Source"><![CDATA[-- MarketClient (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/MarketClient
@@ -8662,6 +8897,33 @@ function MarketClient.SetFlag(name: string, value: boolean?)
 	remote:FireServer(name, value)
 end
 
+-- Favoriten ⭐
+function MarketClient.IsFavorite(coinId: string): boolean
+	return table.find(MarketClient.Me.Favorites or {}, coinId) ~= nil
+end
+
+function MarketClient.SetFavorite(coinId: string, on: boolean)
+	-- sofort anzeigen, der Server bestätigt mit dem nächsten Spieler-Zustand
+	local list = table.clone(MarketClient.Me.Favorites or {})
+	local index = table.find(list, coinId)
+	if on and not index then
+		table.insert(list, coinId)
+	elseif not on and index then
+		table.remove(list, index)
+	end
+	MarketClient.Me.Favorites = list
+	MarketClient.Changed:Fire()
+	local remote = remotes:WaitForChild("SetFavorite") :: RemoteEvent
+	remote:FireServer(coinId, on)
+end
+
+-- Trade-Verlauf (eigene Trades, max. 500) oder nil
+function MarketClient.TradeLog()
+	local remote = remotes:WaitForChild("TradeLog") :: RemoteFunction
+	local ok, list = pcall(remote.InvokeServer, remote)
+	return if ok then list else nil
+end
+
 -- Roblox-Freund? (key = UserId als Text oder Zahl)
 function MarketClient.IsFriend(key: any): boolean
 	return key ~= nil and MarketClient.Friends[tostring(key)] == true
@@ -8806,11 +9068,14 @@ return MarketClient
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX35">
+			<Item class="ModuleScript" referent="RBX36">
 				<Properties>
 					<string name="Name">Portfolio</string>
 					<ProtectedString name="Source"><![CDATA[-- Portfolio (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/Portfolio
--- Cash, offene Positionen mit Gewinn/Verlust, Level. Eigener Coin folgt in Phase 6.
+-- Zwei Ansichten:
+--   POSITIONS: Cash, Wert der Coins, offene Positionen mit Gewinn/Verlust, Level
+--   HISTORY:   eigene Trades mit Gewinn/Verlust für TODAY / WEEK / ALL (UTC, wie die Ranglisten)
+-- Platz (kleinster Fall 976 x 368): Kopfzeile 72 (Werte + Knöpfe rechts) | 12 | Liste (Rest, mind. 284)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -8821,58 +9086,91 @@ local Levels = require(ReplicatedStorage.Shared.Levels)
 
 local Colors = Screen.Colors
 local ROW_HEIGHT = 88
+local LOG_ROW = 44
+local HEAD = 72
+local PERIODS = { "TODAY", "WEEK", "ALL" }
+local SIDE_TEXT = { Buy = "BUY", Sell = "SELL", Rug = "☠ RUG", Dev = "DEV BUY", SL = "STOP-LOSS" }
 
 local Portfolio = {}
+
+-- Tag/Woche wie Ledger.PeriodKeys (UTC, Woche ab Montag)
+local function periodKeys(t: number): (number, number)
+	local day = math.floor(t / 86400)
+	return day, math.floor((day + 3) / 7)
+end
 
 -- parent: Seite, onOpenCoin(coinId): Coin-Seite öffnen
 function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 	local self = {}
 	local rows = {} -- [coinId] = row
+	local mode = "Positions"
+	local periodIndex = 1
+	local log = nil -- zuletzt geladener Verlauf
+	local loading = false
 
-	-- Kopf: Summen
-	local summary = Screen.New("Frame", {
-		Size = UDim2.new(1, 0, 0, 72),
-		BackgroundColor3 = Colors.Panel,
-		Parent = parent,
-	}, {
-		Screen.Corner(12),
-		Screen.Padding(12),
-		Screen.New("UIListLayout", {
-			FillDirection = Enum.FillDirection.Horizontal,
-			SortOrder = Enum.SortOrder.LayoutOrder,
-		}),
-	})
-	local function stat(order: number, title: string)
+	-- Kopfzeile: Werte links, Knöpfe rechts
+	local function statsPanel(rightSpace: number)
+		return Screen.New("Frame", {
+			Size = UDim2.new(1, -rightSpace, 0, HEAD),
+			BackgroundColor3 = Colors.Panel,
+			Parent = parent,
+		}, {
+			Screen.Corner(12),
+			Screen.Padding(12),
+			Screen.New("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
+	end
+	local function stat(panel, count: number, order: number, title: string)
 		local box = Screen.New("Frame", {
-			Size = UDim2.fromScale(0.2, 1),
+			Size = UDim2.fromScale(1 / count, 1),
 			BackgroundTransparency = 1,
 			LayoutOrder = order,
-			Parent = summary,
+			Parent = panel,
 		})
-		Screen.Label({
+		local titleLabel = Screen.Label({
 			Text = title,
 			TextSize = 20,
 			TextColor3 = Colors.Muted,
 			Size = UDim2.new(1, -8, 0, 22),
 			Parent = box,
 		})
-		return Screen.Label({
+		local value = Screen.Label({
 			Font = Screen.Fonts.Bold,
 			TextSize = 24,
 			Position = UDim2.fromOffset(0, 22),
 			Size = UDim2.new(1, -8, 0, 26),
 			Parent = box,
 		})
+		return value, titleLabel
 	end
-	local cashValue = stat(1, "Cash")
-	local positionsValue = stat(2, "In coins")
-	local totalValue = stat(3, "Total")
-	local pnlValue = stat(4, "Open P/L")
-	local levelValue = stat(5, "Level")
+	local function headButton(text: string, width: number, right: number)
+		return Screen.Button({
+			Text = text,
+			TextSize = 20,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -right, 0, 0),
+			Size = UDim2.fromOffset(width, HEAD),
+			Parent = parent,
+		})
+	end
+
+	------------------------------------------------------------------
+	-- POSITIONS
+	------------------------------------------------------------------
+	local summary = statsPanel(170)
+	local cashValue = stat(summary, 5, 1, "Cash")
+	local positionsValue = stat(summary, 5, 2, "In coins")
+	local totalValue = stat(summary, 5, 3, "Total")
+	local pnlValue = stat(summary, 5, 4, "Open P/L")
+	local levelValue, levelTitle = stat(summary, 5, 5, "Level")
+	local historyButton = headButton("📜 HISTORY", 160, 0)
 
 	local list = Screen.Scroller({
-		Position = UDim2.fromOffset(0, 84),
-		Size = UDim2.new(1, 0, 1, -84),
+		Position = UDim2.fromOffset(0, HEAD + 12),
+		Size = UDim2.new(1, 0, 1, -(HEAD + 12)),
 		Parent = parent,
 	})
 	local emptyLabel = Screen.Label({
@@ -8884,6 +9182,191 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 		Parent = parent,
 	})
 
+	------------------------------------------------------------------
+	-- HISTORY
+	------------------------------------------------------------------
+	local historySummary = statsPanel(260)
+	local tradesValue = stat(historySummary, 4, 1, "Trades")
+	local realizedValue = stat(historySummary, 4, 2, "Realized P/L")
+	local winValue = stat(historySummary, 4, 3, "Win rate")
+	local bestValue = stat(historySummary, 4, 4, "Best trade")
+	local periodButton = headButton("TODAY", 120, 130)
+	local backButton = headButton("◀ BACK", 120, 0)
+
+	local logList = Screen.Scroller({
+		Position = UDim2.fromOffset(0, HEAD + 12),
+		Size = UDim2.new(1, 0, 1, -(HEAD + 12)),
+		Parent = parent,
+	})
+	local logEmpty = Screen.Label({
+		TextColor3 = Colors.Muted,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(0, 120),
+		Size = UDim2.new(1, 0, 0, 30),
+		Parent = parent,
+	})
+	local logRows = {}
+
+	local function logRow(index: number)
+		local row = logRows[index]
+		if row then
+			row.Frame.Visible = true
+			return row
+		end
+		local frame = Screen.New("Frame", {
+			Size = UDim2.new(1, -10, 0, LOG_ROW),
+			BackgroundColor3 = Colors.Panel,
+			LayoutOrder = index,
+			Parent = logList,
+		}, {
+			Screen.Corner(8),
+		})
+		row = {
+			Frame = frame,
+			Left = Screen.Label({
+				TextSize = 20,
+				Position = UDim2.fromOffset(12, 0),
+				Size = UDim2.new(0.6, -12, 1, 0),
+				Parent = frame,
+			}),
+			Right = Screen.Label({
+				Font = Screen.Fonts.Bold,
+				TextSize = 20,
+				TextXAlignment = Enum.TextXAlignment.Right,
+				Position = UDim2.fromScale(0.6, 0),
+				Size = UDim2.new(0.4, -12, 1, 0),
+				Parent = frame,
+			}),
+		}
+		logRows[index] = row
+		return row
+	end
+
+	-- Einträge des gewählten Zeitraums, neueste zuerst
+	local function entriesInPeriod()
+		local result = {}
+		if not log then
+			return result
+		end
+		local day, week = periodKeys(workspace:GetServerTimeNow())
+		local period = PERIODS[periodIndex]
+		for i = #log, 1, -1 do
+			local entry = log[i]
+			local eDay, eWeek = periodKeys(entry.At or 0)
+			if period == "ALL" or (period == "TODAY" and eDay == day) or (period == "WEEK" and eWeek == week) then
+				table.insert(result, entry)
+			end
+		end
+		return result
+	end
+
+	local function refreshHistory()
+		periodButton.Text = PERIODS[periodIndex] .. " ▸"
+		local entries = entriesInPeriod()
+		local realized, wins, sells, best = 0, 0, 0, nil
+		for _, entry in entries do
+			if entry.P then
+				realized += entry.P
+				sells += 1
+				if entry.P > 0 then
+					wins += 1
+				end
+				best = if best then math.max(best, entry.P) else entry.P
+			end
+		end
+		tradesValue.Text = tostring(#entries)
+		realizedValue.Text = (if realized >= 0 then "+" else "") .. Format.Cash(realized)
+		realizedValue.TextColor3 = if realized >= 0 then Colors.Green else Colors.Red
+		winValue.Text = if sells > 0 then string.format("%d%%", math.floor(wins / sells * 100 + 0.5)) else "–"
+		bestValue.Text = if best then (if best >= 0 then "+" else "") .. Format.Cash(best) else "–"
+		bestValue.TextColor3 = if best and best < 0 then Colors.Red else Colors.Green
+
+		logEmpty.Visible = #entries == 0
+		logEmpty.Text = if loading and not log then "Loading…" else "No trades in this period."
+		local today = periodKeys(workspace:GetServerTimeNow())
+		for i, entry in entries do
+			local row = logRow(i)
+			local at = entry.At or 0
+			local when = os.date(if periodKeys(at) == today then "%H:%M" else "%d.%m. %H:%M", at)
+			row.Left.Text = string.format(
+				"%s  %s %s%s",
+				when,
+				SIDE_TEXT[entry.S] or tostring(entry.S),
+				entry.I or "",
+				if entry.T and entry.T ~= "" then " $" .. entry.T else ""
+			)
+			if entry.P then
+				local cost = (entry.M or 0) - entry.P
+				local percent = if cost > 0 then entry.P / cost else 0
+				row.Right.Text = string.format(
+					"%s → %s%s (%s)",
+					Format.Cash(entry.M or 0),
+					if entry.P >= 0 then "+" else "",
+					Format.Cash(entry.P),
+					Format.Percent(percent)
+				)
+				row.Right.TextColor3 = if entry.P >= 0 then Colors.Green else Colors.Red
+			else
+				row.Right.Text = Format.Cash(entry.M or 0)
+				row.Right.TextColor3 = Colors.Muted
+			end
+		end
+		for i = #entries + 1, #logRows do
+			logRows[i].Frame.Visible = false
+		end
+	end
+
+	local function loadLog()
+		if loading then
+			return
+		end
+		loading = true
+		task.spawn(function()
+			local result = MarketClient.TradeLog()
+			loading = false
+			if result then
+				log = result
+			end
+			if mode == "History" then
+				refreshHistory()
+			end
+		end)
+	end
+
+	local function setMode(newMode: string)
+		mode = newMode
+		local history = mode == "History"
+		for _, item in { summary, historyButton, list, emptyLabel } do
+			item.Visible = not history
+		end
+		for _, item in { historySummary, periodButton, backButton, logList, logEmpty } do
+			item.Visible = history
+		end
+		if history then
+			loadLog()
+		end
+		self.Refresh()
+	end
+	historyButton.Activated:Connect(function()
+		setMode("History")
+	end)
+	backButton.Activated:Connect(function()
+		setMode("Positions")
+	end)
+	periodButton.Activated:Connect(function()
+		periodIndex = periodIndex % #PERIODS + 1
+		refreshHistory()
+	end)
+	-- Nach einem eigenen Trade: Verlauf neu laden (Server begrenzt auf 1 Abfrage pro 2 Sek.)
+	MarketClient.TradeResult.Event:Connect(function(ok: boolean)
+		if ok and mode == "History" then
+			task.delay(2, loadLog)
+		end
+	end)
+
+	------------------------------------------------------------------
+	-- Positionen
+	------------------------------------------------------------------
 	local function getRow(coinId: string)
 		local row = rows[coinId]
 		if row then
@@ -8953,7 +9436,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 		return row
 	end
 
-	function self.Refresh()
+	local function refreshPositions()
 		local me = MarketClient.Me
 		local inCoins, totalCost = 0, 0
 		local entries = {}
@@ -8982,7 +9465,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 			levelValue.Text = string.format("Lv %d · %d%%", level, math.floor(progress * 100))
 			levelValue.TextColor3 = Colors.Text
 			-- kleine Hilfe im Titel: wie viel XP noch fehlt (kurz, passt auch auf das iPad)
-			levelValue.Parent:FindFirstChildOfClass("TextLabel").Text = string.format("Next: %d XP", missing)
+			levelTitle.Text = string.format("Next: %d XP", missing)
 		end
 
 		local shown = {}
@@ -8993,7 +9476,12 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 			row.Frame.LayoutOrder = index
 			row.Icon.Text = coin.Icon
 			local crown = if coin.CreatorId == MarketClient.MyKey then "👨‍💻 " else "" -- eigener Coin (👑 = Legend)
-			row.Name.Text = crown .. "$" .. coin.Ticker .. (if coin.Rugged then "  RUGGED" elseif coin.Stage == "Dead" then "  DEAD" else "")
+			local star = if MarketClient.IsFavorite(coin.Id) then "⭐" else ""
+			row.Name.Text = crown
+				.. star
+				.. "$"
+				.. coin.Ticker
+				.. (if coin.Rugged then "  RUGGED" elseif coin.Stage == "Dead" then "  DEAD" else "")
 			row.Name.TextColor3 = if coin.Rugged or coin.Stage == "Dead" then Colors.Red else Colors.Text
 			local marks = ""
 			if position.SL then
@@ -9019,6 +9507,15 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 		end
 	end
 
+	function self.Refresh()
+		if mode == "History" then
+			refreshHistory()
+		else
+			refreshPositions()
+		end
+	end
+
+	setMode("Positions")
 	return self
 end
 
@@ -9026,12 +9523,12 @@ return Portfolio
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX36">
+			<Item class="ModuleScript" referent="RBX37">
 				<Properties>
 					<string name="Name">PulseList</string>
 					<ProtectedString name="Source"><![CDATA[-- PulseList (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/PulseList
 -- Startseite: oben BOOSTED-Leiste (max. 3) + "CREATE COIN", darunter drei Spalten New · Almost done · Migrated.
--- Breite oben (mind. 976): Titel 150 | 3 Boosts à 190 | Knopf 210
+-- Breite oben (mind. 976): Titel 150 | 3 Boosts à 170 (+8) | ⭐-Filter 64 | 8 | Knopf 210
 -- Pro Coin: Icon, Ticker, Alter, Marktkapital, Holder, Dev-Anteil, Rug-Lizenz-Warnung, Schnellkauf.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -9095,8 +9592,8 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 		local chip = Screen.Button({
 			Text = "",
 			TextSize = 20,
-			Position = UDim2.fromOffset(150 + (i - 1) * 198, 0),
-			Size = UDim2.fromOffset(190, TOP),
+			Position = UDim2.fromOffset(150 + (i - 1) * 178, 0),
+			Size = UDim2.fromOffset(170, TOP),
 			Visible = false,
 			Parent = top,
 		})
@@ -9113,9 +9610,23 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 		TextSize = 20,
 		TextColor3 = Colors.Muted,
 		Position = UDim2.fromOffset(150, 0),
-		Size = UDim2.new(1, -150 - 220, 1, 0),
+		Size = UDim2.new(1, -150 - 290, 1, 0),
 		Parent = top,
 	})
+	-- ⭐-Filter: nur Favoriten zeigen
+	local favoritesOnly = false
+	local favButton = Screen.Button({
+		Text = "☆",
+		TextSize = 30,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -218, 0, 0),
+		Size = UDim2.fromOffset(64, TOP),
+		Parent = top,
+	})
+	favButton.Activated:Connect(function()
+		favoritesOnly = not favoritesOnly
+		self.Refresh()
+	end)
 	local createButton = Screen.Button({
 		Text = "+ CREATE COIN",
 		TextSize = 22,
@@ -9283,9 +9794,11 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 		end
 
 		-- Coins nach Spalte sortieren
+		favButton.Text = if favoritesOnly then "⭐" else "☆"
+		favButton.BackgroundColor3 = if favoritesOnly then Colors.Accent else Colors.PanelLight
 		local byStage = { New = {}, AlmostDone = {}, Migrated = {} }
 		for _, coin in MarketClient.Coins do
-			local list = byStage[coin.Stage]
+			local list = if favoritesOnly and not MarketClient.IsFavorite(coin.Id) then nil else byStage[coin.Stage]
 			if list then -- "Dead" erscheint nicht
 				table.insert(list, coin)
 			end
@@ -9313,7 +9826,8 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 				card.Icon.Text = coin.Icon
 				local highlighted = (coin.Highlight or 0) > workspace:GetServerTimeNow() -- Robux-Highlight (30 Min.)
 				card.Top.Text = string.format(
-					"%s%s$%s · %s",
+					"%s%s%s$%s · %s",
+					if MarketClient.IsFavorite(coin.Id) then "⭐" else "",
 					if highlighted then "✨" else "",
 					if MarketClient.IsFriend(coin.CreatorId) then "👥" else "", -- Coin eines Roblox-Freunds
 					coin.Ticker,
@@ -9359,7 +9873,7 @@ return PulseList
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX37">
+			<Item class="ModuleScript" referent="RBX38">
 				<Properties>
 					<string name="Name">Screen</string>
 					<ProtectedString name="Source"><![CDATA[-- Screen (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/Screen
@@ -9571,7 +10085,7 @@ return Screen
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX38">
+			<Item class="ModuleScript" referent="RBX39">
 				<Properties>
 					<string name="Name">ShopUI</string>
 					<ProtectedString name="Source"><![CDATA[-- ShopUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/ShopUI
@@ -9772,7 +10286,7 @@ return ShopUI
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX39">
+			<Item class="ModuleScript" referent="RBX40">
 				<Properties>
 					<string name="Name">SoundFx</string>
 					<ProtectedString name="Source"><![CDATA[-- SoundFx (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/SoundFx
@@ -9821,7 +10335,7 @@ return SoundFx
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX40">
+			<Item class="ModuleScript" referent="RBX41">
 				<Properties>
 					<string name="Name">TerminalUI</string>
 					<ProtectedString name="Source"><![CDATA[-- TerminalUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/TerminalUI
@@ -10236,7 +10750,7 @@ return TerminalUI
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX41">
+			<Item class="ModuleScript" referent="RBX42">
 				<Properties>
 					<string name="Name">TutorialUI</string>
 					<ProtectedString name="Source"><![CDATA[-- TutorialUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/TutorialUI

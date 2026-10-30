@@ -249,6 +249,33 @@ function MarketClient.SetFlag(name: string, value: boolean?)
 	remote:FireServer(name, value)
 end
 
+-- Favoriten ⭐
+function MarketClient.IsFavorite(coinId: string): boolean
+	return table.find(MarketClient.Me.Favorites or {}, coinId) ~= nil
+end
+
+function MarketClient.SetFavorite(coinId: string, on: boolean)
+	-- sofort anzeigen, der Server bestätigt mit dem nächsten Spieler-Zustand
+	local list = table.clone(MarketClient.Me.Favorites or {})
+	local index = table.find(list, coinId)
+	if on and not index then
+		table.insert(list, coinId)
+	elseif not on and index then
+		table.remove(list, index)
+	end
+	MarketClient.Me.Favorites = list
+	MarketClient.Changed:Fire()
+	local remote = remotes:WaitForChild("SetFavorite") :: RemoteEvent
+	remote:FireServer(coinId, on)
+end
+
+-- Trade-Verlauf (eigene Trades, max. 500) oder nil
+function MarketClient.TradeLog()
+	local remote = remotes:WaitForChild("TradeLog") :: RemoteFunction
+	local ok, list = pcall(remote.InvokeServer, remote)
+	return if ok then list else nil
+end
+
 -- Roblox-Freund? (key = UserId als Text oder Zahl)
 function MarketClient.IsFriend(key: any): boolean
 	return key ~= nil and MarketClient.Friends[tostring(key)] == true

@@ -1,5 +1,8 @@
 -- Portfolio (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/Portfolio
--- Cash, offene Positionen mit Gewinn/Verlust, Level. Eigener Coin folgt in Phase 6.
+-- Zwei Ansichten:
+--   POSITIONS: Cash, Wert der Coins, offene Positionen mit Gewinn/Verlust, Level
+--   HISTORY:   eigene Trades mit Gewinn/Verlust für TODAY / WEEK / ALL (UTC, wie die Ranglisten)
+-- Platz (kleinster Fall 976 x 368): Kopfzeile 72 (Werte + Knöpfe rechts) | 12 | Liste (Rest, mind. 284)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -10,58 +13,91 @@ local Levels = require(ReplicatedStorage.Shared.Levels)
 
 local Colors = Screen.Colors
 local ROW_HEIGHT = 88
+local LOG_ROW = 44
+local HEAD = 72
+local PERIODS = { "TODAY", "WEEK", "ALL" }
+local SIDE_TEXT = { Buy = "BUY", Sell = "SELL", Rug = "☠ RUG", Dev = "DEV BUY", SL = "STOP-LOSS" }
 
 local Portfolio = {}
+
+-- Tag/Woche wie Ledger.PeriodKeys (UTC, Woche ab Montag)
+local function periodKeys(t: number): (number, number)
+	local day = math.floor(t / 86400)
+	return day, math.floor((day + 3) / 7)
+end
 
 -- parent: Seite, onOpenCoin(coinId): Coin-Seite öffnen
 function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 	local self = {}
 	local rows = {} -- [coinId] = row
+	local mode = "Positions"
+	local periodIndex = 1
+	local log = nil -- zuletzt geladener Verlauf
+	local loading = false
 
-	-- Kopf: Summen
-	local summary = Screen.New("Frame", {
-		Size = UDim2.new(1, 0, 0, 72),
-		BackgroundColor3 = Colors.Panel,
-		Parent = parent,
-	}, {
-		Screen.Corner(12),
-		Screen.Padding(12),
-		Screen.New("UIListLayout", {
-			FillDirection = Enum.FillDirection.Horizontal,
-			SortOrder = Enum.SortOrder.LayoutOrder,
-		}),
-	})
-	local function stat(order: number, title: string)
+	-- Kopfzeile: Werte links, Knöpfe rechts
+	local function statsPanel(rightSpace: number)
+		return Screen.New("Frame", {
+			Size = UDim2.new(1, -rightSpace, 0, HEAD),
+			BackgroundColor3 = Colors.Panel,
+			Parent = parent,
+		}, {
+			Screen.Corner(12),
+			Screen.Padding(12),
+			Screen.New("UIListLayout", {
+				FillDirection = Enum.FillDirection.Horizontal,
+				SortOrder = Enum.SortOrder.LayoutOrder,
+			}),
+		})
+	end
+	local function stat(panel, count: number, order: number, title: string)
 		local box = Screen.New("Frame", {
-			Size = UDim2.fromScale(0.2, 1),
+			Size = UDim2.fromScale(1 / count, 1),
 			BackgroundTransparency = 1,
 			LayoutOrder = order,
-			Parent = summary,
+			Parent = panel,
 		})
-		Screen.Label({
+		local titleLabel = Screen.Label({
 			Text = title,
 			TextSize = 20,
 			TextColor3 = Colors.Muted,
 			Size = UDim2.new(1, -8, 0, 22),
 			Parent = box,
 		})
-		return Screen.Label({
+		local value = Screen.Label({
 			Font = Screen.Fonts.Bold,
 			TextSize = 24,
 			Position = UDim2.fromOffset(0, 22),
 			Size = UDim2.new(1, -8, 0, 26),
 			Parent = box,
 		})
+		return value, titleLabel
 	end
-	local cashValue = stat(1, "Cash")
-	local positionsValue = stat(2, "In coins")
-	local totalValue = stat(3, "Total")
-	local pnlValue = stat(4, "Open P/L")
-	local levelValue = stat(5, "Level")
+	local function headButton(text: string, width: number, right: number)
+		return Screen.Button({
+			Text = text,
+			TextSize = 20,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -right, 0, 0),
+			Size = UDim2.fromOffset(width, HEAD),
+			Parent = parent,
+		})
+	end
+
+	------------------------------------------------------------------
+	-- POSITIONS
+	------------------------------------------------------------------
+	local summary = statsPanel(170)
+	local cashValue = stat(summary, 5, 1, "Cash")
+	local positionsValue = stat(summary, 5, 2, "In coins")
+	local totalValue = stat(summary, 5, 3, "Total")
+	local pnlValue = stat(summary, 5, 4, "Open P/L")
+	local levelValue, levelTitle = stat(summary, 5, 5, "Level")
+	local historyButton = headButton("📜 HISTORY", 160, 0)
 
 	local list = Screen.Scroller({
-		Position = UDim2.fromOffset(0, 84),
-		Size = UDim2.new(1, 0, 1, -84),
+		Position = UDim2.fromOffset(0, HEAD + 12),
+		Size = UDim2.new(1, 0, 1, -(HEAD + 12)),
 		Parent = parent,
 	})
 	local emptyLabel = Screen.Label({
@@ -73,6 +109,191 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 		Parent = parent,
 	})
 
+	------------------------------------------------------------------
+	-- HISTORY
+	------------------------------------------------------------------
+	local historySummary = statsPanel(260)
+	local tradesValue = stat(historySummary, 4, 1, "Trades")
+	local realizedValue = stat(historySummary, 4, 2, "Realized P/L")
+	local winValue = stat(historySummary, 4, 3, "Win rate")
+	local bestValue = stat(historySummary, 4, 4, "Best trade")
+	local periodButton = headButton("TODAY", 120, 130)
+	local backButton = headButton("◀ BACK", 120, 0)
+
+	local logList = Screen.Scroller({
+		Position = UDim2.fromOffset(0, HEAD + 12),
+		Size = UDim2.new(1, 0, 1, -(HEAD + 12)),
+		Parent = parent,
+	})
+	local logEmpty = Screen.Label({
+		TextColor3 = Colors.Muted,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Position = UDim2.fromOffset(0, 120),
+		Size = UDim2.new(1, 0, 0, 30),
+		Parent = parent,
+	})
+	local logRows = {}
+
+	local function logRow(index: number)
+		local row = logRows[index]
+		if row then
+			row.Frame.Visible = true
+			return row
+		end
+		local frame = Screen.New("Frame", {
+			Size = UDim2.new(1, -10, 0, LOG_ROW),
+			BackgroundColor3 = Colors.Panel,
+			LayoutOrder = index,
+			Parent = logList,
+		}, {
+			Screen.Corner(8),
+		})
+		row = {
+			Frame = frame,
+			Left = Screen.Label({
+				TextSize = 20,
+				Position = UDim2.fromOffset(12, 0),
+				Size = UDim2.new(0.6, -12, 1, 0),
+				Parent = frame,
+			}),
+			Right = Screen.Label({
+				Font = Screen.Fonts.Bold,
+				TextSize = 20,
+				TextXAlignment = Enum.TextXAlignment.Right,
+				Position = UDim2.fromScale(0.6, 0),
+				Size = UDim2.new(0.4, -12, 1, 0),
+				Parent = frame,
+			}),
+		}
+		logRows[index] = row
+		return row
+	end
+
+	-- Einträge des gewählten Zeitraums, neueste zuerst
+	local function entriesInPeriod()
+		local result = {}
+		if not log then
+			return result
+		end
+		local day, week = periodKeys(workspace:GetServerTimeNow())
+		local period = PERIODS[periodIndex]
+		for i = #log, 1, -1 do
+			local entry = log[i]
+			local eDay, eWeek = periodKeys(entry.At or 0)
+			if period == "ALL" or (period == "TODAY" and eDay == day) or (period == "WEEK" and eWeek == week) then
+				table.insert(result, entry)
+			end
+		end
+		return result
+	end
+
+	local function refreshHistory()
+		periodButton.Text = PERIODS[periodIndex] .. " ▸"
+		local entries = entriesInPeriod()
+		local realized, wins, sells, best = 0, 0, 0, nil
+		for _, entry in entries do
+			if entry.P then
+				realized += entry.P
+				sells += 1
+				if entry.P > 0 then
+					wins += 1
+				end
+				best = if best then math.max(best, entry.P) else entry.P
+			end
+		end
+		tradesValue.Text = tostring(#entries)
+		realizedValue.Text = (if realized >= 0 then "+" else "") .. Format.Cash(realized)
+		realizedValue.TextColor3 = if realized >= 0 then Colors.Green else Colors.Red
+		winValue.Text = if sells > 0 then string.format("%d%%", math.floor(wins / sells * 100 + 0.5)) else "–"
+		bestValue.Text = if best then (if best >= 0 then "+" else "") .. Format.Cash(best) else "–"
+		bestValue.TextColor3 = if best and best < 0 then Colors.Red else Colors.Green
+
+		logEmpty.Visible = #entries == 0
+		logEmpty.Text = if loading and not log then "Loading…" else "No trades in this period."
+		local today = periodKeys(workspace:GetServerTimeNow())
+		for i, entry in entries do
+			local row = logRow(i)
+			local at = entry.At or 0
+			local when = os.date(if periodKeys(at) == today then "%H:%M" else "%d.%m. %H:%M", at)
+			row.Left.Text = string.format(
+				"%s  %s %s%s",
+				when,
+				SIDE_TEXT[entry.S] or tostring(entry.S),
+				entry.I or "",
+				if entry.T and entry.T ~= "" then " $" .. entry.T else ""
+			)
+			if entry.P then
+				local cost = (entry.M or 0) - entry.P
+				local percent = if cost > 0 then entry.P / cost else 0
+				row.Right.Text = string.format(
+					"%s → %s%s (%s)",
+					Format.Cash(entry.M or 0),
+					if entry.P >= 0 then "+" else "",
+					Format.Cash(entry.P),
+					Format.Percent(percent)
+				)
+				row.Right.TextColor3 = if entry.P >= 0 then Colors.Green else Colors.Red
+			else
+				row.Right.Text = Format.Cash(entry.M or 0)
+				row.Right.TextColor3 = Colors.Muted
+			end
+		end
+		for i = #entries + 1, #logRows do
+			logRows[i].Frame.Visible = false
+		end
+	end
+
+	local function loadLog()
+		if loading then
+			return
+		end
+		loading = true
+		task.spawn(function()
+			local result = MarketClient.TradeLog()
+			loading = false
+			if result then
+				log = result
+			end
+			if mode == "History" then
+				refreshHistory()
+			end
+		end)
+	end
+
+	local function setMode(newMode: string)
+		mode = newMode
+		local history = mode == "History"
+		for _, item in { summary, historyButton, list, emptyLabel } do
+			item.Visible = not history
+		end
+		for _, item in { historySummary, periodButton, backButton, logList, logEmpty } do
+			item.Visible = history
+		end
+		if history then
+			loadLog()
+		end
+		self.Refresh()
+	end
+	historyButton.Activated:Connect(function()
+		setMode("History")
+	end)
+	backButton.Activated:Connect(function()
+		setMode("Positions")
+	end)
+	periodButton.Activated:Connect(function()
+		periodIndex = periodIndex % #PERIODS + 1
+		refreshHistory()
+	end)
+	-- Nach einem eigenen Trade: Verlauf neu laden (Server begrenzt auf 1 Abfrage pro 2 Sek.)
+	MarketClient.TradeResult.Event:Connect(function(ok: boolean)
+		if ok and mode == "History" then
+			task.delay(2, loadLog)
+		end
+	end)
+
+	------------------------------------------------------------------
+	-- Positionen
+	------------------------------------------------------------------
 	local function getRow(coinId: string)
 		local row = rows[coinId]
 		if row then
@@ -142,7 +363,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 		return row
 	end
 
-	function self.Refresh()
+	local function refreshPositions()
 		local me = MarketClient.Me
 		local inCoins, totalCost = 0, 0
 		local entries = {}
@@ -171,7 +392,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 			levelValue.Text = string.format("Lv %d · %d%%", level, math.floor(progress * 100))
 			levelValue.TextColor3 = Colors.Text
 			-- kleine Hilfe im Titel: wie viel XP noch fehlt (kurz, passt auch auf das iPad)
-			levelValue.Parent:FindFirstChildOfClass("TextLabel").Text = string.format("Next: %d XP", missing)
+			levelTitle.Text = string.format("Next: %d XP", missing)
 		end
 
 		local shown = {}
@@ -182,7 +403,12 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 			row.Frame.LayoutOrder = index
 			row.Icon.Text = coin.Icon
 			local crown = if coin.CreatorId == MarketClient.MyKey then "👨‍💻 " else "" -- eigener Coin (👑 = Legend)
-			row.Name.Text = crown .. "$" .. coin.Ticker .. (if coin.Rugged then "  RUGGED" elseif coin.Stage == "Dead" then "  DEAD" else "")
+			local star = if MarketClient.IsFavorite(coin.Id) then "⭐" else ""
+			row.Name.Text = crown
+				.. star
+				.. "$"
+				.. coin.Ticker
+				.. (if coin.Rugged then "  RUGGED" elseif coin.Stage == "Dead" then "  DEAD" else "")
 			row.Name.TextColor3 = if coin.Rugged or coin.Stage == "Dead" then Colors.Red else Colors.Text
 			local marks = ""
 			if position.SL then
@@ -208,6 +434,15 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 		end
 	end
 
+	function self.Refresh()
+		if mode == "History" then
+			refreshHistory()
+		else
+			refreshPositions()
+		end
+	end
+
+	setMode("Positions")
 	return self
 end
 

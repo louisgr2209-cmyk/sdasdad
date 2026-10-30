@@ -1,6 +1,6 @@
 -- PulseList (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/PulseList
 -- Startseite: oben BOOSTED-Leiste (max. 3) + "CREATE COIN", darunter drei Spalten New · Almost done · Migrated.
--- Breite oben (mind. 976): Titel 150 | 3 Boosts à 190 | Knopf 210
+-- Breite oben (mind. 976): Titel 150 | 3 Boosts à 170 (+8) | ⭐-Filter 64 | 8 | Knopf 210
 -- Pro Coin: Icon, Ticker, Alter, Marktkapital, Holder, Dev-Anteil, Rug-Lizenz-Warnung, Schnellkauf.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -64,8 +64,8 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 		local chip = Screen.Button({
 			Text = "",
 			TextSize = 20,
-			Position = UDim2.fromOffset(150 + (i - 1) * 198, 0),
-			Size = UDim2.fromOffset(190, TOP),
+			Position = UDim2.fromOffset(150 + (i - 1) * 178, 0),
+			Size = UDim2.fromOffset(170, TOP),
 			Visible = false,
 			Parent = top,
 		})
@@ -82,9 +82,23 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 		TextSize = 20,
 		TextColor3 = Colors.Muted,
 		Position = UDim2.fromOffset(150, 0),
-		Size = UDim2.new(1, -150 - 220, 1, 0),
+		Size = UDim2.new(1, -150 - 290, 1, 0),
 		Parent = top,
 	})
+	-- ⭐-Filter: nur Favoriten zeigen
+	local favoritesOnly = false
+	local favButton = Screen.Button({
+		Text = "☆",
+		TextSize = 30,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -218, 0, 0),
+		Size = UDim2.fromOffset(64, TOP),
+		Parent = top,
+	})
+	favButton.Activated:Connect(function()
+		favoritesOnly = not favoritesOnly
+		self.Refresh()
+	end)
 	local createButton = Screen.Button({
 		Text = "+ CREATE COIN",
 		TextSize = 22,
@@ -252,9 +266,11 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 		end
 
 		-- Coins nach Spalte sortieren
+		favButton.Text = if favoritesOnly then "⭐" else "☆"
+		favButton.BackgroundColor3 = if favoritesOnly then Colors.Accent else Colors.PanelLight
 		local byStage = { New = {}, AlmostDone = {}, Migrated = {} }
 		for _, coin in MarketClient.Coins do
-			local list = byStage[coin.Stage]
+			local list = if favoritesOnly and not MarketClient.IsFavorite(coin.Id) then nil else byStage[coin.Stage]
 			if list then -- "Dead" erscheint nicht
 				table.insert(list, coin)
 			end
@@ -282,7 +298,8 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 				card.Icon.Text = coin.Icon
 				local highlighted = (coin.Highlight or 0) > workspace:GetServerTimeNow() -- Robux-Highlight (30 Min.)
 				card.Top.Text = string.format(
-					"%s%s$%s · %s",
+					"%s%s%s$%s · %s",
+					if MarketClient.IsFavorite(coin.Id) then "⭐" else "",
 					if highlighted then "✨" else "",
 					if MarketClient.IsFriend(coin.CreatorId) then "👥" else "", -- Coin eines Roblox-Freunds
 					coin.Ticker,

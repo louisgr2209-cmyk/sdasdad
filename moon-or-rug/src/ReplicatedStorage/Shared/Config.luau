@@ -48,6 +48,8 @@ Config.Market = {
 	ChartInterval = 5, -- Sekunden pro Chart-Punkt
 	ChartPoints = 60, -- Punkte pro Chart
 	RecentTrades = 20, -- gespeicherte Live-Trades pro Coin
+	MaxFavorites = 30, -- Favoriten ⭐ pro Spieler (voll: ältester fällt raus)
+	TradeLogKeep = 500, -- Trade-Verlauf pro Spieler (DataStore)
 	DeadAfter = 30 * 60, -- Sekunden ohne Trade, dann "Dead" (verschwindet aus den Listen)
 }
 
