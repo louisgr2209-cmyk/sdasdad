@@ -29,6 +29,7 @@ local coinsMap = Store.Map(W.CoinsMap, W.CoinExpiration)
 local marketMap = Store.Map(W.MarketMap, W.Expiration)
 local inboxMap = Store.Map(W.InboxMap, W.CoinExpiration)
 local LC = Config.Launch
+local RG = Config.Rug
 
 local coins = {} -- lokale Kopie: [coinId] = coin
 local dirty = {} -- [coinId] = true: an Clients schicken
@@ -109,7 +110,6 @@ local function publicInfo(value)
 		Icon = value.Icon,
 		CN = value.CN,
 		CK = value.CK,
-		Lic = value.Lic,
 		At = value.At,
 		LT = value.LT,
 		Sup = value.Sup,
@@ -166,7 +166,6 @@ local function applyInfo(info)
 	coin.Icon = info.Icon
 	coin.CreatorName = info.CN
 	coin.CreatorKey = info.CK
-	coin.CreatorHasLicense = info.Lic == true
 	coin.CreatedAt = info.At
 	coin.LastTradeAt = info.LT
 	coin.Supply = info.Sup
@@ -250,7 +249,6 @@ local function summary(coin)
 		MarketCap = marketCap,
 		Stage = if coin.Dead then "Dead" else Curve.Stage(C, marketCap, coin.Migrated),
 		Rugged = coin.Rugged,
-		CreatorHasLicense = coin.CreatorHasLicense,
 		Holders = coin.Holders,
 		DevShare = coin.DevShare,
 		Top10 = coin.Top10,
@@ -352,6 +350,7 @@ local function settle(player: Player, p)
 			Frac = p.Frac,
 			Insure = p.Ins,
 			Level = p.L,
+			Rug = p.Rug, -- Rugpull (auch bei Wiederholung nach Absturz)
 			Now = now(),
 		})
 	end
@@ -380,7 +379,7 @@ local function settle(player: Player, p)
 		return true, string.format("🚀 $%s launched!%s", p.Info.Ticker, devText)
 	end
 	if result.Ok and newValue and coin then
-		afterTrade({ Key = key, Name = player.DisplayName, IsNpc = false }, coin, result, false)
+		afterTrade({ Key = key, Name = player.DisplayName, IsNpc = false }, coin, result, p.Rug == true)
 		if p.Prem then
 			potAdds.Ins += p.Prem -- Versicherungsprämie in den Topf
 		end
@@ -392,9 +391,19 @@ local function settle(player: Player, p)
 		return true, "Trade completed"
 	end
 	local ticker = if coins[p.Coin] then coins[p.Coin].Ticker else "?"
+	if p.Rug then
+		return true, string.format("☠ You rugged $%s: +%s Cash (30%% went to the refund pot)", ticker, Format.Cash(result.Cash))
+	end
 	local verb = if p.Side == "Buy" then "Bought" else "Sold"
 	return true,
-		string.format("%s %s %s for %s Cash", verb, Format.Short(result.Tokens), ticker, Format.Cash(result.Cash))
+		string.format(
+			"%s %s %s for %s Cash%s",
+			verb,
+			Format.Short(result.Tokens),
+			ticker,
+			Format.Cash(result.Cash),
+			if result.Limited then " (creators sell max. 25% per minute)" else ""
+		)
 end
 
 -- Offenen Trade eines Spielers fertig buchen (nach Absturz, verlorener Antwort usw.)
@@ -408,7 +417,7 @@ function MarketService.RecoverPending(player: Player): boolean
 	return after ~= nil and after.P == nil
 end
 
-local function executeTrade(player: Player, coinId: string, side: string, fraction: number)
+local function executeTrade(player: Player, coinId: string, side: string, fraction: number, rug: boolean?)
 	local wallet = PlayerData.GetWallet(player)
 	if not wallet then
 		return false, "Still loading your data…"
@@ -446,6 +455,7 @@ local function executeTrade(player: Player, coinId: string, side: string, fracti
 		Premium = premium,
 		Insure = insure or nil,
 		Level = level,
+		Rug = rug or nil,
 		Now = now(),
 	})
 	if not okBegin or not begin then
@@ -466,6 +476,7 @@ local function executeTrade(player: Player, coinId: string, side: string, fracti
 		Prem = premium,
 		Ins = insure or nil,
 		L = level,
+		Rug = rug or nil,
 	})
 end
 
@@ -687,6 +698,76 @@ function MarketService.Boost(player: Player, coinId: string): boolean
 	end)
 end
 
+-- Rugpull: Ersteller verkauft alles im eigenen Coin auf einmal (Lizenz, Level 25, Coin ≥ 10 Min., 1 pro 24 Std.).
+-- Schnelle Vorprüfung hier, die echten Prüfungen laufen atomar im Ledger (Geldbörse + Coin).
+local function executeRug(player: Player, coinId: string)
+	local wallet = PlayerData.GetWallet(player)
+	local coin = coins[coinId]
+	if not wallet or not coin then
+		return false, "Coin not found"
+	end
+	if coin.CreatorKey ~= PlayerData.Key(player) then
+		return false, "You can only rug your own coin"
+	end
+	if coin.Rugged or coin.Dead then
+		return false, "This coin can't be rugged anymore"
+	end
+	if PlayerData.GetStats(player).Level < RG.MinLevel then
+		return false, "Rug pulls unlock at level " .. RG.MinLevel
+	end
+	if (wallet.RL or 0) <= 0 then
+		return false, "You need a rug pull license"
+	end
+	if now() - coin.CreatedAt < RG.MinCoinAge then
+		return false, string.format("Rug pull: coin must be %d min old", math.floor(RG.MinCoinAge / 60))
+	end
+	return executeTrade(player, coinId, "Sell", 1, true)
+end
+
+function MarketService.Rug(player: Player, coinId: string): boolean
+	return enqueue(player, function()
+		local ok, message = executeRug(player, coinId)
+		if player.Parent then
+			reply(player, ok, message)
+			PlayerData.PushState(player)
+		end
+	end)
+end
+
+-- Rug-Lizenz kaufen (Level 25, 250.000 Cash, 3 Rugpulls; neue erst, wenn die alte aufgebraucht ist)
+local function executeLicense(player: Player)
+	local wallet = PlayerData.GetWallet(player)
+	if not wallet then
+		return false, "Still loading your data…"
+	end
+	if PlayerData.GetStats(player).Level < RG.MinLevel then
+		return false, "Rug pull license unlocks at level " .. RG.MinLevel
+	end
+	local okBuy, bought = PlayerData.WalletUpdate(player, Ledger.WalletBuyLicense, {
+		Job = WorldService.JobId,
+		Id = HttpService:GenerateGUID(false),
+		Cost = RG.LicenseCost,
+		Uses = RG.LicenseUses,
+	})
+	if not okBuy or not bought then
+		return false, "Please try again"
+	end
+	if not bought.Ok then
+		return false, bought.Error or "Purchase failed"
+	end
+	return true, string.format("☠ Rug pull license bought: %d rug pulls", RG.LicenseUses)
+end
+
+function MarketService.BuyLicense(player: Player): boolean
+	return enqueue(player, function()
+		local ok, message = executeLicense(player)
+		if player.Parent then
+			reply(player, ok, message)
+			PlayerData.PushState(player)
+		end
+	end)
+end
+
 -- Verkauf im Auftrag des Spielers einreihen (Stop-Loss, solange er online ist)
 function MarketService.QueueSell(player: Player, coinId: string, prefix: string): boolean
 	return enqueue(player, function()
@@ -830,7 +911,7 @@ function MarketService.TickerTaken(ticker: string): boolean
 	return false
 end
 
--- Neuer Coin (NPC). info = { Name, Ticker, Icon, Desc, CreatorKey, CreatorName, License } -> lokaler Coin oder nil
+-- Neuer Coin (NPC). info = { Name, Ticker, Icon, Desc, CreatorKey, CreatorName } -> lokaler Coin oder nil
 function MarketService.CreateCoin(info)
 	info.Id = newCoinId()
 	local value = Ledger.NewCoin(info, now())

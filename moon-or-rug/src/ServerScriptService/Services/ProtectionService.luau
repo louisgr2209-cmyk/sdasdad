@@ -230,7 +230,8 @@ end
 
 local function onRug(_coin, result)
 	local comp = result.Comp or {}
-	local share = (result.Cash or 0) * P.RugPotShare
+	-- Spieler-Rug: Anteil schon im Ledger abgezogen (result.Pot); NPC-Rug: 30 % vom Erlös
+	local share = result.Pot or (result.Cash or 0) * P.RugPotShare
 	if next(comp) == nil and share <= 0 then
 		return
 	end

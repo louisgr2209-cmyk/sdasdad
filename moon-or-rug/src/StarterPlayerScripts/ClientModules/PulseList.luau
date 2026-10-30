@@ -268,10 +268,6 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 				if coin.Rugged then
 					card.Bottom.Text = "RUGGED"
 					card.Bottom.TextColor3 = Colors.Red
-				elseif coin.CreatorHasLicense then
-					-- ⚠ LIC = Ersteller hat eine Rug-Lizenz (Erklärung auf der Coin-Seite)
-					card.Bottom.Text = string.format("Dev %.0f%% · ⚠ LIC", coin.DevShare * 100)
-					card.Bottom.TextColor3 = Colors.Red
 				else
 					-- Dev-Anteil mit derselben Ampel wie auf der Coin-Seite (gelb/rot = Dev hat dazugekauft)
 					local rating = Indicators.Rate("Dev", coin.DevShare)

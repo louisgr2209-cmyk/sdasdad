@@ -18,6 +18,7 @@ local Curve = require(ReplicatedStorage.Shared.BondingCurve)
 
 local C = Config.Curve
 local P = Config.Protection
+local R = Config.Rug
 local FEE_TOTAL = Config.Fees.Creator + Config.Fees.Burn
 local DUST = 1e-9
 local MAX_TRADES = 5 -- letzte Trades pro Coin (für Live-Trades auf allen Servern)
@@ -33,7 +34,7 @@ Ledger.FloorCents = floorCents
 -- Coins
 ------------------------------------------------------------------------
 
--- Neuer Coin. info = { Id, Name, Ticker, Icon, Desc, CreatorKey?, CreatorName, License }
+-- Neuer Coin. info = { Id, Name, Ticker, Icon, Desc, CreatorKey?, CreatorName }
 function Ledger.NewCoin(info, now: number)
 	local devAmount = C.TotalSupply * Config.DevShare
 	local coin = {
@@ -45,7 +46,6 @@ function Ledger.NewCoin(info, now: number)
 		Desc = info.Desc or "",
 		CK = info.CreatorKey, -- Ersteller-Schlüssel (Spieler-UserId oder "npc:3")
 		CN = info.CreatorName or "System",
-		Lic = info.License == true,
 		At = now, -- erstellt
 		LT = now, -- letzter Trade
 		Sup = devAmount, -- Dev-Anteil zählt als schon verkauft
@@ -120,6 +120,7 @@ local function buy(coin, a)
 		I = if insured > 0 then insured else nil, -- versicherter Einsatz
 		T = math.floor(a.Now), -- letzter Kauf (für die 60-Sek.-Regel), ganze Sekunden sparen Platz
 		L = a.Level, -- Level beim Kauf (Anfänger-Erstattung)
+		DS = if holding then holding.DS else nil, -- letzter Ersteller-Verkauf (bleibt beim Nachkaufen)
 	}
 	coin.Vol += cash
 	coin.LT = a.Now
@@ -146,6 +147,31 @@ local function sell(coin, a)
 	end
 	local frac = a.Frac
 	local tokens = if frac >= 1 then holding.A else holding.A * frac
+	-- Ersteller (Spieler) im eigenen Coin: Rugpull = alles auf einmal, sonst nur stufenweise
+	local isDev = a.Key == coin.CK and not a.IsNpc
+	local limited = false
+	if a.Rug and not a.IsNpc then
+		if not isDev then
+			return fail("Only the creator can rug pull", holding)
+		end
+		if coin.Rug or coin.Dead then
+			return fail("This coin can't be rugged anymore", holding)
+		end
+		if a.Now - coin.At < R.MinCoinAge then
+			return fail(string.format("Rug pull: coin must be %d min old", math.floor(R.MinCoinAge / 60)), holding)
+		end
+		tokens = holding.A
+	elseif isDev then
+		local waitLeft = R.DevSellCooldown - (a.Now - (holding.DS or 0))
+		if waitLeft > 0 then
+			return fail(string.format("Creators sell step by step – next sell in %ds", math.ceil(waitLeft)), holding)
+		end
+		-- max. 25 % pro Verkauf (mind. 25 % des Dev-Anteils, damit es nicht ewig dauert)
+		local cap = math.max(holding.A, C.TotalSupply * Config.DevShare) * R.DevSellMax
+		if tokens > cap + DUST then
+			tokens, limited = cap, true
+		end
+	end
 	tokens = math.min(tokens, holding.A, coin.Sup)
 	if tokens <= DUST then
 		return fail("Amount too small", holding)
@@ -171,19 +197,27 @@ local function sell(coin, a)
 			I = if holding.I then holding.I * (rest / holding.A) else nil,
 			T = holding.T,
 			L = holding.L,
+			DS = if isDev then math.floor(a.Now) else holding.DS,
 		}
 	end
 	coin.Sup = math.max(0, coin.Sup - tokens)
 	coin.Vol += payout
 	coin.LT = a.Now
 	addTrade(coin, "Sell", a, tokens, payout)
-	local comp = nil
+	local comp, pot = nil, nil
 	if a.Rug then
 		coin.Rug = true -- Rugpull im selben Schritt wie der Verkauf
 		comp = Ledger.RugCompensation(coin, a.Now)
+		if not a.IsNpc then
+			-- Spieler: 30 % des Erlöses in den Erstattungstopf (NPCs ziehen es selbst ab)
+			pot = floorCents(payout * P.RugPotShare)
+			payout -= pot
+		end
 	end
 	return {
 		Comp = comp,
+		Pot = pot,
+		Limited = limited or nil,
 		Ok = true,
 		Tokens = tokens,
 		Cash = payout,
@@ -293,6 +327,9 @@ function Ledger.CoinSetStopLoss(coin, a)
 	if not coin or not coin.H[a.Key] then
 		return nil, { Ok = false, Error = "You don't own this coin" }
 	end
+	if a.Level and a.Key == coin.CK then
+		return nil, { Ok = false, Error = "No stop-loss on your own coin" }
+	end
 	coin.SL = coin.SL or {}
 	if coin.SL[a.Key] == a.Level then
 		return nil, { Ok = true }
@@ -306,7 +343,7 @@ end
 function Ledger.StopLossHit(coin, key: string): boolean
 	local level = coin.SL and coin.SL[key]
 	local h = coin.H[key]
-	if not level or not h or h.C <= 0 then
+	if not level or not h or h.C <= 0 or key == coin.CK then
 		return false
 	end
 	local value = Curve.CashForTokens(C, coin.Sup, h.A) * (1 - FEE_TOTAL)
@@ -329,7 +366,7 @@ function Ledger.CoinStopLossExec(coin, a)
 end
 
 -- Spieler-Coin anlegen (Schritt 2 von "Coin erstellen"), optional mit Dev-Buy im selben Schritt.
--- a = { Id, Info = { Name, Ticker, Icon, Desc }, Key, Name, Seq, DevCash, Level, License, Now }
+-- a = { Id, Info = { Name, Ticker, Icon, Desc }, Key, Name, Seq, DevCash, Level, Now }
 function Ledger.CoinLaunch(coin, a)
 	if coin then
 		local done = coin.Q[a.Key]
@@ -352,7 +389,6 @@ function Ledger.CoinLaunch(coin, a)
 		Desc = info.Desc,
 		CreatorKey = a.Key,
 		CreatorName = a.Name,
-		License = a.License,
 	}, a.Now)
 	local holding = coin.H[a.Key]
 	local result = { Ok = true, Tokens = 0, Cash = 0, Amount = holding.A, Cost = 0 }
@@ -448,6 +484,8 @@ function Ledger.WalletCreate(wallet, a)
 		Cr = profile.Cr,
 		FB = profile.FB,
 		FCM = profile.FCM,
+		MyCoin = profile.MyCoin,
+		RL = profile.RL,
 		Owner = a.Job,
 		HB = a.Now,
 	}, { Ok = true }
@@ -463,6 +501,20 @@ function Ledger.WalletBegin(wallet, a)
 		return nil, { Error = "Previous trade still processing", Pending = true }
 	end
 	local premium = a.Premium or 0 -- Versicherung: 5 % zusätzlich
+	local st = wallet.St or {}
+	wallet.St = st
+	local prevRug = st.LR
+	if a.Rug then
+		if (wallet.RL or 0) <= 0 then
+			return nil, { Error = "You need a rug pull license" }
+		end
+		local waitLeft = (st.LR or 0) + R.Cooldown - a.Now
+		if waitLeft > 0 then
+			return nil, { Error = string.format("Next rug pull in %dh %dm", math.floor(waitLeft / 3600), math.floor(waitLeft % 3600 / 60)) }
+		end
+		wallet.RL -= 1 -- bei Fehlschlag gibt WalletFinish die Nutzung zurück
+		st.LR = a.Now
+	end
 	if a.Side == "Buy" then
 		if a.Cash < Config.Trade.MinCash then
 			return nil, { Error = "Amount too small" }
@@ -483,6 +535,8 @@ function Ledger.WalletBegin(wallet, a)
 		Prem = if premium > 0 then premium else nil,
 		Ins = a.Insure,
 		L = a.Level,
+		Rug = a.Rug or nil,
+		PLR = if a.Rug then prevRug else nil,
 		At = a.Now,
 	}
 	return wallet, { Ok = true, Seq = wallet.Seq }
@@ -591,6 +645,11 @@ function Ledger.WalletFinish(wallet, a)
 		end
 	elseif p.Side == "Buy" then
 		wallet.Cash = floorCents(wallet.Cash + p.Cash + (p.Prem or 0)) -- Kauf fehlgeschlagen: Geld + Prämie zurück
+	end
+	if p.Rug and not r.Ok then
+		wallet.RL = (wallet.RL or 0) + 1 -- Rugpull fehlgeschlagen: Lizenz-Nutzung + Cooldown zurück
+		wallet.St = wallet.St or {}
+		wallet.St.LR = p.PLR
 	end
 	if (r.Amount or 0) <= 0 then
 		wallet.Coins[p.Coin] = nil
@@ -728,6 +787,26 @@ function Ledger.WalletRedeem(wallet, a)
 	return wallet, { Ok = true }
 end
 
+-- Rug-Lizenz kaufen (gilt für LicenseUses Rugpulls). a = { Job, Id, Cost, Uses }. Gleiche Id = nichts doppelt.
+function Ledger.WalletBuyLicense(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false, Error = "Session lost – please rejoin" }
+	end
+	if wallet.Op == a.Id then
+		return nil, { Ok = true, Already = true }
+	end
+	if (wallet.RL or 0) > 0 then
+		return nil, { Ok = false, Error = string.format("You still have %d rug pulls left", wallet.RL) }
+	end
+	if wallet.Cash < a.Cost then
+		return nil, { Ok = false, Error = "Not enough cash" }
+	end
+	wallet.Op = a.Id
+	wallet.Cash = floorCents(wallet.Cash - a.Cost)
+	wallet.RL = a.Uses
+	return wallet, { Ok = true }
+end
+
 -- Gratis-Boosts (Bronze-Creator) verbrauchen (-1) oder zurückgeben (+1). a = { Job, Id, Delta }
 function Ledger.WalletFreeBoost(wallet, a)
 	if not wallet or wallet.Owner ~= a.Job then
@@ -777,6 +856,8 @@ function Ledger.ProfileFromWallet(wallet)
 		Cr = wallet.Cr,
 		FB = wallet.FB,
 		FCM = wallet.FCM,
+		MyCoin = wallet.MyCoin,
+		RL = wallet.RL,
 		Version = 1,
 	}
 end

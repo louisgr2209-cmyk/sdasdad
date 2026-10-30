@@ -1,5 +1,6 @@
 -- CreateCoinUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/CreateCoinUI
 -- Formular "Coin erstellen": Name, Ticker, Beschreibung, Icon (feste Auswahl), Dev-Buy (0/10/25/50 %).
+-- Unten rechts: Rug-Lizenz kaufen (Phase 7, ab Level 25, zweimal tippen zum Bestätigen).
 -- Der Server prüft alles noch einmal (Level, Cash, Regeln, Roblox-Filter, Sperrliste).
 --
 -- Platz: Fenster 85 % breit, 484 hoch (passt in die kleinste Höhe von 496)
@@ -13,6 +14,7 @@ local MarketClient = require(script.Parent.MarketClient)
 
 local Colors = Screen.Colors
 local L = Config.Launch
+local RG = Config.Rug
 local ICON = 46
 
 local CreateCoinUI = {}
@@ -205,6 +207,49 @@ function CreateCoinUI.new(parent: GuiObject)
 		Parent = buttonRow,
 	})
 
+	-- Rug-Lizenz: 1. Tippen = Preis zeigen, 2. Tippen (innerhalb 4 Sek.) = kaufen
+	local licenseButton = Screen.Button({
+		TextSize = 20,
+		BackgroundColor3 = Colors.Red,
+		Size = UDim2.new(1, -416, 1, 0),
+		LayoutOrder = 3,
+		ZIndex = 43,
+		Parent = buttonRow,
+	})
+	local confirmUntil = 0
+	local function licenseText()
+		local me = MarketClient.Me
+		local level = if me.Stats then me.Stats.Level else 1
+		if (me.RugLicense or 0) > 0 then
+			return string.format("☠ LICENSE: %d rug pulls left", me.RugLicense), false
+		elseif level < RG.MinLevel then
+			return "☠ RUG LICENSE 🔒 Lv " .. RG.MinLevel, false
+		elseif os.clock() < confirmUntil then
+			return "TAP AGAIN: buy for " .. Format.Short(RG.LicenseCost), true
+		end
+		return string.format("☠ RUG LICENSE %s · %d rugs", Format.Short(RG.LicenseCost), RG.LicenseUses), true
+	end
+	-- nur den Lizenz-Knopf neu zeichnen (läuft bei jeder Änderung; lässt Fehlermeldungen im Formular stehen)
+	function self.RefreshLicense()
+		local text, canBuy = licenseText()
+		licenseButton.Text = text
+		licenseButton.BackgroundColor3 = if canBuy then Colors.Red else Colors.PanelLight
+	end
+	licenseButton.Activated:Connect(function()
+		local _, canBuy = licenseText()
+		if not canBuy then
+			return
+		end
+		if os.clock() < confirmUntil then
+			confirmUntil = 0
+			MarketClient.BuyLicense()
+		else
+			confirmUntil = os.clock() + 4
+			task.delay(4.1, self.RefreshLicense)
+		end
+		self.RefreshLicense()
+	end)
+
 	function self.Refresh()
 		for icon, button in iconButtons do
 			button.BackgroundColor3 = if icon == selectedIcon then Colors.Accent else Colors.PanelLight
@@ -223,6 +268,7 @@ function CreateCoinUI.new(parent: GuiObject)
 			if cash >= fee then "enough" else "not enough"
 		)
 		costLabel.TextColor3 = if cash >= fee then Colors.Muted else Colors.Red
+		self.RefreshLicense()
 	end
 
 	function self.Show()
@@ -262,6 +308,7 @@ function CreateCoinUI.new(parent: GuiObject)
 		end
 	end)
 	cancelButton.Activated:Connect(hide)
+
 	overlay.Activated:Connect(hide)
 
 	return self

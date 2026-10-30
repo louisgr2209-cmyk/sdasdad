@@ -308,7 +308,6 @@ local function createNpcCoin()
 		Desc = pick(Npc.Descriptions),
 		CreatorKey = creator.Key,
 		CreatorName = creator.Name,
-		License = isRug or rng:NextNumber() < Npc.LicenseBluffChance,
 	})
 	if not coin then
 		return

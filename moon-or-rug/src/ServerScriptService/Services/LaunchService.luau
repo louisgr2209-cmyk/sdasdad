@@ -2,6 +2,7 @@
 -- Coin erstellen (ab Level 10, 50.000 Cash, optional Dev-Buy bis 50 %) und Boost (ab Level 15, 25.000 Cash,
 -- nur eigener Coin, 10 Min., max. 3 weltweit). Prüft die Anfrage, filtert Texte und übergibt an den
 -- MarketService (dort laufen die Geldbuchungen mit Duplikat-Schutz in der Trade-Warteschlange des Spielers).
+-- Phase 7: Rug-Lizenz kaufen (im Create-Fenster) und Rugpull (Knopf auf der eigenen Coin-Seite).
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -56,9 +57,33 @@ local function onBoostCoin(player: Player, coinId: any)
 	end
 end
 
+-- Rugpull (Phase 7): ein Klick, Server prüft alles
+local function onRugPull(player: Player, coinId: any)
+	if not limiter:Allow(player) or not PlayerDataService.GetWallet(player) then
+		return
+	end
+	if typeof(coinId) ~= "string" or #coinId > 20 then
+		return
+	end
+	if not MarketService.Rug(player, coinId) then
+		PlayerDataService.Notify(player, false, "Please wait – your trades are still processing")
+	end
+end
+
+local function onBuyLicense(player: Player)
+	if not limiter:Allow(player) or not PlayerDataService.GetWallet(player) then
+		return
+	end
+	if not MarketService.BuyLicense(player) then
+		PlayerDataService.Notify(player, false, "Please wait – your trades are still processing")
+	end
+end
+
 function LaunchService.Init()
 	Remotes.Event("CreateCoin").OnServerEvent:Connect(onCreateCoin)
 	Remotes.Event("BoostCoin").OnServerEvent:Connect(onBoostCoin)
+	Remotes.Event("RugPull").OnServerEvent:Connect(onRugPull)
+	Remotes.Event("BuyLicense").OnServerEvent:Connect(onBuyLicense)
 	Players.PlayerRemoving:Connect(function(player)
 		limiter:Remove(player)
 		busy[player] = nil

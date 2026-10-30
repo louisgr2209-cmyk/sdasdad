@@ -130,6 +130,19 @@ Config.Launch = {
 	},
 }
 
+-- Rugpull (Phase 7): Lizenz im Create-Fenster, ein Klick verkauft alles. Keine Warnung, kein Abzeichen.
+-- Ohne Rugpull verkauft der Ersteller seinen eigenen Coin nur stufenweise.
+Config.Rug = {
+	MinLevel = 25,
+	LicenseCost = 250_000, -- Cash (Robux-Variante kommt in Phase 8)
+	LicenseUses = 3, -- eine Lizenz gilt für 3 Rugpulls
+	Cooldown = 24 * 3600, -- 1 Rugpull pro 24 Std. pro Spieler
+	MinCoinAge = 600, -- Coin muss mind. 10 Min. alt sein
+	-- Erlös: 70 % an den Rugpuller, 30 % in den Erstattungstopf (Config.Protection.RugPotShare)
+	DevSellMax = 0.25, -- normaler Verkauf des Erstellers im eigenen Coin: max. 25 % pro Verkauf …
+	DevSellCooldown = 60, -- … und max. 1 Verkauf pro Minute (alles raus dauert mind. ca. 4 Min.)
+}
+
 -- Creator-Programm (eigenes Dokument „Moon or Rug – Creator-Programm“)
 Config.Creator = {
 	-- Roblox-UserIds der Admins (nur sie sehen das Admin-Panel). In Roblox Studio ist jeder Admin (nur zum Testen).
@@ -238,7 +251,6 @@ Config.Npc = {
 	-- NPC-Coins
 	StartCoins = 3, -- so viele gelistete Coins gibt es mindestens (Host erstellt sofort welche)
 	CreateEvery = { 60, 180 }, -- alle 1 bis 3 Min. ein neuer NPC-Coin
-	LicenseBluffChance = 0.2, -- auch ehrliche NPCs zeigen manchmal "Rug-Lizenz" (Warnung = Risiko, nicht Beweis)
 
 	-- NPC-Rug (ca. 10 % der NPC-Coins)
 	RugChance = 0.10,

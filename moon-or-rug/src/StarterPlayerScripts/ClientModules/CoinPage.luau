@@ -3,7 +3,7 @@
 -- (10/25/50 %/alles), Live-Trades. Stop-Loss und Versicherung kommen in Phase 5.
 --
 -- Platz (kleinster Fall 976 x 368 Design-Pixel):
---   links 60 %: Kopf 72 | Chart (mind. 176) | 5 Ampel-Kacheln 72 | 1 Infozeile 24
+--   links 60 %: Kopf 72 | Chart (mind. 176) | 4 Ampel-Kacheln 72 | 1 Infozeile 24
 --   rechts 40 %: Position 26 | BUY 20+72 | SELL 20+72 | Live-Trades (Rest, mind. 3 Zeilen)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -79,6 +79,21 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 	boostButton.Activated:Connect(function()
 		if self.CoinId then
 			MarketClient.Boost(self.CoinId)
+		end
+	end)
+	-- Rugpull: nur beim eigenen Coin mit Lizenz, ein Klick verkauft alles (Phase 7)
+	local rugButton = Screen.Button({
+		TextSize = 20,
+		BackgroundColor3 = Colors.Red,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -128, 0, 0),
+		Size = UDim2.fromOffset(120, 72),
+		Visible = false,
+		Parent = left,
+	})
+	rugButton.Activated:Connect(function()
+		if self.CoinId then
+			MarketClient.RugPull(self.CoinId)
 		end
 	end)
 
@@ -388,8 +403,22 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 
 		nameLabel.Text = string.format("%s %s  $%s", coin.Icon, coin.Name, coin.Ticker)
 		local mine = coin.CreatorId == MarketClient.MyKey
+		local canRug = mine and (MarketClient.Me.RugLicense or 0) > 0 and not coin.Rugged and coin.Stage ~= "Dead"
 		boostButton.Visible = mine
-		local labelWidth = if mine then -84 - 128 else -84
+		rugButton.Visible = canRug
+		local labelWidth = if canRug then -84 - 256 elseif mine then -84 - 128 else -84
+		if canRug then
+			local t = workspace:GetServerTimeNow()
+			local ageLeft = Config.Rug.MinCoinAge - (t - coin.CreatedAt)
+			local cooldownLeft = (MarketClient.Me.RugReadyAt or 0) - t
+			if cooldownLeft > 0 then
+				rugButton.Text = "☠ RUG\n" .. Format.Duration(cooldownLeft)
+			elseif ageLeft > 0 then
+				rugButton.Text = "☠ RUG\nin " .. Format.Duration(ageLeft)
+			else
+				rugButton.Text = "☠ RUG\n" .. MarketClient.Me.RugLicense .. " left"
+			end
+		end
 		nameLabel.Size = UDim2.new(1, labelWidth, 0, 36)
 		priceLabel.Size = UDim2.new(1, labelWidth, 0, 30)
 		if mine then
@@ -442,10 +471,11 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 			local value = MarketClient.PositionValue(coin, position)
 			local pnl = if position.Cost > 0 then value / position.Cost - 1 else 0
 			positionLabel.Text = string.format(
-				"You: %s · %s (%s)",
+				"You: %s · %s (%s)%s",
 				Format.Short(position.Amount),
 				Format.Cash(value),
-				Format.Percent(pnl)
+				Format.Percent(pnl),
+				if mine then " · sell max 25%/min" else "" -- Ersteller verkauft stufenweise
 			)
 			positionLabel.TextColor3 = if pnl >= 0 then Colors.Green else Colors.Red
 		else

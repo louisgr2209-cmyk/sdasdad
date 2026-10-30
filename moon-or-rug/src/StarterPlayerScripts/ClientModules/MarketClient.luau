@@ -113,6 +113,17 @@ function MarketClient.Boost(coinId: string)
 	remote:FireServer(coinId)
 end
 
+-- Rugpull (Phase 7): ein Klick, Server prüft Lizenz, Level, Alter, Cooldown
+function MarketClient.RugPull(coinId: string)
+	local remote = remotes:WaitForChild("RugPull") :: RemoteEvent
+	remote:FireServer(coinId)
+end
+
+function MarketClient.BuyLicense()
+	local remote = remotes:WaitForChild("BuyLicense") :: RemoteEvent
+	remote:FireServer()
+end
+
 -- Restzeit eines Boosts in Sek. (0 = nicht geboostet)
 function MarketClient.BoostLeft(coinId: string): number
 	local untilTime = MarketClient.Boosts[coinId]

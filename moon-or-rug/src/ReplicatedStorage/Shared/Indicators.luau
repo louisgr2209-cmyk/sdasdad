@@ -49,15 +49,8 @@ Indicators.List = {
 		Explain = "How many different traders own this coin. "
 			.. "More holders = harder for one person to crash the price.",
 	},
-	{
-		Id = "License",
-		Label = "Rug lic.",
-		Title = "Rug pull license",
-		Kind = "YesNo",
-		Explain = "YES means the creator owns a rug pull license and is allowed to sell everything at once. "
-			.. "Not everyone with a license does it – but be careful.",
-	},
 }
+-- Keine Rug-Lizenz-Ampel (Entscheidung Phase 7): niemand sieht, wer ruggen darf.
 
 -- Wert aus den Coin-Daten (Server-Kurzinfo)
 function Indicators.Value(coin, id: string): any
@@ -67,17 +60,12 @@ function Indicators.Value(coin, id: string): any
 		return coin.DevShare or 0
 	elseif id == "Early" then
 		return coin.EarlyShare or 0
-	elseif id == "Holders" then
-		return coin.Holders or 0
 	end
-	return coin.CreatorHasLicense == true
+	return coin.Holders or 0
 end
 
 -- "Good", "Ok" oder "Bad"
 function Indicators.Rate(id: string, value: any): string
-	if id == "License" then
-		return if value then "Bad" else "Good"
-	end
 	local limits = T[id]
 	if id == "Holders" then -- mehr ist besser
 		if value >= limits.Good then
@@ -95,11 +83,9 @@ local function percent(x: number): string
 	return string.format(if x < 0.1 then "%.1f%%" else "%.0f%%", x * 100)
 end
 
--- Anzeige-Text des Werts: "12%", "7", "YES"
+-- Anzeige-Text des Werts: "12%", "7"
 function Indicators.Display(id: string, value: any): string
-	if id == "License" then
-		return if value then "YES" else "NO"
-	elseif id == "Holders" then
+	if id == "Holders" then
 		return tostring(value)
 	end
 	return percent(value)
@@ -107,9 +93,6 @@ end
 
 -- Drei Zeilen "ab wann" für die Erklärung
 function Indicators.Rules(id: string): { string }
-	if id == "License" then
-		return { "🟢 NO = creator can't rug", "🔴 YES = creator may rug" }
-	end
 	local limits = T[id]
 	if id == "Holders" then
 		return {

@@ -324,6 +324,7 @@ function TerminalUI.Start()
 		local dailyState = MarketClient.Me.Daily
 		dailyButton.BackgroundColor3 = if dailyState and dailyState.CanClaim then Colors.Accent else Colors.PanelLight
 		daily.Refresh()
+		createUI.RefreshLicense() -- z. B. Lizenz gekauft
 		local isAdmin = MarketClient.Me.Extra ~= nil and MarketClient.Me.Extra.IsAdmin == true
 		adminButton.Visible = isAdmin
 		logo.Text = if isAdmin then "🚀" else "🚀 MOON OR RUG"

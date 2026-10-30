@@ -73,7 +73,7 @@ RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStora
 | 4b Level/XP, Leaderboard | ✅ gebaut, wartet auf Test |
 | 5 Schutz | ✅ gebaut, wartet auf Test |
 | 6 Coin erstellen + Boost | ✅ gebaut, wartet auf Test |
-| 7 Rugpull | offen |
+| 7 Rugpull | ✅ gebaut, wartet auf Test |
 | 8 Robux-Produkte + Gamepässe | offen |
 | 9 Globales Leaderboard (globale Coins gibt es durch den Weltmarkt schon) | offen |
 | Creator-Programm A–D | ✅ gebaut, wartet auf Test |
@@ -119,12 +119,40 @@ Neue Datei: `NpcTraderService`. Der Test-Coin `MTD` ist weg (die NPC-Coins erset
 - Tote Coins verschwinden. Hält ein Spieler (online) noch Coins, bleibt der Coin zum Verkaufen da (Kaufen gesperrt).
 - NPC-Rug: Der Ersteller kauft am Anfang mit 30–50 % seines Geldes dazu. Steigt der Kurs danach auf x1,5–x3
   (frühestens nach 2 Min.) oder ist der Coin 10 Min. alt, verkauft er alles auf einmal → Kurs crasht, Meldung „RUG PULL!“.
-- „Rug-Lizenz“-Warnung: alle NPC-Rug-Ersteller **und** 20 % der ehrlichen NPCs. Die Warnung heißt also „Risiko“, nicht „sicher Rug“.
+- ~~„Rug-Lizenz“-Warnung~~ → mit Phase 7 entfernt (Entscheidung: keine Warnung, niemand sieht, wer ruggen darf).
 - NPC-Trades sind mit 🤖 markiert (`IsNpc`), Namen sind erfunden.
 
 **Simulation (Python-Nachbau, 3 Std. ohne Spieler):** ca. 1,3 Trades/Sek., 25–32 lebende Coins, NPC-Geld stabil,
 Rugs ≈ 10 % der Coins. Fehler gefunden und behoben: Zufall-NPCs verkauften alte Coins nur teilweise → Coins starben nie.
 Jetzt steigen alle NPCs aus alten Coins komplett aus.
+
+## Phase 7 – Rugpull
+
+| Frage | Antwort |
+|---|---|
+| Lizenz kaufen | im Create-Fenster (Knopf unten rechts, zweimal tippen = kaufen) |
+| Warnung ⚠ LIC | **keine** – überall entfernt (auch NPCs, auch die Ampel-Kachel) |
+| Ablauf | ein Klick auf „☠ RUG“ verkauft alles; ohne Lizenz verkauft der Ersteller nur stufenweise |
+| Stufen | max. 25 % pro Verkauf, 1 Verkauf pro Minute, gilt für alles, was er im eigenen Coin hält |
+| Erstattung bei Stufen-Verkauf | nein, nur beim echten Rugpull |
+| Rugger-Abzeichen | **keins** |
+
+- **Lizenz:** ab Level 25, 250.000 Cash, gilt für 3 Rugpulls. Neue erst, wenn die alte aufgebraucht ist.
+  Robux-Variante (299 R$) kommt mit Phase 8. Gespeichert als `RL` in der Geldbörse.
+- **☠ RUG-Knopf** auf der eigenen Coin-Seite neben BOOST (nur mit Lizenz). Zeigt Restzeit, solange der Coin
+  jünger als 10 Min. ist oder der 24-Std.-Cooldown läuft, sonst „x left“.
+- **Rugpull:** verkauft den ganzen Bestand des Erstellers auf einmal (Dev-Anteil + Dev-Buy + Nachgekauftes), Kurs fällt
+  auf der Kurve, Meldung „RUG PULL!“ im Ticker. 70 % an den Rugpuller, 30 % in den Erstattungstopf → Versicherung
+  und Anfänger-Erstattung wie in Phase 5.
+- **Stufenweise (ohne Rugpull):** jeder Verkauf des Erstellers im eigenen Coin höchstens 25 % des Bestands
+  (mind. 25 % des 5-%-Dev-Anteils, sonst würde es nie fertig) und höchstens 1 pro Minute. Beispiele:
+  5 % Dev-Anteil → 4 Verkäufe, mind. 3 Min.; 25 % → mind. 9 Min. Kein Stop-Loss im eigenen Coin.
+- **Duplikat-/Lücken-Schutz:** Lizenz-Nutzung + Cooldown werden atomar mit dem Trade-Start gebucht
+  (`WalletBegin`) und bei Fehlschlag zurückgegeben (`WalletFinish`). Alter, „nur Ersteller“, „nicht schon gerugged“
+  und die 25-%-/1-Min.-Regel prüft der Coin selbst (`CoinTrade`) – auf allen Servern gleich. Der letzte
+  Ersteller-Verkauf bleibt beim Nachkaufen gespeichert (sonst Minute per Mini-Kauf zurücksetzbar).
+  Lizenz-Kauf mit Buchungsnummer (nie doppelt abgebucht).
+- Python-Test `rug_test.py`: 20.000 Durchläufe mit Fehlschlägen/Wiederholungen → 0 Lizenz-Fehler.
 
 ## Creator-Programm (A–D gebaut)
 
@@ -173,9 +201,9 @@ Antworten (Schritt 0):
 - `TerminalUI`: Kopfleiste (Logo, Tabs PULSE/PORTFOLIO, Cash), Seiten, Hinweis nach Trades (2,5 Sek.),
   Ticker unten (Rugpulls 🚨, große Gewinne 💰 ab 1.000 Cash Gewinn, sonst Hinweis „Fictional meme coins – just a game“).
 - `PulseList`: 3 Spalten New · Almost done · Migrated (max. 20 Karten je Spalte). Karte: Icon, Ticker, Alter, MC, Holder,
-  Dev-Anteil, ⚠ LIC (Rug-Lizenz), roter Rahmen bei RUGGED, BUY = Schnellkauf 10 % des Cash (`Config.Trade.QuickBuyFraction`).
+  Dev-Anteil, roter Rahmen bei RUGGED, BUY = Schnellkauf 10 % des Cash (`Config.Trade.QuickBuyFraction`).
   Antippen der Karte öffnet die Coin-Seite. Tote Coins erscheinen nicht.
-- `CoinPage`: Chart (Linie), Preis + Änderung über den Chart, Infos, Ersteller, Lizenz-Warnung,
+- `CoinPage`: Chart (Linie), Preis + Änderung über den Chart, Infos, Ersteller,
   Position mit P/L, BUY 10/25/50 %/MAX, SELL 10/25/50 %/ALL, Live-Trades.
 - `ChartRenderer`: Linie aus kleinen gedrehten Frames, 60 Punkte + aktueller Punkt, High/Low-Beschriftung.
 - `Portfolio`: Cash, Wert in Coins, Gesamt, offener Gewinn/Verlust; Liste der Positionen mit SELL ALL.
@@ -265,7 +293,6 @@ Auf der Coin-Seite unter dem Chart 5 Ampel-Kacheln. Antippen → Fenster mit Erk
 | Dev | Anteil des Erstellers (Start = 5 %) | bis 5 % | 5–10 % | über 10 % |
 | Early | Anteil der Früh-Käufer (erste 30 Sek.), die noch halten | bis 10 % | 10–20 % | über 20 % |
 | Holders | Anzahl verschiedener Holder (mehr = besser) | ab 8 | 3–7 | unter 3 |
-| Rug lic. | Ersteller hat Rug-Lizenz | NO | – | YES |
 
 Grenzen in `Config.Indicators` (Startwerte aus der Simulation: normale Coins Top 10 meist 5–25 %, NPC-Rug-Coin
 Dev 25 % / Top 10 35 % → rot). Pulse-Karten: „Dev x %“ in derselben Ampelfarbe.
@@ -299,6 +326,7 @@ Ohne Roblox Studio geprüft (Luau ausführen ist hier nicht erlaubt, deshalb kei
 | `TradeRequest` | Typ-Prüfung (String ≤ 20, "Buy"/"Sell", Zahl 0–1, kein NaN/∞), Coin muss existieren, Cash/Bestand prüft der Server, max. 5/Sek.; bei Spam höchstens 1 Antwort/Sek. |
 | `GetMarketSnapshot` | max. 3 pro 30 Sek., gibt nur eigene Daten + öffentliche Marktdaten zurück (keine fremden Positionen) |
 | `AdminAction` / `AdminLog` | nur Admins (Server prüft), 1 pro 2 Sek., Name `A–Z 0–9 _` 3–20, Link ≤ 200; Nicht-Admins werden geloggt |
+| `RugPull` / `BuyLicense` | 1 pro 2 Sek., Coin-Id ≤ 20 Zeichen, alles Weitere prüft der Server (Ersteller, Level 25, Lizenz, Alter, Cooldown) |
 | `SetCreatorCode` / `RedeemCode` | 1 pro 2 Sek., Code-Format + Roblox-Filter, Gold-Pflicht bzw. Einlöse-Regeln (s. Creator-Programm) |
 
 Weitere Punkte: Geld entsteht nie durch Rundung (Auszahlungen abgerundet), Namen werden ohne RichText angezeigt
@@ -409,5 +437,8 @@ Postfach) werden nie automatisch wiederholt: im Zweifel geht ein kleiner Betrag 
 | Sicherheit | NPC-Tabellen wuchsen bei langen Servern unbegrenzt | Aufräumen jede Minute |
 | Prüfung | Auf Handys Buttons nur 39–41 pt (Richtwert 44), Text ca. 11 pt | Design-Höhe 560 → 520: Buttons 42–49 pt, Text ca. 12 pt |
 | Creator | Beim Laden wurde die Versicherungs-Liste (`Ins`) verworfen (Fehler aus Phase 5: Versicherung nach Rejoin aus) | `cleanProfile` behält jetzt `Ins`, `Cr`, `FB`, `FCM` |
+| 7 | Beim Laden aus dem DataStore gingen Text-Werte verloren (eingelöster Creator-Code) → nach langer Pause hätte man nochmal einlösen können | Statistik behält jetzt auch kurze Texte |
+| 7 | „Mein Coin“ wurde nicht gespeichert → nach langer Pause ein zweiter aktiver Coin möglich | `MyCoin` (und `RL`) im Profil gespeichert |
+| 7 | Ersteller hätte die 1-Min.-Regel mit einem Mini-Kauf zurücksetzen können | letzter Verkauf bleibt beim Kauf erhalten |
 | Creator | Hinweis-Fenster (Toast) lag hinter offenen Fenstern → Meldung beim Code-Einlösen unsichtbar | Toast über allen Fenstern |
 | Creator | Spieler, die vor dem Skript joinen (Studio), hätten ihre Stufe erst nach 1 Min. bekommen | auch schon anwesende Spieler werden beim Start geprüft |

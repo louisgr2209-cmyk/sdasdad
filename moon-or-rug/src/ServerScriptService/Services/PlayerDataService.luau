@@ -179,6 +179,8 @@ function PlayerDataService.BuildState(player: Player)
 		Insured = profile.Wallet.Ins or {},
 		MyCoin = profile.Wallet.MyCoin,
 		FreeBoosts = profile.Wallet.FB or 0,
+		RugLicense = profile.Wallet.RL or 0, -- übrige Rugpulls
+		RugReadyAt = (st.LR or 0) + Config.Rug.Cooldown, -- ab dann wieder (Server-Zeit)
 		Extra = if PlayerDataService.ExtraState then PlayerDataService.ExtraState(player) else nil, -- Creator-Infos
 		Daily = {
 			CanClaim = not claimed,
@@ -215,7 +217,8 @@ local function cleanProfile(data)
 	local stats = {}
 	if type(data.St) == "table" then
 		for key, value in data.St do
-			if type(key) == "string" and isValidNumber(value) then
+			-- Zahlen + kurze Texte (z. B. eingelöster Creator-Code St.RC – darf nie verloren gehen)
+			if type(key) == "string" and (isValidNumber(value) or (type(value) == "string" and #value <= 20)) then
 				stats[key] = value
 			end
 		end
@@ -230,6 +233,8 @@ local function cleanProfile(data)
 		Cr = if type(data.Cr) == "table" and isValidNumber(data.Cr.Max) then { Max = data.Cr.Max } else nil,
 		FB = if isValidNumber(data.FB) and data.FB >= 0 then math.floor(data.FB) else nil,
 		FCM = if isValidNumber(data.FCM) then data.FCM else nil,
+		MyCoin = if type(data.MyCoin) == "string" and #data.MyCoin <= 20 then data.MyCoin else nil,
+		RL = if isValidNumber(data.RL) and data.RL >= 0 then math.floor(data.RL) else nil,
 	}
 end
 
