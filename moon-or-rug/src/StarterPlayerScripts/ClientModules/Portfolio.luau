@@ -181,7 +181,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 			shown[coin.Id] = true
 			row.Frame.LayoutOrder = index
 			row.Icon.Text = coin.Icon
-			local crown = if coin.CreatorId == MarketClient.MyKey then "👑 " else ""
+			local crown = if coin.CreatorId == MarketClient.MyKey then "👨‍💻 " else "" -- eigener Coin (👑 = Legend)
 			row.Name.Text = crown .. "$" .. coin.Ticker .. (if coin.Rugged then "  RUGGED" elseif coin.Stage == "Dead" then "  DEAD" else "")
 			row.Name.TextColor3 = if coin.Rugged or coin.Stage == "Dead" then Colors.Red else Colors.Text
 			local marks = ""

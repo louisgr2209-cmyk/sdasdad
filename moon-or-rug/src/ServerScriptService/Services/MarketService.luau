@@ -193,6 +193,7 @@ local function applyInfo(info)
 				TraderId = t.U, -- Spieler-Schlüssel (Creator-Abzeichen im Client)
 				IsNpc = t.B,
 				Vip = t.P, -- VIP-Gamepass (⭐)
+				Legend = t.G, -- Legend (👑)
 				Tokens = t.K,
 				Cash = t.M,
 				Time = t.At,

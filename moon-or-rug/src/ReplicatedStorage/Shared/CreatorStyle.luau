@@ -8,11 +8,15 @@ CreatorStyle.Badge = "🎬"
 CreatorStyle.Silver = Color3.fromRGB(192, 132, 252)
 CreatorStyle.Gold = Color3.fromRGB(250, 204, 21)
 CreatorStyle.Vip = Color3.fromRGB(45, 212, 191) -- VIP-Gamepass (Phase 8): ⭐ + türkis
+CreatorStyle.Legend = Color3.fromRGB(239, 68, 68) -- Legend (Level 40): 👑 + roter Rahmen
 
--- Name mit Abzeichen (🎬 ab Bronze, ⭐ für VIP)
-function CreatorStyle.Name(name: string, tier: number?, vip: boolean?): string
+-- Name mit Abzeichen (🎬 ab Bronze, 👑 Legend, ⭐ VIP)
+function CreatorStyle.Name(name: string, tier: number?, vip: boolean?, legend: boolean?): string
 	if vip then
 		name = "⭐ " .. name
+	end
+	if legend then
+		name = "👑 " .. name
 	end
 	if (tier or 0) >= 2 then
 		return CreatorStyle.Badge .. " " .. name

@@ -21,6 +21,7 @@ MarketClient.Leaderboard = { World = nil, Server = nil } -- Ranglisten vom Serve
 MarketClient.Boosts = {} -- [coinId] = bis (Server-Zeit)
 MarketClient.MyKey = tostring(Players.LocalPlayer.UserId) -- vergleichbar mit coin.CreatorId
 MarketClient.Creators = {} -- [Spieler-Schlüssel] = Creator-Stufe (1-4), vom Server
+MarketClient.Friends = {} -- [Spieler-Schlüssel] = true: Roblox-Freunde (👥)
 
 -- Signale für die Bildschirme
 MarketClient.Changed = Instance.new("BindableEvent") -- Markt oder eigene Daten geändert
@@ -242,6 +243,31 @@ function MarketClient.ProInfo(coinId: string)
 	return if ok then list else nil
 end
 
+-- Roblox-Freund? (key = UserId als Text oder Zahl)
+function MarketClient.IsFriend(key: any): boolean
+	return key ~= nil and MarketClient.Friends[tostring(key)] == true
+end
+
+-- Freundesliste einmal laden (max. 200, Seite für Seite)
+local function loadFriends()
+	local ok, pages = pcall(Players.GetFriendsAsync, Players, Players.LocalPlayer.UserId)
+	if not ok then
+		return
+	end
+	for _ = 1, 10 do
+		for _, friend in pages:GetCurrentPage() do
+			MarketClient.Friends[tostring(friend.Id)] = true
+		end
+		if pages.IsFinished then
+			break
+		end
+		if not pcall(pages.AdvanceToNextPageAsync, pages) then
+			break
+		end
+	end
+	MarketClient.Changed:Fire()
+end
+
 -- Ist dieser Trade ein Verkauf/Kauf des Erstellers?
 function MarketClient.IsDevTrade(coin, trade): boolean
 	if trade.TraderId then
@@ -301,6 +327,7 @@ function MarketClient.Start()
 	tradeResult.OnClientEvent:Connect(function(result)
 		MarketClient.TradeResult:Fire(result.Ok, result.Message)
 	end)
+	task.spawn(loadFriends)
 	local creators = remotes:WaitForChild("Creators") :: RemoteEvent
 	creators.OnClientEvent:Connect(function(tiers)
 		MarketClient.Creators = if type(tiers) == "table" then tiers else {}

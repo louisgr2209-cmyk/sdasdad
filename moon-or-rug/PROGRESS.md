@@ -77,7 +77,7 @@ RemoteEvents musst du **nicht** anlegen – der Server erstellt `ReplicatedStora
 | 6 Coin erstellen + Boost | ✅ gebaut, wartet auf Test |
 | 7 Rugpull | ✅ gebaut, wartet auf Test |
 | 8 Robux-Produkte + Gamepässe | ✅ gebaut, wartet auf Test (Ids im Creator Dashboard anlegen) |
-| 9 Globales Leaderboard (globale Coins gibt es durch den Weltmarkt schon) | offen |
+| 9 Test + Balancing (Plan); globales Leaderboard + Weltmarkt schon fertig | 🔄 Legend + Freunde gebaut, **Test-Checkliste: `TESTING.md`** |
 | Creator-Programm A–D | ✅ gebaut, wartet auf Test |
 
 ## Phase 1 – Markt-Engine
@@ -127,6 +127,20 @@ Neue Datei: `NpcTraderService`. Der Test-Coin `MTD` ist weg (die NPC-Coins erset
 **Simulation (Python-Nachbau, 3 Std. ohne Spieler):** ca. 1,3 Trades/Sek., 25–32 lebende Coins, NPC-Geld stabil,
 Rugs ≈ 10 % der Coins. Fehler gefunden und behoben: Zufall-NPCs verkauften alte Coins nur teilweise → Coins starben nie.
 Jetzt steigen alle NPCs aus alten Coins komplett aus.
+
+## Phase 9 – Test + Balancing (Plan-Roadmap)
+
+| Frage | Antwort |
+|---|---|
+| Legend (Level 40) | 👑 vor dem Namen überall (Ranglisten, Live-Trades, Ticker) + roter Prestige-Rahmen um die Wallet-Box |
+| Social | Coins, Trades und Ranglisten-Einträge von Roblox-Freunden bekommen 👥 (nur Anzeige im eigenen Client) |
+| Migration 69.000 | erst testen, dann entscheiden (nur Zahl in `Config.Curve`) |
+| Test | Checkliste `TESTING.md` |
+
+- Eigener Coin ist jetzt 👨‍💻 (statt 👑, das ist jetzt Legend).
+- Legend in der weltweiten Rangliste: jeder Server merkt Spieler ab Level 40 einmal im DataStore `MoR_Legends_v1`,
+  der Host liest das mit 30-Min.-Zwischenspeicher (max. 40 Abfragen pro Durchgang, schont das Budget).
+- Freunde: `Players:GetFriendsAsync` einmal beim Start (max. 10 Seiten), kein Server-Aufwand.
 
 ## Phase 8 – Robux-Produkte + Gamepässe
 

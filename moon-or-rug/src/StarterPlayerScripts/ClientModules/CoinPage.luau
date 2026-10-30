@@ -606,7 +606,8 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 			math.min(100, math.floor(coin.MarketCap / Config.Curve.MigrationMarketCap * 100)),
 			Format.Duration(MarketClient.Age(coin)),
 			coin.Stage,
-			CreatorStyle.Name(coin.CreatorName or "?", MarketClient.CreatorTier(coin.CreatorId))
+			(if MarketClient.IsFriend(coin.CreatorId) then "👥 " else "")
+				.. CreatorStyle.Name(coin.CreatorName or "?", MarketClient.CreatorTier(coin.CreatorId))
 		)
 
 		for _, def in Indicators.List do
@@ -668,8 +669,8 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 				label.Text = string.format(
 					"%s%s%s %s %s",
 					if isDev then "👨‍💻 DEV " else "",
-					if trade.IsNpc then "🤖 " else "",
-					CreatorStyle.Name(trade.Trader or "?", MarketClient.CreatorTier(trade.TraderId), trade.Vip),
+					if trade.IsNpc then "🤖 " elseif MarketClient.IsFriend(trade.TraderId) then "👥 " else "",
+					CreatorStyle.Name(trade.Trader or "?", MarketClient.CreatorTier(trade.TraderId), trade.Vip, trade.Legend),
 					if trade.Side == "Buy" then "bought" else "sold",
 					Format.Cash(trade.Cash)
 				)

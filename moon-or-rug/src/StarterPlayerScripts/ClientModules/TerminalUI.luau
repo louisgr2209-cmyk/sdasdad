@@ -101,7 +101,7 @@ function TerminalUI.Start()
 		BackgroundTransparency = 1,
 		Parent = header,
 	})
-	-- VIP-Gamepass: türkiser Profilrahmen um die Wallet-Box
+	-- Profilrahmen um die Wallet-Box: rot = Legend (Level 40), türkis = VIP-Gamepass
 	local vipFrame = Screen.New("UIStroke", {
 		Color = CreatorStyle.Vip,
 		Thickness = 2,
@@ -345,7 +345,11 @@ function TerminalUI.Start()
 		daily.Refresh()
 		createUI.RefreshLicense() -- z. B. Lizenz gekauft
 		shop.Refresh()
-		vipFrame.Enabled = MarketClient.HasPass("Vip")
+		local myStats = MarketClient.Me.Stats
+		local legend = myStats ~= nil and myStats.Level >= Config.Prestige.LegendLevel
+		vipFrame.Enabled = legend or MarketClient.HasPass("Vip")
+		vipFrame.Color = if legend then CreatorStyle.Legend else CreatorStyle.Vip
+		vipFrame.Thickness = if legend then 3 else 2
 		local isAdmin = MarketClient.Me.Extra ~= nil and MarketClient.Me.Extra.IsAdmin == true
 		adminButton.Visible = isAdmin
 		logo.Text = if isAdmin then "🚀" else "🚀 MOON OR RUG"

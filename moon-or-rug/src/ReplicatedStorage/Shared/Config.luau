@@ -71,6 +71,11 @@ Config.Levels = {
 	{ Level = 40, Rank = "Legend", Unlock = "Cosmetics, prestige frame" },
 }
 
+-- Legend (ab Level 40): 👑 vor dem Namen + roter Prestige-Rahmen um die Wallet-Box (nur Optik)
+Config.Prestige = {
+	LegendLevel = 40,
+}
+
 -- Schutz vor Bankrott (Phase 5)
 Config.Protection = {
 	-- Mindestgeld: Vermögen (Cash + Coins) unter 100 -> alle 10 Min. 250 Cash, solange man online ist

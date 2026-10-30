@@ -77,6 +77,7 @@ local function addTrade(coin, side: string, a, tokens: number, cash: number)
 		B = a.IsNpc == true,
 		U = if a.IsNpc then nil else a.Key, -- Spieler (für Creator-Abzeichen)
 		P = if a.Vip then true else nil, -- VIP-Gamepass (⭐)
+		G = if (a.Level or 0) >= Config.Prestige.LegendLevel then true else nil, -- Legend (👑)
 		K = tokens,
 		M = cash,
 		At = a.Now,

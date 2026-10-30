@@ -3,6 +3,9 @@
 
 local Players = game:GetService("Players")
 local ServerScriptService = game:GetService("ServerScriptService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
 
 local WorldService = require(ServerScriptService.Services.WorldService)
 local PlayerDataService = require(ServerScriptService.Services.PlayerDataService)
@@ -24,7 +27,8 @@ PlayerDataService.WaitIdle = MarketService.WaitIdle
 MarketService.DecorateName = function(key: string, name: string): string
 	local player = PlayerDataService.GetPlayerByKey(key)
 	local vip = player ~= nil and MonetizationService.HasPass(player, "Vip")
-	return CreatorService.DisplayName(key, name, vip)
+	local legend = player ~= nil and PlayerDataService.GetStats(player).Level >= Config.Prestige.LegendLevel
+	return CreatorService.DisplayName(key, name, vip, legend)
 end
 MarketService.HasPass = MonetizationService.HasPass
 ProtectionService.HasPass = MonetizationService.HasPass

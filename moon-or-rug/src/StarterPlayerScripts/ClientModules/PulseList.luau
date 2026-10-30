@@ -243,7 +243,7 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 		local stats = MarketClient.Me.Stats
 		local myCoin = MarketClient.Me.MyCoin and MarketClient.Coins[MarketClient.Me.MyCoin]
 		if myCoin and myCoin.Stage ~= "Dead" then
-			createButton.Text = "👑 MY COIN $" .. myCoin.Ticker
+			createButton.Text = "👨‍💻 MY COIN $" .. myCoin.Ticker
 		elseif stats and stats.Level < Config.Launch.CreateMinLevel then
 			createButton.Text = "+ CREATE · Lv " .. Config.Launch.CreateMinLevel .. " or R$"
 		else
@@ -281,8 +281,9 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 				card.Icon.Text = coin.Icon
 				local highlighted = (coin.Highlight or 0) > workspace:GetServerTimeNow() -- Robux-Highlight (30 Min.)
 				card.Top.Text = string.format(
-					"%s$%s · %s",
+					"%s%s$%s · %s",
 					if highlighted then "✨" else "",
+					if MarketClient.IsFriend(coin.CreatorId) then "👥" else "", -- Coin eines Roblox-Freunds
 					coin.Ticker,
 					Format.Duration(MarketClient.Age(coin))
 				)

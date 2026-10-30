@@ -40,6 +40,38 @@ local sentWorld = {} -- [player] = true: hat die aktuelle weltweite Liste schon
 local lastSubmitted = {} -- [player] = { [Speichername] = Wert }
 local orderedStores = {}
 local nameCache = {} -- [userId] = Anzeigename
+local LEGEND = Config.Prestige.LegendLevel
+-- [userId] = true ab Level 40 (pcall: unveröffentlichte Place in Studio hat keinen DataStore)
+local okLegend, legendStore = pcall(DataStoreService.GetDataStore, DataStoreService, "MoR_Legends_v1")
+if not okLegend then
+	legendStore = nil
+end
+local legendCache = {} -- [userId] = { Is, At }
+local legendLookups = 0 -- pro Lesedurchgang begrenzt (DataStore-Budget)
+
+-- Legend-Status beliebiger Spieler (weltweite Rangliste), Zwischenspeicher 30 Min., Legend bleibt Legend
+local function isLegend(userId: number): boolean
+	local player = Players:GetPlayerByUserId(userId)
+	if player and PlayerDataService.GetWallet(player) then
+		return PlayerDataService.GetStats(player).Level >= LEGEND
+	end
+	local cached = legendCache[userId]
+	if cached and (cached.Is or os.clock() - cached.At < 1800) then
+		return cached.Is
+	end
+	if not legendStore or legendLookups >= 40 then
+		return if cached then cached.Is else false
+	end
+	legendLookups += 1
+	local ok, value = pcall(function()
+		return legendStore:GetAsync(tostring(userId))
+	end)
+	if not ok then
+		return if cached then cached.Is else false
+	end
+	legendCache[userId] = { Is = value == true, At = os.clock() }
+	return value == true
+end
 
 local function now(): number
 	return workspace:GetServerTimeNow()
@@ -113,6 +145,7 @@ local function serverBoards()
 				N = player.DisplayName,
 				U = player.UserId,
 				P = if LeaderboardService.HasPass and LeaderboardService.HasPass(player, "Vip") then true else nil,
+				G = if PlayerDataService.GetStats(player).Level >= LEGEND then true else nil, -- Legend (👑)
 				V = math.floor(v[board]),
 			})
 		end
@@ -140,6 +173,13 @@ local function submit(player: Player)
 	local v = values(player)
 	local sent = lastSubmitted[player] or {}
 	lastSubmitted[player] = sent
+	-- Legend-Status für die weltweite Liste (nur einmal, wenn erreicht)
+	if legendStore and PlayerDataService.GetStats(player).Level >= LEGEND and not sent.Legend then
+		local ok = pcall(function()
+			legendStore:SetAsync(tostring(player.UserId), true)
+		end)
+		sent.Legend = ok
+	end
 	for _, board in BOARDS do
 		local value = math.max(0, math.floor(v[board]))
 		local name = storeName(board)
@@ -156,6 +196,7 @@ end
 
 -- Host: Top 50 aller Ranglisten lesen, Namen holen, im Weltmarkt-Speicher teilen
 local function readWorld()
+	legendLookups = 0
 	local boards, missing = {}, {}
 	for _, board in BOARDS do
 		local ok, page = pcall(function()
@@ -194,6 +235,9 @@ local function readWorld()
 			entry.N = nameCache[entry.U] or ("Player " .. entry.U) -- U bleibt: Creator-Abzeichen im Client
 			if LeaderboardService.IsVipUserId and LeaderboardService.IsVipUserId(entry.U) then
 				entry.P = true -- VIP (⭐)
+			end
+			if isLegend(entry.U) then
+				entry.G = true -- Legend (👑)
 			end
 		end
 	end
