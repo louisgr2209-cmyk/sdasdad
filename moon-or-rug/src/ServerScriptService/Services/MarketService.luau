@@ -302,7 +302,7 @@ local function afterTrade(wallet, coin, result, rug: boolean)
 		MarketService.Announce(
 			"Profit",
 			string.format(
-				"%s%s made %s Cash on $%s",
+				"%s%s made %s on $%s",
 				if wallet.IsNpc then "🤖 " else "",
 				name,
 				Format.Cash(result.Profit),
@@ -390,7 +390,7 @@ local function settle(player: Player, p)
 	end
 	if isLaunch then
 		if not result.Ok then
-			return false, result.Error or "Launch failed – your cash was refunded"
+			return false, result.Error or "Launch failed – your LNR was refunded"
 		end
 		local devText = if (result.Cash or 0) > 0 then " (dev buy " .. Format.Cash(result.Cash) .. ")" else ""
 		return true, string.format("🚀 $%s launched!%s", p.Info.Ticker, devText)
@@ -409,12 +409,12 @@ local function settle(player: Player, p)
 	end
 	local ticker = if coins[p.Coin] then coins[p.Coin].Ticker else "?"
 	if p.Rug then
-		return true, string.format("☠ You rugged $%s: +%s Cash (30%% went to the refund pot)", ticker, Format.Cash(result.Cash))
+		return true, string.format("☠ You rugged $%s: +%s (30%% went to the refund pot)", ticker, Format.Cash(result.Cash))
 	end
 	local verb = if p.Side == "Buy" then "Bought" else "Sold"
 	return true,
 		string.format(
-			"%s %s %s for %s Cash%s",
+			"%s %s %s for %s%s",
 			verb,
 			Format.Short(result.Tokens),
 			ticker,
@@ -463,7 +463,7 @@ local function executeTrade(player: Player, coinId: string, side: string, fracti
 		cash = Ledger.FloorCents(wallet.Cash * fraction / (1 + rate))
 		premium = if insure then Ledger.FloorCents(cash * rate) else nil
 		if cash < Config.Trade.MinCash then
-			return false, if wallet.Cash < Config.Trade.MinCash then "Not enough cash" else "Amount too small"
+			return false, if wallet.Cash < Config.Trade.MinCash then "Not enough LNR" else "Amount too small"
 		end
 	end
 	local okBegin, begin = PlayerData.WalletUpdate(player, Ledger.WalletBegin, {
@@ -569,7 +569,7 @@ local function executeLaunch(player: Player, info, devFraction: number)
 	end
 	local fee = if freeMonth or voucher then 0 else LC.CreateCost
 	if wallet.Cash < fee then
-		return false, "You need " .. Format.Cash(fee) .. " Cash"
+		return false, "You need " .. Format.Cash(fee)
 	end
 	local devCash = Ledger.FloorCents((wallet.Cash - fee) * devFraction)
 	if devCash < Config.Trade.MinCash then
@@ -654,7 +654,7 @@ local function executeBoost(player: Player, coinId: string)
 		return false, string.format("Boost slots full – next free in %dm", math.ceil(nextFree / 60))
 	end
 	if not free and wallet.Cash < LC.BoostCost then
-		return false, "You need " .. Format.Cash(LC.BoostCost) .. " Cash"
+		return false, "You need " .. Format.Cash(LC.BoostCost)
 	end
 	local payId = HttpService:GenerateGUID(false)
 	local okPay, paid
@@ -672,7 +672,7 @@ local function executeBoost(player: Player, coinId: string)
 		})
 	end
 	if not okPay or not paid or not paid.Ok then
-		return false, if free then "Boost failed – try again" else "Not enough cash"
+		return false, if free then "Boost failed – try again" else "Not enough LNR"
 	end
 	local okClaim, claim, newBoosts = marketMap:Update("Boosts", Ledger.BoostClaim, {
 		Coin = coinId,

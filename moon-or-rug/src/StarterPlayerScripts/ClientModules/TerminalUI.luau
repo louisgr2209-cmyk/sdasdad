@@ -21,6 +21,7 @@ local CreateCoinUI = require(script.Parent.CreateCoinUI)
 local AdminUI = require(script.Parent.AdminUI)
 local ShopUI = require(script.Parent.ShopUI)
 local TutorialUI = require(script.Parent.TutorialUI)
+local PnlCardUI = require(script.Parent.PnlCardUI)
 local SoundFx = require(script.Parent.SoundFx)
 local CreatorStyle = require(ReplicatedStorage.Shared.CreatorStyle)
 local Levels = require(ReplicatedStorage.Shared.Levels)
@@ -112,6 +113,18 @@ function TerminalUI.Start()
 		Parent = wallet,
 	})
 	Screen.Corner(10).Parent = wallet
+	-- Antippen: Anzeige LNR <-> $ umschalten (wird gespeichert)
+	local unitButton = Screen.New("TextButton", {
+		Text = "",
+		AutoButtonColor = false,
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = 2,
+		Parent = wallet,
+	})
+	unitButton.Activated:Connect(function()
+		MarketClient.SetUnit(if Format.Unit == "USD" then "LNR" else "USD")
+	end)
 	local cashLabel = Screen.Label({
 		Font = Screen.Fonts.Bold,
 		TextSize = 26,
@@ -339,6 +352,8 @@ function TerminalUI.Start()
 	local daily = DailyRewardUI.new(root)
 	createUI = CreateCoinUI.new(root)
 	dailyButton.Activated:Connect(daily.Show)
+	local pnlCard = PnlCardUI.new(root)
+	MarketClient.ShowPnlCard = pnlCard.Show
 	local shop = ShopUI.new(root)
 	shopButton.Activated:Connect(shop.Show)
 	local admin = AdminUI.new(root)

@@ -61,7 +61,7 @@ function ShopUI.new(parent: GuiObject)
 		Parent = panel,
 	})
 	Screen.Label({
-		Text = "Fixed items · Cash never turns into Robux",
+		Text = "Fixed items · LNR never turns into Robux",
 		TextSize = 20,
 		TextColor3 = Colors.Muted,
 		Position = UDim2.fromOffset(0, 38),
@@ -97,6 +97,41 @@ function ShopUI.new(parent: GuiObject)
 		ZIndex = 42,
 		Parent = panel,
 	})
+
+	-- Schalter: Geld anzeigen in LNR oder $ (umgerechnet wird immer)
+	local unitRow = Screen.New("Frame", {
+		Size = UDim2.new(1, -10, 0, ROW),
+		BackgroundColor3 = Colors.PanelLight,
+		LayoutOrder = 0,
+		ZIndex = 43,
+		Parent = list,
+	}, {
+		Screen.Corner(10),
+	})
+	Screen.Label({
+		Text = "💱 Show money in",
+		Font = Screen.Fonts.Bold,
+		Position = UDim2.fromOffset(16, 0),
+		Size = UDim2.new(1, -360, 1, 0),
+		ZIndex = 44,
+		Parent = unitRow,
+	})
+	local unitButtons = {}
+	for i, unit in { "LNR", "USD" } do
+		local button = Screen.Button({
+			Text = if unit == "USD" then "$ Dollar" else Config.Currency.Symbol,
+			TextSize = 22,
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -4 - (2 - i) * 164, 0.5, 0),
+			Size = UDim2.fromOffset(156, 72),
+			ZIndex = 44,
+			Parent = unitRow,
+		})
+		button.Activated:Connect(function()
+			MarketClient.SetUnit(unit)
+		end)
+		unitButtons[unit] = button
+	end
 
 	local rows = {}
 	for i, name in SHOP.Order do
@@ -157,6 +192,9 @@ function ShopUI.new(parent: GuiObject)
 
 	function self.Refresh()
 		local me = MarketClient.Me
+		local usd = me.Settings ~= nil and me.Settings.Usd == true
+		unitButtons.LNR.BackgroundColor3 = if usd then Colors.PanelLight else Colors.Accent
+		unitButtons.USD.BackgroundColor3 = if usd then Colors.Accent else Colors.PanelLight
 		local muted = me.Settings ~= nil and me.Settings.Mute == true
 		soundButton.Text = if muted then "🔇 SOUND OFF" else "🔊 SOUND ON"
 		local vouchers = me.Vouchers or {}

@@ -251,7 +251,7 @@ function CreateCoinUI.new(parent: GuiObject)
 		elseif os.clock() < confirmUntil then
 			return "TAP AGAIN", true
 		end
-		return string.format("☠ %s · %d rugs", Format.Short(RG.LicenseCost), RG.LicenseUses), true
+		return string.format("☠ %s · %d rugs", Format.ShortMoney(RG.LicenseCost), RG.LicenseUses), true
 	end
 	-- nur den Lizenz-Knopf neu zeichnen (läuft bei jeder Änderung; lässt Fehlermeldungen im Formular stehen)
 	function self.RefreshLicense()
@@ -291,12 +291,12 @@ function CreateCoinUI.new(parent: GuiObject)
 		local fee = if free then 0 else L.CreateCost
 		local devCash = math.max(0, cash - fee) * L.DevBuyOptions[devIndex]
 		costLabel.Text = string.format(
-			"Cost: %s + dev buy %s · you get 5%% of the coins · %s Cash",
+			"Cost: %s + dev buy %s · you get 5%% of the coins · %s money",
 			if gold then "FREE (Gold creator)"
 				elseif voucher then "FREE (Robux)"
-				elseif level < L.CreateMinLevel then string.format("Lv %d + %s, or R$", L.CreateMinLevel, Format.Short(L.CreateCost))
-				else Format.Short(L.CreateCost),
-			Format.Short(devCash),
+				elseif level < L.CreateMinLevel then string.format("Lv %d + %s, or R$", L.CreateMinLevel, Format.ShortMoney(L.CreateCost))
+				else Format.ShortMoney(L.CreateCost),
+			Format.ShortMoney(devCash),
 			if cash >= fee then "enough" else "not enough"
 		)
 		costLabel.TextColor3 = if cash >= fee then Colors.Muted else Colors.Red

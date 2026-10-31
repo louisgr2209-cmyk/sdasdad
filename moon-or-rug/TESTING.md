@@ -34,6 +34,10 @@ Kurz und der Reihe nach. Wenn etwas nicht geht: **Screenshot vom Output-Fenster*
 - [ ] Ganz schnell oft tippen → „Too fast“ statt Absturz.
 - [ ] ⭐ auf der Coin-Seite → Coin hat ⭐ in PULSE; oben ☆ antippen → nur Favoriten.
 - [ ] Portfolio › 📜 HISTORY → deine Trades mit Gewinn/Verlust; Knopf TODAY → WEEK → ALL wechselt den Zeitraum.
+- [ ] Guthaben oben antippen → alles wechselt zwischen **LNR** und **$** (Kurse, Wallet, Meldungen, Ranglisten).
+- [ ] Coin halten → **📸 PNL SHARE** → Karte mit Gewinn, eigener LNR/$-Schalter, 📸 SHARE öffnet Robloxs Teilen-Fenster
+      (in Studio evtl. nicht verfügbar → Hinweis „take a screenshot“). Verkauf im Verlauf antippen → auch eine Karte.
+- [ ] 🎁 → unten steht dein Teil-Code `LNR…`.
 
 ## 4. Geräte (Studio: Test › Gerät-Emulator)
 

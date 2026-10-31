@@ -16,6 +16,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local CreatorStyle = require(ReplicatedStorage.Shared.CreatorStyle)
+local Referral = require(ReplicatedStorage.Shared.Referral)
+local Format = require(ReplicatedStorage.Shared.Format)
 local Remotes = require(ServerScriptService.Util.Remotes)
 local RateLimiter = require(ServerScriptService.Util.RateLimiter)
 local Store = require(ServerScriptService.Util.Store)
@@ -28,6 +30,8 @@ local CR = Config.Creator
 local W = Config.World
 
 local CreatorService = {}
+CreatorService.ReferralRedeem = nil :: ((Player, string) -> ())? -- vom ReferralService (Teil-Codes "LNR…")
+CreatorService.ReferralState = nil :: ((Player) -> any)?
 
 local listStore = Store.Data("MoR_Creators_v1") -- "list": { [userId] = Eintrag }, "log": Admin-Aktionen
 local codeStore = Store.Data("MoR_CreatorCodes_v1") -- [CODE] = { U = userId }
@@ -87,6 +91,7 @@ function CreatorService.ExtraState(player: Player)
 		AccountOk = player.AccountAge >= CR.MinAccountAgeDays,
 		IsAdmin = CreatorService.IsAdmin(player),
 		FreeCoin = wallet ~= nil and CreatorService.FreeCoinMonth(player, wallet) ~= nil,
+		Referral = if CreatorService.ReferralState then CreatorService.ReferralState(player) else nil,
 	}
 end
 
@@ -122,7 +127,7 @@ local function applyGrant(player: Player)
 		PlayerDataService.Notify(
 			player,
 			true,
-			string.format("🎬 Creator %s unlocked!%s", cfg.Name, if cfg.Cash > 0 then " +" .. cfg.Cash .. " Cash" else "")
+			string.format("🎬 Creator %s unlocked!%s", cfg.Name, if cfg.Cash > 0 then " +" .. Format.Cash(cfg.Cash) else "")
 		)
 		PlayerDataService.PushState(player)
 	end
@@ -252,6 +257,9 @@ local function onSetCode(player: Player, code: any)
 	if not clean then
 		return PlayerDataService.Notify(player, false, err or "Invalid code")
 	end
+	if Referral.IsReferralCode(clean) then
+		return PlayerDataService.Notify(player, false, "Codes can't start with " .. Config.Referral.Prefix)
+	end
 	local taken = false
 	local ok = codeStore:Update(clean, function(old)
 		if type(old) == "table" and old.U ~= player.UserId then
@@ -292,6 +300,10 @@ local function onRedeem(player: Player, code: any)
 	if not clean then
 		return PlayerDataService.Notify(player, false, "Code not found")
 	end
+	-- Teil-Code eines Freundes ("LNR…"): eigene Regeln, getrennt vom Creator-Code
+	if Referral.IsReferralCode(clean) and CreatorService.ReferralRedeem then
+		return CreatorService.ReferralRedeem(player, clean)
+	end
 	if st.RC then
 		return PlayerDataService.Notify(player, false, "You already used a creator code")
 	end
@@ -330,7 +342,7 @@ local function onRedeem(player: Player, code: any)
 	if not okRedeem or not result or not result.Ok then
 		return PlayerDataService.Notify(player, false, (result and result.Error) or "Please try again")
 	end
-	PlayerDataService.Notify(player, true, string.format("🎬 Code %s redeemed: +%d Cash", clean, CR.CodeReward))
+	PlayerDataService.Notify(player, true, string.format("🎬 Code %s redeemed: +%s", clean, Format.Cash(CR.CodeReward)))
 	PlayerDataService.PushState(player)
 
 	local day = Ledger.PeriodKeys(now())

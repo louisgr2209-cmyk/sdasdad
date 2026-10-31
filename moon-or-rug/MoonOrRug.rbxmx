@@ -1,7 +1,7 @@
 <roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
-	<Item class="Folder" referent="RBX8">
+	<Item class="Folder" referent="RBX9">
 		<Properties><string name="Name">ReplicatedStorage</string></Properties>
-		<Item class="Folder" referent="RBX7">
+		<Item class="Folder" referent="RBX8">
 			<Properties><string name="Name">Shared</string></Properties>
 			<Item class="ModuleScript" referent="RBX1">
 				<Properties>
@@ -145,7 +145,7 @@ Config.Trade = {
 Config.Ticker = {
 	BigProfit = 1000, -- Gewinn ab dem ein Verkauf gemeldet wird ("X made 1,234 Cash on $ABC")
 	ShowSeconds = 5, -- so lange bleibt eine Meldung stehen
-	IdleText = "Fictional meme coins – just a game. Cash is not real money.",
+	IdleText = "Fictional meme coins – just a game. LNR and $ here are not real money.",
 }
 
 -- Markt-Takt
@@ -261,7 +261,7 @@ Config.Rug = {
 -- Robux überspringt Level-Pflichten (Entscheidung Phase 8). Cash ist nie gegen Robux zurücktauschbar.
 Config.Shop = {
 	Products = {
-		CreateCoin = { Id = 0, Robux = 99, Grant = "CT", Title = "Create a coin", Info = "No level, no cash needed" },
+		CreateCoin = { Id = 0, Robux = 99, Grant = "CT", Title = "Create a coin", Info = "No level, no LNR needed" },
 		Boost = { Id = 0, Robux = 49, Grant = "FB", Title = "Boost 10 min", Info = "Your coin on top (no level needed)" },
 		Highlight = { Id = 0, Robux = 25, Grant = "HT", Title = "Highlight 30 min", Info = "Glowing frame for your coin" },
 		License = { Id = 0, Robux = 299, Grant = "RL", Title = "Rug pull license", Info = "3 rug pulls, no level needed" },
@@ -277,6 +277,32 @@ Config.Shop = {
 	ReceiptsKept = 30, -- so viele Kauf-Nummern merkt sich die Geldbörse (Schutz gegen doppelte Gutschrift)
 	ProInfoCooldown = 2, -- Top-10-Namen höchstens alle 2 Sek. abfragen
 	VipCacheSeconds = 1800, -- Host merkt sich VIP-Status für die weltweite Rangliste 30 Min.
+}
+
+-- Spielwährung Lunar (LNR) – ersetzt SOL. Fiktiv, nie gegen Robux/Echtgeld tauschbar.
+-- Intern rechnet alles in "Cash"; 1 LNR = CashPerUnit Cash (Start 1.000 Cash = 10 LNR).
+-- Spiel-Dollar-Anzeige: fiktiver Kurs, schwankt langsam um RateBase (ca. 140–180 $), nur Anzeige.
+Config.Currency = {
+	Name = "Lunar",
+	Symbol = "LNR",
+	CashPerUnit = 100,
+	RateBase = 160,
+	RateWaves = { -- Summe von Sinuswellen: langsam (Woche), mittel (6 Std.), schnell (15 Min.)
+		{ Amp = 12, Period = 7 * 86400, Phase = 0 },
+		{ Amp = 6, Period = 6 * 3600, Phase = 1.3 },
+		{ Amp = 2, Period = 900, Phase = 2.1 },
+	},
+}
+
+-- Teil-Link / Teil-Code (PNL-Karte teilen): wer über den Link kommt oder den Code eingibt, und der Teilende
+-- bekommen je Reward (300 Cash = 3 LNR, ca. 500 $). Gleicher Schutz wie beim Creator-Code. Getrennt vom
+-- Creator-Code: jeder Spieler kann EINMAL über einen Freund kommen und EINMAL einen Creator-Code eingeben.
+Config.Referral = {
+	Prefix = "LNR",
+	Reward = 300,
+	MinAccountAgeDays = 7,
+	MinPlaytimeMinutes = 30,
+	CheckInterval = 30, -- so oft prüft der Server, ob eine wartende Belohnung fällig ist
 }
 
 -- Sounds (dezent, im Portfolio abschaltbar). Eingebaute Roblox-Dateien; bei Bedarf durch "rbxassetid://…" ersetzen.
@@ -511,8 +537,20 @@ return CreatorStyle
 					<string name="Name">Format</string>
 					<ProtectedString name="Source"><![CDATA[-- Format (ModuleScript) – ReplicatedStorage/Shared/Format
 -- Zahlen lesbar machen: 12.5K, 1,234.50, 0.00225, +12.3%
+-- Geld: intern "Cash" (Spiel-Dollar-Basis). Angezeigt als Lunar (LNR) oder Spiel-Dollar ($) – je nach Einstellung.
+--   1 LNR = Config.Currency.CashPerUnit intern, $-Kurs = Format.Rate() (fiktiv, schwankt langsam, überall gleich).
+-- Am Server gibt Format.Cash einen Platzhalter "{$:123.45}" zurück; jeder Client setzt ihn in SEINER Anzeige ein
+-- (Format.Resolve), damit Meldungen zur gewählten Währung passen.
+
+local RunService = game:GetService("RunService")
+
+local Config = require(script.Parent.Config)
+
+local CUR = Config.Currency
+local IS_SERVER = RunService:IsServer()
 
 local Format = {}
+Format.Unit = "LNR" -- "LNR" oder "USD" (Client stellt um)
 
 local SUFFIXES = {
 	{ 1e12, "T" },
@@ -546,21 +584,82 @@ function Format.Short(n: number): string
 	return trimZeros(string.format("%.2f", n))
 end
 
--- Cash: unter 100K mit Komma und 2 Nachkommastellen, darüber kurz
-function Format.Cash(n: number): string
-	if math.abs(n) >= 100_000 then
-		return Format.Short(n)
+-- Fiktiver Kurs: $ pro LNR. Nur Anzeige, hängt nur von der Server-Zeit ab -> auf allen Geräten gleich.
+function Format.Rate(t: number?): number
+	t = t or workspace:GetServerTimeNow()
+	local rate = CUR.RateBase
+	for _, wave in CUR.RateWaves do
+		rate += wave.Amp * math.sin(t / wave.Period * 2 * math.pi + wave.Phase)
 	end
-	return withCommas(string.format("%.2f", n))
+	return rate
 end
 
--- Preise: immer ca. 3 wichtige Stellen, auch bei 0.000123
-function Format.Price(p: number): string
+-- Kleine Zahl mit ca. 3 wichtigen Stellen (0.00225), große mit 2 Nachkommastellen
+local function significant(x: number): string
+	local a = math.abs(x)
+	if a == 0 then
+		return "0"
+	end
+	if a >= 1 then
+		return withCommas(string.format("%.2f", x))
+	end
+	local decimals = math.clamp(2 - math.floor(math.log10(a)), 2, 10)
+	return string.format("%." .. decimals .. "f", x)
+end
+
+-- Betrag in der gewünschten Einheit: "12.50 LNR" / "$2,000.00"
+function Format.Money(n: number, unit: string?): string
+	unit = unit or Format.Unit
+	local lnr = n / CUR.CashPerUnit
+	if unit == "USD" then
+		local usd = lnr * Format.Rate()
+		local sign = if usd < 0 then "-" else ""
+		local a = math.abs(usd)
+		return sign .. "$" .. (if a >= 100_000 then Format.Short(a) else withCommas(string.format("%.2f", a)))
+	end
+	return (if math.abs(lnr) >= 100_000 then Format.Short(lnr) else significant(lnr)) .. " " .. CUR.Symbol
+end
+
+-- Geld (überall im Spiel). Server: Platzhalter, den der Client in seiner Einheit einsetzt.
+function Format.Cash(n: number): string
+	if IS_SERVER then
+		return string.format("{$:%.4f}", n)
+	end
+	return Format.Money(n)
+end
+
+-- Geld kurz (Marktkapital, Kosten): "690 LNR" / "$110.4K"
+function Format.ShortMoney(n: number, unit: string?): string
+	unit = unit or Format.Unit
+	local lnr = n / CUR.CashPerUnit
+	if unit == "USD" then
+		local usd = lnr * Format.Rate()
+		return (if usd < 0 then "-$" else "$") .. Format.Short(math.abs(usd))
+	end
+	return Format.Short(lnr) .. " " .. CUR.Symbol
+end
+
+-- Platzhalter "{$:123.45}" in einem Text durch Beträge in der eigenen Einheit ersetzen (Client)
+function Format.Resolve(text: string): string
+	return (string.gsub(text, "{%$:([%-%d%.]+)}", function(value)
+		local n = tonumber(value)
+		return if n then Format.Money(n) else value
+	end))
+end
+
+-- Preis pro Coin (intern Cash pro Token) in der gewünschten Einheit, ca. 3 wichtige Stellen
+function Format.Price(p: number, unit: string?): string
+	unit = unit or Format.Unit
 	if p <= 0 then
 		return "0"
 	end
-	local decimals = math.clamp(2 - math.floor(math.log10(p)), 2, 10)
-	return string.format("%." .. decimals .. "f", p)
+	local value = p / CUR.CashPerUnit
+	if unit == "USD" then
+		value *= Format.Rate()
+	end
+	local decimals = math.clamp(2 - math.floor(math.log10(value)), 2, 12)
+	local text = string.format("%." .. decimals .. "f", value)
+	return if unit == "USD" then "$" .. text else text .. " " .. CUR.Symbol
 end
 
 -- 0.123 -> "+12.3%"
@@ -761,11 +860,64 @@ return Levels
 ]]></ProtectedString>
 				</Properties>
 			</Item>
+			<Item class="ModuleScript" referent="RBX7">
+				<Properties>
+					<string name="Name">Referral</string>
+					<ProtectedString name="Source"><![CDATA[-- Referral (ModuleScript) – ReplicatedStorage/Shared/Referral
+-- Persönlicher Teil-Code aus der Roblox-UserId: "LNR" + UserId in Basis 36 (z. B. LNR1A2B3C).
+-- Eindeutig, ohne Speicher. Creator-Codes dürfen nicht mit "LNR" beginnen (sonst Verwechslung).
+
+local Config = require(script.Parent.Config)
+
+local DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+local PREFIX = Config.Referral.Prefix
+
+local Referral = {}
+
+function Referral.Code(userId: number): string
+	local n = math.floor(math.abs(userId))
+	local out = ""
+	repeat
+		local d = n % 36
+		out = string.sub(DIGITS, d + 1, d + 1) .. out
+		n = math.floor(n / 36)
+	until n == 0
+	return PREFIX .. out
+end
+
+-- Code -> UserId oder nil (nur Format, ob es den Spieler gibt, prüft der Server nicht – reicht für die Belohnung)
+function Referral.Decode(code: string): number?
+	if string.sub(code, 1, #PREFIX) ~= PREFIX then
+		return nil
+	end
+	local rest = string.sub(code, #PREFIX + 1)
+	if #rest < 1 or #rest > 9 then
+		return nil
+	end
+	local n = 0
+	for i = 1, #rest do
+		local d = string.find(DIGITS, string.sub(rest, i, i), 1, true)
+		if not d then
+			return nil
+		end
+		n = n * 36 + (d - 1)
+	end
+	return if n > 0 then n else nil
+end
+
+function Referral.IsReferralCode(code: string): boolean
+	return string.sub(code, 1, #PREFIX) == PREFIX
+end
+
+return Referral
+]]></ProtectedString>
+				</Properties>
+			</Item>
 		</Item>
 	</Item>
-	<Item class="Folder" referent="RBX27">
+	<Item class="Folder" referent="RBX29">
 		<Properties><string name="Name">ServerScriptService</string></Properties>
-		<Item class="Script" referent="RBX9">
+		<Item class="Script" referent="RBX10">
 			<Properties>
 				<string name="Name">Main</string>
 				<ProtectedString name="Source"><![CDATA[-- Main (Script) – ServerScriptService/Main
@@ -787,6 +939,7 @@ local LaunchService = require(ServerScriptService.Services.LaunchService)
 local CreatorService = require(ServerScriptService.Services.CreatorService)
 local MonetizationService = require(ServerScriptService.Services.MonetizationService)
 local TradeLogService = require(ServerScriptService.Services.TradeLogService)
+local ReferralService = require(ServerScriptService.Services.ReferralService)
 
 -- Reines Terminal: kein Avatar
 Players.CharacterAutoLoads = false
@@ -804,6 +957,8 @@ end
 MarketService.HasPass = MonetizationService.HasPass
 MarketService.OnTrade = TradeLogService.Add
 PlayerDataService.OnTrade = TradeLogService.Add
+CreatorService.ReferralRedeem = ReferralService.Redeem
+CreatorService.ReferralState = ReferralService.State
 ProtectionService.HasPass = MonetizationService.HasPass
 LeaderboardService.HasPass = MonetizationService.HasPass
 LeaderboardService.IsVipUserId = MonetizationService.IsVipUserId
@@ -820,6 +975,7 @@ LaunchService.Init()
 CreatorService.Init() -- vor PlayerData: Zusatz-Infos im Spieler-Zustand
 MonetizationService.Init() -- vor PlayerData: Gamepässe im Spieler-Zustand, ProcessReceipt
 TradeLogService.Init() -- Trade-Verlauf (eigener Speicher)
+ReferralService.Init() -- Teil-Link / Teil-Code
 PlayerDataService.Init() -- erst jetzt Spieler laden: Markt ist bereit
 LeaderboardService.Start()
 ProtectionService.Start()
@@ -829,9 +985,9 @@ print("[MoonOrRug] Server ready")
 ]]></ProtectedString>
 			</Properties>
 		</Item>
-		<Item class="Folder" referent="RBX20">
+		<Item class="Folder" referent="RBX22">
 			<Properties><string name="Name">Services</string></Properties>
-			<Item class="ModuleScript" referent="RBX10">
+			<Item class="ModuleScript" referent="RBX11">
 				<Properties>
 					<string name="Name">CreatorService</string>
 					<ProtectedString name="Source"><![CDATA[-- CreatorService (ModuleScript) – ServerScriptService/Services/CreatorService
@@ -852,6 +1008,8 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local CreatorStyle = require(ReplicatedStorage.Shared.CreatorStyle)
+local Referral = require(ReplicatedStorage.Shared.Referral)
+local Format = require(ReplicatedStorage.Shared.Format)
 local Remotes = require(ServerScriptService.Util.Remotes)
 local RateLimiter = require(ServerScriptService.Util.RateLimiter)
 local Store = require(ServerScriptService.Util.Store)
@@ -864,6 +1022,8 @@ local CR = Config.Creator
 local W = Config.World
 
 local CreatorService = {}
+CreatorService.ReferralRedeem = nil :: ((Player, string) -> ())? -- vom ReferralService (Teil-Codes "LNR…")
+CreatorService.ReferralState = nil :: ((Player) -> any)?
 
 local listStore = Store.Data("MoR_Creators_v1") -- "list": { [userId] = Eintrag }, "log": Admin-Aktionen
 local codeStore = Store.Data("MoR_CreatorCodes_v1") -- [CODE] = { U = userId }
@@ -923,6 +1083,7 @@ function CreatorService.ExtraState(player: Player)
 		AccountOk = player.AccountAge >= CR.MinAccountAgeDays,
 		IsAdmin = CreatorService.IsAdmin(player),
 		FreeCoin = wallet ~= nil and CreatorService.FreeCoinMonth(player, wallet) ~= nil,
+		Referral = if CreatorService.ReferralState then CreatorService.ReferralState(player) else nil,
 	}
 end
 
@@ -958,7 +1119,7 @@ local function applyGrant(player: Player)
 		PlayerDataService.Notify(
 			player,
 			true,
-			string.format("🎬 Creator %s unlocked!%s", cfg.Name, if cfg.Cash > 0 then " +" .. cfg.Cash .. " Cash" else "")
+			string.format("🎬 Creator %s unlocked!%s", cfg.Name, if cfg.Cash > 0 then " +" .. Format.Cash(cfg.Cash) else "")
 		)
 		PlayerDataService.PushState(player)
 	end
@@ -1088,6 +1249,9 @@ local function onSetCode(player: Player, code: any)
 	if not clean then
 		return PlayerDataService.Notify(player, false, err or "Invalid code")
 	end
+	if Referral.IsReferralCode(clean) then
+		return PlayerDataService.Notify(player, false, "Codes can't start with " .. Config.Referral.Prefix)
+	end
 	local taken = false
 	local ok = codeStore:Update(clean, function(old)
 		if type(old) == "table" and old.U ~= player.UserId then
@@ -1128,6 +1292,10 @@ local function onRedeem(player: Player, code: any)
 	if not clean then
 		return PlayerDataService.Notify(player, false, "Code not found")
 	end
+	-- Teil-Code eines Freundes ("LNR…"): eigene Regeln, getrennt vom Creator-Code
+	if Referral.IsReferralCode(clean) and CreatorService.ReferralRedeem then
+		return CreatorService.ReferralRedeem(player, clean)
+	end
 	if st.RC then
 		return PlayerDataService.Notify(player, false, "You already used a creator code")
 	end
@@ -1166,7 +1334,7 @@ local function onRedeem(player: Player, code: any)
 	if not okRedeem or not result or not result.Ok then
 		return PlayerDataService.Notify(player, false, (result and result.Error) or "Please try again")
 	end
-	PlayerDataService.Notify(player, true, string.format("🎬 Code %s redeemed: +%d Cash", clean, CR.CodeReward))
+	PlayerDataService.Notify(player, true, string.format("🎬 Code %s redeemed: +%s", clean, Format.Cash(CR.CodeReward)))
 	PlayerDataService.PushState(player)
 
 	local day = Ledger.PeriodKeys(now())
@@ -1247,7 +1415,7 @@ return CreatorService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX11">
+			<Item class="ModuleScript" referent="RBX12">
 				<Properties>
 					<string name="Name">LaunchService</string>
 					<ProtectedString name="Source"><![CDATA[-- LaunchService (ModuleScript) – ServerScriptService/Services/LaunchService
@@ -1348,7 +1516,7 @@ return LaunchService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX12">
+			<Item class="ModuleScript" referent="RBX13">
 				<Properties>
 					<string name="Name">LeaderboardService</string>
 					<ProtectedString name="Source"><![CDATA[-- LeaderboardService (ModuleScript) – ServerScriptService/Services/LeaderboardService
@@ -1662,7 +1830,7 @@ return LeaderboardService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX13">
+			<Item class="ModuleScript" referent="RBX14">
 				<Properties>
 					<string name="Name">MarketService</string>
 					<ProtectedString name="Source"><![CDATA[-- MarketService (ModuleScript) – ServerScriptService/Services/MarketService
@@ -1969,7 +2137,7 @@ local function afterTrade(wallet, coin, result, rug: boolean)
 		MarketService.Announce(
 			"Profit",
 			string.format(
-				"%s%s made %s Cash on $%s",
+				"%s%s made %s on $%s",
 				if wallet.IsNpc then "🤖 " else "",
 				name,
 				Format.Cash(result.Profit),
@@ -2057,7 +2225,7 @@ local function settle(player: Player, p)
 	end
 	if isLaunch then
 		if not result.Ok then
-			return false, result.Error or "Launch failed – your cash was refunded"
+			return false, result.Error or "Launch failed – your LNR was refunded"
 		end
 		local devText = if (result.Cash or 0) > 0 then " (dev buy " .. Format.Cash(result.Cash) .. ")" else ""
 		return true, string.format("🚀 $%s launched!%s", p.Info.Ticker, devText)
@@ -2076,12 +2244,12 @@ local function settle(player: Player, p)
 	end
 	local ticker = if coins[p.Coin] then coins[p.Coin].Ticker else "?"
 	if p.Rug then
-		return true, string.format("☠ You rugged $%s: +%s Cash (30%% went to the refund pot)", ticker, Format.Cash(result.Cash))
+		return true, string.format("☠ You rugged $%s: +%s (30%% went to the refund pot)", ticker, Format.Cash(result.Cash))
 	end
 	local verb = if p.Side == "Buy" then "Bought" else "Sold"
 	return true,
 		string.format(
-			"%s %s %s for %s Cash%s",
+			"%s %s %s for %s%s",
 			verb,
 			Format.Short(result.Tokens),
 			ticker,
@@ -2130,7 +2298,7 @@ local function executeTrade(player: Player, coinId: string, side: string, fracti
 		cash = Ledger.FloorCents(wallet.Cash * fraction / (1 + rate))
 		premium = if insure then Ledger.FloorCents(cash * rate) else nil
 		if cash < Config.Trade.MinCash then
-			return false, if wallet.Cash < Config.Trade.MinCash then "Not enough cash" else "Amount too small"
+			return false, if wallet.Cash < Config.Trade.MinCash then "Not enough LNR" else "Amount too small"
 		end
 	end
 	local okBegin, begin = PlayerData.WalletUpdate(player, Ledger.WalletBegin, {
@@ -2236,7 +2404,7 @@ local function executeLaunch(player: Player, info, devFraction: number)
 	end
 	local fee = if freeMonth or voucher then 0 else LC.CreateCost
 	if wallet.Cash < fee then
-		return false, "You need " .. Format.Cash(fee) .. " Cash"
+		return false, "You need " .. Format.Cash(fee)
 	end
 	local devCash = Ledger.FloorCents((wallet.Cash - fee) * devFraction)
 	if devCash < Config.Trade.MinCash then
@@ -2321,7 +2489,7 @@ local function executeBoost(player: Player, coinId: string)
 		return false, string.format("Boost slots full – next free in %dm", math.ceil(nextFree / 60))
 	end
 	if not free and wallet.Cash < LC.BoostCost then
-		return false, "You need " .. Format.Cash(LC.BoostCost) .. " Cash"
+		return false, "You need " .. Format.Cash(LC.BoostCost)
 	end
 	local payId = HttpService:GenerateGUID(false)
 	local okPay, paid
@@ -2339,7 +2507,7 @@ local function executeBoost(player: Player, coinId: string)
 		})
 	end
 	if not okPay or not paid or not paid.Ok then
-		return false, if free then "Boost failed – try again" else "Not enough cash"
+		return false, if free then "Boost failed – try again" else "Not enough LNR"
 	end
 	local okClaim, claim, newBoosts = marketMap:Update("Boosts", Ledger.BoostClaim, {
 		Coin = coinId,
@@ -3074,7 +3242,7 @@ return MarketService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX14">
+			<Item class="ModuleScript" referent="RBX15">
 				<Properties>
 					<string name="Name">MonetizationService</string>
 					<ProtectedString name="Source"><![CDATA[-- MonetizationService (ModuleScript) – ServerScriptService/Services/MonetizationService
@@ -3350,7 +3518,7 @@ return MonetizationService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX15">
+			<Item class="ModuleScript" referent="RBX16">
 				<Properties>
 					<string name="Name">NpcTraderService</string>
 					<ProtectedString name="Source"><![CDATA[-- NpcTraderService (ModuleScript) – ServerScriptService/Services/NpcTraderService
@@ -3828,7 +3996,7 @@ return NpcTraderService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX16">
+			<Item class="ModuleScript" referent="RBX17">
 				<Properties>
 					<string name="Name">PlayerDataService</string>
 					<ProtectedString name="Source"><![CDATA[-- PlayerDataService (ModuleScript) – ServerScriptService/Services/PlayerDataService
@@ -3846,6 +4014,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Levels = require(ReplicatedStorage.Shared.Levels)
+local Format = require(ReplicatedStorage.Shared.Format)
 local Remotes = require(ServerScriptService.Util.Remotes)
 local RateLimiter = require(ServerScriptService.Util.RateLimiter)
 local Store = require(ServerScriptService.Util.Store)
@@ -3946,6 +4115,18 @@ function PlayerDataService.SetStopLossLocal(player: Player, coinId: string, leve
 	end
 end
 
+-- Hat dieser Spieler schon einen Spielstand? (Teil-Code nur von echten Spielern) -> true/false, nil = unklar
+function PlayerDataService.HasProfile(userId: number): boolean?
+	if Players:GetPlayerByUserId(userId) then
+		return true
+	end
+	local ok, data = profileStore:Get("u_" .. userId)
+	if not ok then
+		return nil
+	end
+	return type(data) == "table"
+end
+
 -- Hinweis oben im Terminal (gleicher Weg wie Trade-Meldungen)
 function PlayerDataService.Notify(player: Player, ok: boolean, message: string)
 	Remotes.Event("TradeResult"):FireClient(player, { Ok = ok, Message = message })
@@ -4029,6 +4210,7 @@ function PlayerDataService.BuildState(player: Player)
 		Settings = {
 			Tutorial = st.TU == 1, -- Pflicht-Tutorial erledigt
 			Mute = st.MU == 1, -- Sounds aus
+			Usd = st.CU == 1, -- Anzeige in Spiel-Dollar statt LNR
 		},
 	}
 end
@@ -4154,13 +4336,16 @@ local function drainInbox(player: Player)
 	end
 	-- Hinweise, woher das Geld kommt
 	if isValidNumber(content.Refund) and content.Refund > 0 then
-		PlayerDataService.Notify(player, true, string.format("🛡 Rug refund: +%.2f Cash", content.Refund))
+		PlayerDataService.Notify(player, true, "🛡 Rug refund: +" .. Format.Cash(content.Refund))
 	end
 	if isValidNumber(content.Code) and content.Code > 0 then
-		PlayerDataService.Notify(player, true, string.format("🎬 Your creator code was used: +%.2f Cash", content.Code))
+		PlayerDataService.Notify(player, true, "🎬 Your creator code was used: +" .. Format.Cash(content.Code))
+	end
+	if isValidNumber(content.Ref) and content.Ref > 0 then
+		PlayerDataService.Notify(player, true, "🔗 A friend joined with your share link: +" .. Format.Cash(content.Ref))
 	end
 	if isValidNumber(content.SL) and content.SL > 0 then
-		PlayerDataService.Notify(player, true, string.format("🛑 Stop-loss sold while you were away: +%.2f Cash", content.SL))
+		PlayerDataService.Notify(player, true, "🛑 Stop-loss sold while you were away: +" .. Format.Cash(content.SL))
 		if PlayerDataService.OnTrade then
 			PlayerDataService.OnTrade(player, { S = "SL", T = "", I = "🛑", M = content.SL, P = profit })
 		end
@@ -4304,6 +4489,8 @@ local function onSetFlag(player: Player, name: any, on: any)
 		key, value = "TU", 1 -- kann nur erledigt werden, nie zurück
 	elseif name == "Mute" and typeof(on) == "boolean" then
 		key, value = "MU", if on then 1 else 0
+	elseif name == "Usd" and typeof(on) == "boolean" then
+		key, value = "CU", if on then 1 else 0
 	else
 		return
 	end
@@ -4425,7 +4612,7 @@ return PlayerDataService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX17">
+			<Item class="ModuleScript" referent="RBX18">
 				<Properties>
 					<string name="Name">ProtectionService</string>
 					<ProtectedString name="Source"><![CDATA[-- ProtectionService (ModuleScript) – ServerScriptService/Services/ProtectionService
@@ -4443,6 +4630,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
+local Format = require(ReplicatedStorage.Shared.Format)
 local Remotes = require(ServerScriptService.Util.Remotes)
 local RateLimiter = require(ServerScriptService.Util.RateLimiter)
 local Store = require(ServerScriptService.Util.Store)
@@ -4490,7 +4678,7 @@ local function onClaimDaily(player: Player)
 		PlayerDataService.Notify(
 			player,
 			true,
-			string.format("🎁 Day %d reward: +%s Cash", result.Streak, tostring(result.Amount))
+			string.format("🎁 Day %d reward: +%s", result.Streak, Format.Cash(result.Amount))
 		)
 	else
 		PlayerDataService.Notify(player, false, (result and result.Error) or "Please try again")
@@ -4579,7 +4767,7 @@ local function stipendTick()
 				Interval = P.StipendInterval,
 			})
 			if ok and result and result.Ok then
-				PlayerDataService.Notify(player, true, string.format("💸 Starter help: +%d Cash", P.StipendAmount))
+				PlayerDataService.Notify(player, true, "💸 Starter help: +" .. Format.Cash(P.StipendAmount))
 				PlayerDataService.PushState(player)
 			end
 		end
@@ -4724,7 +4912,168 @@ return ProtectionService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX18">
+			<Item class="ModuleScript" referent="RBX19">
+				<Properties>
+					<string name="Name">ReferralService</string>
+					<ProtectedString name="Source"><![CDATA[-- ReferralService (ModuleScript) – ServerScriptService/Services/ReferralService
+-- Teil-Link / Teil-Code (von der PNL-Karte):
+--  * Wer über den geteilten Link kommt (LaunchData "ref=<UserId>") oder den Code eingibt, wird einmal im ganzen
+--    Spiel einem Werber zugeordnet (getrennt vom Creator-Code).
+--  * Ausgezahlt wird erst, wenn Konto ≥ 7 Tage alt und ≥ 30 Min. gespielt (gegen Zweit-Accounts):
+--    der Neue +Reward, der Werber +Reward (übers Postfach, auch wenn er offline ist).
+--  * Nie doppelt: Ledger merkt St.RB (bezahlt); Werber-Gutschrift ohne Wiederholung.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Format = require(ReplicatedStorage.Shared.Format)
+local Referral = require(ReplicatedStorage.Shared.Referral)
+local Store = require(ServerScriptService.Util.Store)
+local Ledger = require(ServerScriptService.Util.Ledger)
+local WorldService = require(ServerScriptService.Services.WorldService)
+local PlayerDataService = require(ServerScriptService.Services.PlayerDataService)
+
+local RF = Config.Referral
+local W = Config.World
+
+local ReferralService = {}
+
+local inboxMap = Store.Map(W.InboxMap, W.CoinExpiration)
+
+-- Werber merken. -> ok, Meldung
+local function setReferrer(player: Player, refId: number): (boolean, string)
+	if refId == player.UserId then
+		return false, "You can't use your own share code"
+	end
+	-- nur Codes von Spielern, die wirklich schon gespielt haben (sonst könnte man sich einen ausdenken)
+	local exists = PlayerDataService.HasProfile(refId)
+	if exists == nil then
+		return false, "Please try again"
+	elseif not exists and not Store.LocalMode then
+		return false, "Code not found"
+	end
+	local ok, result = PlayerDataService.WalletUpdate(player, Ledger.WalletReferPending, {
+		Job = WorldService.JobId,
+		Ref = refId,
+	})
+	if not ok or not result then
+		return false, "Please try again"
+	end
+	if not result.Ok then
+		return false, result.Error or "Please try again"
+	end
+	return true, "🔗 Friend code saved!"
+end
+
+-- Belohnung fällig? (Konto alt genug, genug gespielt)
+local function tryPay(player: Player)
+	local wallet = PlayerDataService.GetWallet(player)
+	local st = wallet and wallet.St
+	if not st or not st.RP or st.RB then
+		return
+	end
+	if player.AccountAge < RF.MinAccountAgeDays or (st.PT or 0) < RF.MinPlaytimeMinutes * 60 then
+		return
+	end
+	local ok, result = PlayerDataService.WalletUpdate(player, Ledger.WalletReferPay, {
+		Job = WorldService.JobId,
+		Cash = RF.Reward,
+	})
+	if not ok or not result or not result.Ok then
+		return
+	end
+	PlayerDataService.Notify(player, true, "🔗 Friend bonus: +" .. Format.Cash(RF.Reward))
+	PlayerDataService.PushState(player)
+	-- Werber: ohne Wiederholung (im Zweifel fehlt die Gutschrift einmal, aber nie doppelt)
+	inboxMap:UpdateOnce("u_" .. tostring(result.Ref), Ledger.InboxAdd, {
+		Adds = { Cash = RF.Reward, Ref = RF.Reward },
+	})
+end
+
+-- Code eingegeben (aus dem Code-Feld im 🎁-Fenster, vom CreatorService weitergereicht)
+function ReferralService.Redeem(player: Player, code: string)
+	local refId = Referral.Decode(code)
+	if not refId then
+		return PlayerDataService.Notify(player, false, "Code not found")
+	end
+	local ok, message = setReferrer(player, refId)
+	if ok then
+		local wallet = PlayerDataService.GetWallet(player)
+		local st = (wallet and wallet.St) or {}
+		local left = RF.MinPlaytimeMinutes * 60 - (st.PT or 0)
+		if player.AccountAge < RF.MinAccountAgeDays then
+			message ..= string.format(" Bonus once your account is %d days old.", RF.MinAccountAgeDays)
+		elseif left > 0 then
+			message ..= string.format(" Bonus after %d more minutes of play.", math.ceil(left / 60))
+		end
+		tryPay(player)
+	end
+	PlayerDataService.Notify(player, ok, message)
+	PlayerDataService.PushState(player)
+end
+
+-- Zusatz-Infos für den Client
+function ReferralService.State(player: Player)
+	local wallet = PlayerDataService.GetWallet(player)
+	local st = (wallet and wallet.St) or {}
+	return {
+		Code = Referral.Code(player.UserId),
+		Status = if st.RB then "done" elseif st.RP then "pending" else "none",
+	}
+end
+
+-- Über einen geteilten Link gekommen? (LaunchData "ref=<UserId>")
+local function checkJoinData(player: Player)
+	local ok, joinData = pcall(player.GetJoinData, player)
+	local launch = ok and type(joinData) == "table" and joinData.LaunchData
+	if type(launch) ~= "string" or #launch > 200 then
+		return
+	end
+	local refId = tonumber(string.match(launch, "^ref=(%d+)$"))
+	if refId then
+		setReferrer(player, refId) -- Fehler (schon zugeordnet usw.) still ignorieren
+	end
+end
+
+function ReferralService.Init()
+	local function onJoin(player: Player)
+		for _ = 1, 60 do -- warten, bis die Geldbörse geladen ist
+			if not player.Parent then
+				return
+			end
+			if PlayerDataService.GetWallet(player) then
+				checkJoinData(player)
+				tryPay(player)
+				PlayerDataService.PushState(player)
+				return
+			end
+			task.wait(1)
+		end
+	end
+	Players.PlayerAdded:Connect(onJoin)
+	for _, player in Players:GetPlayers() do
+		task.spawn(onJoin, player)
+	end
+	task.spawn(function()
+		while true do
+			task.wait(RF.CheckInterval)
+			for _, player in PlayerDataService.LoadedPlayers() do
+				local ok, err = pcall(tryPay, player)
+				if not ok then
+					warn("[Referral] " .. tostring(err))
+				end
+			end
+		end
+	end)
+end
+
+return ReferralService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX20">
 				<Properties>
 					<string name="Name">TradeLogService</string>
 					<ProtectedString name="Source"><![CDATA[-- TradeLogService (ModuleScript) – ServerScriptService/Services/TradeLogService
@@ -4873,7 +5222,7 @@ return TradeLogService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX19">
+			<Item class="ModuleScript" referent="RBX21">
 				<Properties>
 					<string name="Name">WorldService</string>
 					<ProtectedString name="Source"><![CDATA[-- WorldService (ModuleScript) – ServerScriptService/Services/WorldService
@@ -4972,9 +5321,9 @@ return WorldService
 				</Properties>
 			</Item>
 		</Item>
-		<Item class="Folder" referent="RBX26">
+		<Item class="Folder" referent="RBX28">
 			<Properties><string name="Name">Util</string></Properties>
-			<Item class="ModuleScript" referent="RBX21">
+			<Item class="ModuleScript" referent="RBX23">
 				<Properties>
 					<string name="Name">Ledger</string>
 					<ProtectedString name="Source"><![CDATA[-- Ledger (ModuleScript) – ServerScriptService/Util/Ledger
@@ -5504,7 +5853,7 @@ function Ledger.WalletBegin(wallet, a)
 			return nil, { Error = "Amount too small" }
 		end
 		if wallet.Cash < a.Cash + premium then
-			return nil, { Error = "Not enough cash" }
+			return nil, { Error = "Not enough LNR" }
 		end
 		wallet.Cash = floorCents(wallet.Cash - a.Cash - premium)
 		wallet.Coins[a.Coin] = true
@@ -5573,7 +5922,7 @@ function Ledger.WalletLaunchBegin(wallet, a)
 		return nil, { Error = "Previous trade still processing", Pending = true }
 	end
 	if wallet.Cash < a.Fee + a.Cash then
-		return nil, { Error = "Not enough cash" }
+		return nil, { Error = "Not enough LNR" }
 	end
 	if a.Voucher then
 		local v = wallet.V or {}
@@ -5821,6 +6170,35 @@ function Ledger.WalletFavorite(wallet, a)
 	return wallet, { Ok = true }
 end
 
+-- Teil-Link/-Code: Werber merken (einmal im ganzen Spiel, getrennt vom Creator-Code). a = { Job, Ref }
+function Ledger.WalletReferPending(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false, Error = "Session lost – please rejoin" }
+	end
+	local st = wallet.St or {}
+	wallet.St = st
+	if st.RB or st.RP then
+		return nil, { Ok = false, Error = "You already joined through a friend" }
+	end
+	st.RP = a.Ref
+	return wallet, { Ok = true }
+end
+
+-- Wartende Teil-Belohnung auszahlen (genau einmal). a = { Job, Cash } -> { Ok, Ref }
+function Ledger.WalletReferPay(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false }
+	end
+	local st = wallet.St or {}
+	if not st.RP or st.RB then
+		return nil, { Ok = false }
+	end
+	st.RB = st.RP
+	wallet.St = st
+	wallet.Cash = floorCents(wallet.Cash + a.Cash)
+	return wallet, { Ok = true, Ref = st.RB }
+end
+
 -- Rug-Lizenz kaufen (gilt für LicenseUses Rugpulls). a = { Job, Id, Cost, Uses }. Gleiche Id = nichts doppelt.
 function Ledger.WalletBuyLicense(wallet, a)
 	if not wallet or wallet.Owner ~= a.Job then
@@ -5833,7 +6211,7 @@ function Ledger.WalletBuyLicense(wallet, a)
 		return nil, { Ok = false, Error = string.format("You still have %d rug pulls left", wallet.RL) }
 	end
 	if wallet.Cash < a.Cost then
-		return nil, { Ok = false, Error = "Not enough cash" }
+		return nil, { Ok = false, Error = "Not enough LNR" }
 	end
 	wallet.Op = a.Id
 	wallet.Cash = floorCents(wallet.Cash - a.Cost)
@@ -6107,7 +6485,7 @@ return Ledger
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX22">
+			<Item class="ModuleScript" referent="RBX24">
 				<Properties>
 					<string name="Name">RateLimiter</string>
 					<ProtectedString name="Source"><![CDATA[-- RateLimiter (ModuleScript) – ServerScriptService/Util/RateLimiter
@@ -6145,7 +6523,7 @@ return RateLimiter
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX23">
+			<Item class="ModuleScript" referent="RBX25">
 				<Properties>
 					<string name="Name">Remotes</string>
 					<ProtectedString name="Source"><![CDATA[-- Remotes (ModuleScript) – ServerScriptService/Util/Remotes
@@ -6185,7 +6563,7 @@ return Remotes
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX24">
+			<Item class="ModuleScript" referent="RBX26">
 				<Properties>
 					<string name="Name">Store</string>
 					<ProtectedString name="Source"><![CDATA[-- Store (ModuleScript) – ServerScriptService/Util/Store
@@ -6393,7 +6771,7 @@ return Store
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX25">
+			<Item class="ModuleScript" referent="RBX27">
 				<Properties>
 					<string name="Name">TextFilter</string>
 					<ProtectedString name="Source"><![CDATA[-- TextFilter (ModuleScript) – ServerScriptService/Util/TextFilter
@@ -6543,9 +6921,9 @@ return TextFilter
 			</Item>
 		</Item>
 	</Item>
-	<Item class="Folder" referent="RBX44">
+	<Item class="Folder" referent="RBX47">
 		<Properties><string name="Name">StarterPlayerScripts</string></Properties>
-		<Item class="LocalScript" referent="RBX28">
+		<Item class="LocalScript" referent="RBX30">
 			<Properties>
 				<string name="Name">ClientMain</string>
 				<ProtectedString name="Source"><![CDATA[-- ClientMain (LocalScript) – StarterPlayer/StarterPlayerScripts/ClientMain
@@ -6560,9 +6938,9 @@ TerminalUI.Start()
 ]]></ProtectedString>
 			</Properties>
 		</Item>
-		<Item class="Folder" referent="RBX43">
+		<Item class="Folder" referent="RBX46">
 			<Properties><string name="Name">ClientModules</string></Properties>
-			<Item class="ModuleScript" referent="RBX29">
+			<Item class="ModuleScript" referent="RBX31">
 				<Properties>
 					<string name="Name">AdminUI</string>
 					<ProtectedString name="Source"><![CDATA[-- AdminUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/AdminUI
@@ -6843,7 +7221,7 @@ return AdminUI
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX30">
+			<Item class="ModuleScript" referent="RBX32">
 				<Properties>
 					<string name="Name">ChartRenderer</string>
 					<ProtectedString name="Source"><![CDATA[-- ChartRenderer (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/ChartRenderer
@@ -7038,7 +7416,7 @@ return ChartRenderer
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX31">
+			<Item class="ModuleScript" referent="RBX33">
 				<Properties>
 					<string name="Name">CoinPage</string>
 					<ProtectedString name="Source"><![CDATA[-- CoinPage (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/CoinPage
@@ -7335,18 +7713,46 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		}),
 	})
+	-- 3 Knöpfe, Text zweizeilig (passt auch auf schmale Handys)
 	local stopButton = Screen.Button({
 		TextSize = 20,
-		Size = UDim2.new(0.5, -4, 1, 0),
+		Size = UDim2.new(1 / 3, -6, 1, 0),
 		LayoutOrder = 1,
 		Parent = protectRow,
 	})
 	local insureButton = Screen.Button({
 		TextSize = 20,
-		Size = UDim2.new(0.5, -4, 1, 0),
+		Size = UDim2.new(1 / 3, -6, 1, 0),
 		LayoutOrder = 2,
 		Parent = protectRow,
 	})
+	-- PNL-Karte zum Teilen (nur mit Position)
+	local pnlButton = Screen.Button({
+		Text = "📸 PNL\nSHARE",
+		TextSize = 20,
+		BackgroundColor3 = Colors.Accent,
+		TextColor3 = Colors.Background,
+		Size = UDim2.new(1 / 3, -6, 1, 0),
+		LayoutOrder = 3,
+		Parent = protectRow,
+	})
+	pnlButton.Activated:Connect(function()
+		local coin = self.CoinId and MarketClient.Coins[self.CoinId]
+		local position = coin and MarketClient.Me.Positions[coin.Id]
+		if not position then
+			MarketClient.TradeResult:Fire(false, "Buy this coin first – then share your PNL")
+			return
+		end
+		if MarketClient.ShowPnlCard then
+			MarketClient.ShowPnlCard({
+				Icon = coin.Icon,
+				Ticker = coin.Ticker,
+				Cost = position.Cost,
+				Value = MarketClient.PositionValue(coin, position),
+				Sold = false,
+			})
+		end
+	end)
 	local stopLevels = Config.Protection.StopLossLevels
 	stopButton.Activated:Connect(function()
 		local coinId = self.CoinId
@@ -7641,7 +8047,7 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 			elseif not canBoostWithCash() then
 				boostButton.Text = "🚀 BOOST\nR$ " .. Config.Shop.Products.Boost.Robux -- ohne Level, mit Robux
 			else
-				boostButton.Text = "🚀 BOOST\n" .. Format.Short(Config.Launch.BoostCost)
+				boostButton.Text = "🚀 BOOST\n" .. Format.ShortMoney(Config.Launch.BoostCost)
 			end
 		end
 		local change = MarketClient.ChartChange(coin)
@@ -7663,7 +8069,7 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 
 		infoLabel.Text = string.format(
 			"MC %s · Migration %d%% · %s · %s · by %s",
-			Format.Short(coin.MarketCap),
+			Format.ShortMoney(coin.MarketCap),
 			math.min(100, math.floor(coin.MarketCap / Config.Curve.MigrationMarketCap * 100)),
 			Format.Duration(MarketClient.Age(coin)),
 			coin.Stage,
@@ -7704,19 +8110,20 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		local myLevel = if stats then stats.Level else 1
 		local protection = Config.Protection
 		if myLevel < protection.StopLossMinLevel then
-			stopButton.Text = "🛑 STOP 🔒 Lv " .. protection.StopLossMinLevel
+			stopButton.Text = "🛑 STOP\n🔒 Lv " .. protection.StopLossMinLevel
 			stopButton.BackgroundColor3 = Colors.PanelLight
 		else
 			local sl = position and position.SL
-			stopButton.Text = if sl then string.format("🛑 STOP -%d%%", math.floor(sl * 100 + 0.5)) else "🛑 STOP OFF"
+			stopButton.Text = if sl then string.format("🛑 STOP\n-%d%%", math.floor(sl * 100 + 0.5)) else "🛑 STOP\nOFF"
 			stopButton.BackgroundColor3 = if sl then Colors.Border else Colors.PanelLight
 		end
 		if myLevel < protection.InsuranceMinLevel then
-			insureButton.Text = "🛡 INSURE 🔒 Lv " .. protection.InsuranceMinLevel
+			insureButton.Text = "🛡 INSURE\n🔒 Lv " .. protection.InsuranceMinLevel
 			insureButton.BackgroundColor3 = Colors.PanelLight
 		else
 			local on = (MarketClient.Me.Insured or {})[coin.Id] == true
-			insureButton.Text = if on then "🛡 INSURED +5%" else "🛡 INSURE OFF"
+			local premium = protection.InsurancePremium * (if MarketClient.HasPass("HalfInsurance") then 0.5 else 1)
+			insureButton.Text = if on then string.format("🛡 ON\n+%g%%", math.floor(premium * 1000 + 0.5) / 10) else "🛡 INSURE\nOFF"
 			insureButton.BackgroundColor3 = if on then Colors.Border else Colors.PanelLight
 		end
 
@@ -7749,7 +8156,7 @@ return CoinPage
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX32">
+			<Item class="ModuleScript" referent="RBX34">
 				<Properties>
 					<string name="Name">CreateCoinUI</string>
 					<ProtectedString name="Source"><![CDATA[-- CreateCoinUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/CreateCoinUI
@@ -8005,7 +8412,7 @@ function CreateCoinUI.new(parent: GuiObject)
 		elseif os.clock() < confirmUntil then
 			return "TAP AGAIN", true
 		end
-		return string.format("☠ %s · %d rugs", Format.Short(RG.LicenseCost), RG.LicenseUses), true
+		return string.format("☠ %s · %d rugs", Format.ShortMoney(RG.LicenseCost), RG.LicenseUses), true
 	end
 	-- nur den Lizenz-Knopf neu zeichnen (läuft bei jeder Änderung; lässt Fehlermeldungen im Formular stehen)
 	function self.RefreshLicense()
@@ -8045,12 +8452,12 @@ function CreateCoinUI.new(parent: GuiObject)
 		local fee = if free then 0 else L.CreateCost
 		local devCash = math.max(0, cash - fee) * L.DevBuyOptions[devIndex]
 		costLabel.Text = string.format(
-			"Cost: %s + dev buy %s · you get 5%% of the coins · %s Cash",
+			"Cost: %s + dev buy %s · you get 5%% of the coins · %s money",
 			if gold then "FREE (Gold creator)"
 				elseif voucher then "FREE (Robux)"
-				elseif level < L.CreateMinLevel then string.format("Lv %d + %s, or R$", L.CreateMinLevel, Format.Short(L.CreateCost))
-				else Format.Short(L.CreateCost),
-			Format.Short(devCash),
+				elseif level < L.CreateMinLevel then string.format("Lv %d + %s, or R$", L.CreateMinLevel, Format.ShortMoney(L.CreateCost))
+				else Format.ShortMoney(L.CreateCost),
+			Format.ShortMoney(devCash),
 			if cash >= fee then "enough" else "not enough"
 		)
 		costLabel.TextColor3 = if cash >= fee then Colors.Muted else Colors.Red
@@ -8125,7 +8532,7 @@ return CreateCoinUI
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX33">
+			<Item class="ModuleScript" referent="RBX35">
 				<Properties>
 					<string name="Name">DailyRewardUI</string>
 					<ProtectedString name="Source"><![CDATA[-- DailyRewardUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/DailyRewardUI
@@ -8133,7 +8540,8 @@ return CreateCoinUI
 -- (einlösen – einmal im ganzen Spiel – oder als Gold-Creator den eigenen Code wählen/sehen).
 -- Der Server entscheidet alles (einmal pro Tag, Lücke = Tag 1, Code-Regeln).
 --
--- Platz: Fenster 80 % breit (bei 1000 Breite ca. 100 pro Tag), 440 hoch (passt in 496)
+-- Darunter der eigene Teil-Code (Freunde, die damit kommen: beide bekommen eine Belohnung).
+-- Platz: Fenster 80 % breit (bei 1000 Breite ca. 100 pro Tag), 470 hoch (passt in 496)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -8165,7 +8573,7 @@ function DailyRewardUI.new(parent: GuiObject)
 	local panel = Screen.New("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.new(0.8, 0, 0, 440),
+		Size = UDim2.new(0.8, 0, 0, 470),
 		BackgroundColor3 = Colors.Panel,
 		Active = true,
 		ZIndex = 31,
@@ -8224,8 +8632,8 @@ function DailyRewardUI.new(parent: GuiObject)
 			ZIndex = 33,
 			Parent = box,
 		})
-		Screen.Label({
-			Text = Format.Cash(amount):gsub("%.00$", ""),
+		local amountLabel = Screen.Label({
+			Text = Format.ShortMoney(amount),
 			Font = Screen.Fonts.Bold,
 			TextSize = 26,
 			TextColor3 = Colors.Accent,
@@ -8249,7 +8657,7 @@ function DailyRewardUI.new(parent: GuiObject)
 			Enabled = false,
 			Parent = box,
 		})
-		boxes[day] = { Mark = mark, Stroke = stroke }
+		boxes[day] = { Mark = mark, Stroke = stroke, Amount = amountLabel, Value = amount }
 	end
 
 	-- Creator-Code
@@ -8313,6 +8721,16 @@ function DailyRewardUI.new(parent: GuiObject)
 		Parent = panel,
 	})
 	local codeMode = "redeem" -- "redeem" / "choose" / "none"
+	-- eigener Teil-Code
+	local shareLabel = Screen.Label({
+		TextSize = 20,
+		TextColor3 = Colors.Muted,
+		Position = UDim2.fromOffset(0, 338),
+		Size = UDim2.new(1, 0, 0, 24),
+		ZIndex = 32,
+		Parent = panel,
+	})
+	local RF = Config.Referral
 
 	local claim = Screen.Button({
 		Text = "CLAIM",
@@ -8344,6 +8762,7 @@ function DailyRewardUI.new(parent: GuiObject)
 			then string.format("Day %d is ready! Miss a day and you start again at day 1.", daily.Next)
 			else "Claimed today. Come back tomorrow for day " .. daily.Next .. "."
 		for day, box in boxes do
+			box.Amount.Text = Format.ShortMoney(box.Value) -- LNR oder $ (Voreinstellung)
 			local done = day <= daily.Streak
 			box.Mark.Text = if done then "✅" else ""
 			box.Stroke.Enabled = daily.CanClaim and day == daily.Next
@@ -8355,21 +8774,41 @@ function DailyRewardUI.new(parent: GuiObject)
 			codeMode = if extra.Code then "none" else "choose"
 			myCodeLabel.Text = if extra.Code then "Your code: " .. extra.Code else ""
 			codeHint.Text = if extra.Code
-				then string.format("Used %d times · you get %d Cash per use (max. %d per day)", extra.Uses or 0, CR.CreatorPerRedeem, CR.CreatorDailyCap)
+				then string.format("Used %d times · you get %s per use (max. %d per day)", extra.Uses or 0, Format.Cash(CR.CreatorPerRedeem), CR.CreatorDailyCap)
 				else string.format("Pick your own code (%d-%d letters/numbers). You can choose it only once!", CR.CodeMin, CR.CodeMax)
-		elseif extra.Redeemed then
-			codeMode = "none"
-			myCodeLabel.Text = "✅ Code " .. extra.Redeemed .. " used"
-			codeHint.Text = "Every player can use one creator code."
 		else
-			codeMode = "redeem"
-			if extra.AccountOk == false then
-				codeHint.Text = string.format("Your Roblox account must be at least %d days old.", CR.MinAccountAgeDays)
-			elseif (extra.PlaytimeLeft or 0) > 0 then
-				codeHint.Text = string.format("Play %d more minutes to use a code.", math.ceil(extra.PlaytimeLeft / 60))
+			-- ein Creator-Code UND ein Freundes-Code möglich (je einmal im ganzen Spiel)
+			local friend = if extra.Referral then extra.Referral.Status else "none"
+			local creatorUsed = extra.Redeemed ~= nil
+			if creatorUsed and friend ~= "none" then
+				codeMode = "none"
+				myCodeLabel.Text = "✅ Code " .. extra.Redeemed .. " used · friend code used"
+				codeHint.Text = "Every player can use one creator code and one friend code."
 			else
-				codeHint.Text = string.format("Enter a creator code: +%s Cash (only once!)", Format.Short(CR.CodeReward))
+				codeMode = "redeem"
+				local parts = {}
+				if not creatorUsed then
+					table.insert(parts, "creator code +" .. Format.Cash(CR.CodeReward))
+				end
+				if friend == "none" then
+					table.insert(parts, "friend's share code +" .. Format.Cash(RF.Reward))
+				end
+				codeHint.Text = "Enter a " .. table.concat(parts, " or ") .. " (once each)"
+				if extra.AccountOk == false then
+					codeHint.Text = string.format("Your Roblox account must be at least %d days old for codes.", CR.MinAccountAgeDays)
+				elseif (extra.PlaytimeLeft or 0) > 0 then
+					codeHint.Text ..= string.format(" · bonus after %d more min", math.ceil(extra.PlaytimeLeft / 60))
+				end
 			end
+		end
+		local referral = extra.Referral
+		if referral then
+			shareLabel.Text = string.format(
+				"🔗 Your share code: %s · a friend joins with it → you both get +%s%s",
+				referral.Code,
+				Format.Cash(RF.Reward),
+				if referral.Status == "pending" then " · your friend bonus is pending" else ""
+			)
 		end
 		codeBox.Visible = codeMode ~= "none"
 		codeButton.Visible = codeMode ~= "none"
@@ -8414,7 +8853,7 @@ return DailyRewardUI
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX34">
+			<Item class="ModuleScript" referent="RBX36">
 				<Properties>
 					<string name="Name">LeaderboardUI</string>
 					<ProtectedString name="Source"><![CDATA[-- LeaderboardUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/LeaderboardUI
@@ -8626,7 +9065,7 @@ function LeaderboardUI.new(parent: GuiObject)
 					.. ". "
 					.. (if MarketClient.IsFriend(entry.U) then "👥 " else "")
 					.. CreatorStyle.Name(entry.N, tier, entry.P, entry.G) -- P = VIP, G = Legend
-				r.Value.Text = Format.Short(entry.V)
+				r.Value.Text = Format.ShortMoney(entry.V)
 				r.Value.TextColor3 = if entry.V >= 0 then Colors.Green else Colors.Red
 				r.Name.TextColor3 = CreatorStyle.Color(tier, entry.P) or (if index <= 3 then Colors.Accent else Colors.Text)
 			end
@@ -8643,7 +9082,7 @@ return LeaderboardUI
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX35">
+			<Item class="ModuleScript" referent="RBX37">
 				<Properties>
 					<string name="Name">MarketClient</string>
 					<ProtectedString name="Source"><![CDATA[-- MarketClient (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/MarketClient
@@ -8657,6 +9096,7 @@ local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Curve = require(ReplicatedStorage.Shared.BondingCurve)
+local Format = require(ReplicatedStorage.Shared.Format)
 
 local FEE_TOTAL = Config.Fees.Creator + Config.Fees.Burn
 local MAX_TRADES = Config.Market.RecentTrades
@@ -8670,6 +9110,7 @@ MarketClient.Boosts = {} -- [coinId] = bis (Server-Zeit)
 MarketClient.MyKey = tostring(Players.LocalPlayer.UserId) -- vergleichbar mit coin.CreatorId
 MarketClient.Creators = {} -- [Spieler-Schlüssel] = Creator-Stufe (1-4), vom Server
 MarketClient.Friends = {} -- [Spieler-Schlüssel] = true: Roblox-Freunde (👥)
+MarketClient.ShowPnlCard = nil :: ((any) -> ())? -- PNL-Karte öffnen (setzt TerminalUI)
 
 -- Signale für die Bildschirme
 MarketClient.Changed = Instance.new("BindableEvent") -- Markt oder eigene Daten geändert
@@ -8679,6 +9120,7 @@ MarketClient.AdminResult = Instance.new("BindableEvent") -- ({ Ok, Message, Log 
 MarketClient.Purchased = Instance.new("BindableEvent") -- (name, gekauft?) nach einem Robux-Kauf-Fenster
 
 local tradeRequest: RemoteEvent
+local applySettings -- unten definiert
 local remotes: Instance
 
 local function addTrade(coin, trade)
@@ -8728,7 +9170,7 @@ local function applyUpdate(update)
 			local held = MarketClient.Me.Positions ~= nil and MarketClient.Me.Positions[trade.CoinId] ~= nil
 			local devSold = trade.Side == "Sell" and trade.TraderId ~= MarketClient.MyKey and MarketClient.IsDevTrade(coin, trade)
 			if devSold and held and MarketClient.HasPass("Pro") then
-				local text = string.format("⚠ PRO: Dev sold $%s for %d Cash", coin.Ticker, math.floor(trade.Cash or 0))
+				local text = string.format("⚠ PRO: Dev sold $%s for %s", coin.Ticker, Format.Cash(trade.Cash or 0))
 				MarketClient.TradeResult:Fire(false, text)
 			end
 		end
@@ -8737,6 +9179,7 @@ local function applyUpdate(update)
 		MarketClient.Boosts = update.Boosts
 	end
 	for _, news in update.News or {} do
+		news.Text = Format.Resolve(news.Text or "") -- Beträge in der eigenen Anzeige (LNR/$)
 		MarketClient.News:Fire(news)
 	end
 end
@@ -8897,6 +9340,20 @@ function MarketClient.SetFlag(name: string, value: boolean?)
 	remote:FireServer(name, value)
 end
 
+-- Voreinstellung der Anzeige: Lunar (LNR) oder Spiel-Dollar ($). Umgerechnet wird immer.
+applySettings = function()
+	local settings = MarketClient.Me.Settings
+	Format.Unit = if settings and settings.Usd then "USD" else "LNR"
+end
+
+function MarketClient.SetUnit(unit: string)
+	MarketClient.Me.Settings = MarketClient.Me.Settings or {}
+	MarketClient.Me.Settings.Usd = unit == "USD"
+	applySettings()
+	MarketClient.Changed:Fire()
+	MarketClient.SetFlag("Usd", unit == "USD")
+end
+
 -- Favoriten ⭐
 function MarketClient.IsFavorite(coinId: string): boolean
 	return table.find(MarketClient.Me.Favorites or {}, coinId) ~= nil
@@ -9003,10 +9460,11 @@ function MarketClient.Start()
 	end)
 	playerState.OnClientEvent:Connect(function(state)
 		MarketClient.Me = state
+		applySettings()
 		MarketClient.Changed:Fire()
 	end)
 	tradeResult.OnClientEvent:Connect(function(result)
-		MarketClient.TradeResult:Fire(result.Ok, result.Message)
+		MarketClient.TradeResult:Fire(result.Ok, Format.Resolve(tostring(result.Message)))
 	end)
 	task.spawn(loadFriends)
 	local creators = remotes:WaitForChild("Creators") :: RemoteEvent
@@ -9054,6 +9512,7 @@ function MarketClient.Start()
 				end
 				if snapshot.Me then
 					MarketClient.Me = snapshot.Me
+					applySettings()
 				end
 				MarketClient.Boosts = snapshot.Boosts or {}
 				MarketClient.Changed:Fire()
@@ -9068,7 +9527,228 @@ return MarketClient
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX36">
+			<Item class="ModuleScript" referent="RBX38">
+				<Properties>
+					<string name="Name">PnlCardUI</string>
+					<ProtectedString name="Source"><![CDATA[-- PnlCardUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/PnlCardUI
+-- PNL-Karte zum Teilen (wie bei Trading-Terminals): Coin, Gewinn in %, Einsatz -> Wert, Name, Teil-Code.
+-- Eigener Schalter LNR / $ (unabhängig von der Voreinstellung). 📸 SHARE: Roblox-Screenshot teilen,
+-- der Einladungslink enthält "ref=<UserId>" -> wer darüber kommt, bekommt (wie der Teilende) einen Bonus.
+--
+-- Platz: Karte 560 x 490 in der Mitte (passt in 976 x 496), Knöpfe unten in der Karte.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CaptureService = game:GetService("CaptureService")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Format = require(ReplicatedStorage.Shared.Format)
+local Referral = require(ReplicatedStorage.Shared.Referral)
+local Screen = require(script.Parent.Screen)
+local MarketClient = require(script.Parent.MarketClient)
+
+local Colors = Screen.Colors
+local Z = 50
+
+local PnlCardUI = {}
+
+function PnlCardUI.new(parent: GuiObject)
+	local self = {}
+	local data = nil -- { Icon, Ticker, Cost, Value, Sold }
+	local unit = Format.Unit
+
+	local overlay = Screen.New("TextButton", {
+		Text = "",
+		AutoButtonColor = false,
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Colors.Background,
+		BackgroundTransparency = 0.2,
+		Visible = false,
+		ZIndex = Z,
+		Parent = parent,
+	})
+	local card = Screen.New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(560, 490),
+		BackgroundColor3 = Colors.Panel,
+		Active = true,
+		ZIndex = Z + 1,
+		Parent = overlay,
+	}, {
+		Screen.Corner(18),
+		Screen.Padding(18),
+	})
+	local stroke = Screen.New("UIStroke", { Thickness = 3, Parent = card })
+
+	local function label(props)
+		props.ZIndex = Z + 2
+		props.Parent = card
+		return Screen.Label(props)
+	end
+	label({
+		Text = "🚀 MOON OR RUG",
+		Font = Screen.Fonts.Bold,
+		TextSize = 22,
+		TextColor3 = Colors.Muted,
+		Size = UDim2.new(1, 0, 0, 26),
+	})
+	local coinLabel = label({
+		Font = Screen.Fonts.Bold,
+		TextSize = 34,
+		Position = UDim2.fromOffset(0, 34),
+		Size = UDim2.new(1, 0, 0, 40),
+	})
+	local percentLabel = label({
+		Font = Screen.Fonts.Bold,
+		TextSize = 72,
+		Position = UDim2.fromOffset(0, 80),
+		Size = UDim2.new(1, 0, 0, 80),
+	})
+	local profitLabel = label({
+		Font = Screen.Fonts.Bold,
+		TextSize = 30,
+		Position = UDim2.fromOffset(0, 162),
+		Size = UDim2.new(1, 0, 0, 36),
+	})
+	local detailLabel = label({
+		TextSize = 22,
+		TextColor3 = Colors.Muted,
+		Position = UDim2.fromOffset(0, 202),
+		Size = UDim2.new(1, 0, 0, 28),
+	})
+	local nameLabel = label({
+		TextSize = 22,
+		Position = UDim2.fromOffset(0, 240),
+		Size = UDim2.new(1, 0, 0, 28),
+	})
+	local codeLabel = label({
+		Font = Screen.Fonts.Bold,
+		TextSize = 22,
+		TextColor3 = Colors.Accent,
+		Position = UDim2.fromOffset(0, 272),
+		Size = UDim2.new(1, 0, 0, 28),
+	})
+
+	-- Knöpfe (werden beim Screenshot kurz ausgeblendet)
+	local controls = Screen.New("Frame", {
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.fromScale(0, 1),
+		Size = UDim2.new(1, 0, 0, 72 + 8 + 72),
+		BackgroundTransparency = 1,
+		ZIndex = Z + 2,
+		Parent = card,
+	})
+	local function button(text: string, x: number, y: number, width: number, color: Color3?)
+		return Screen.Button({
+			Text = text,
+			TextSize = 22,
+			BackgroundColor3 = color or Colors.PanelLight,
+			Position = UDim2.new(x, 0, 0, y),
+			Size = UDim2.new(width, -6, 0, 72),
+			ZIndex = Z + 3,
+			Parent = controls,
+		})
+	end
+	local lnrButton = button(Config.Currency.Symbol, 0, 0, 0.5)
+	local usdButton = button("$ Dollar", 0.5, 0, 0.5)
+	local shareButton = button("📸 SHARE", 0, 80, 0.6, Colors.Green)
+	local closeButton = button("CLOSE", 0.6, 80, 0.4)
+
+	local function render()
+		if not data then
+			return
+		end
+		local profit = data.Value - data.Cost
+		local percent = if data.Cost > 0 then profit / data.Cost else 0
+		local color = if profit >= 0 then Colors.Green else Colors.Red
+		stroke.Color = color
+		coinLabel.Text = string.format("%s $%s", data.Icon or "", data.Ticker or "?")
+		percentLabel.Text = Format.Percent(percent)
+		percentLabel.TextColor3 = color
+		profitLabel.Text = (if profit >= 0 then "+" else "") .. Format.Money(profit, unit)
+		profitLabel.TextColor3 = color
+		detailLabel.Text = string.format(
+			"Invested %s → %s %s",
+			Format.Money(data.Cost, unit),
+			if data.Sold then "sold for" else "now",
+			Format.Money(data.Value, unit)
+		)
+		nameLabel.Text = "Trader: " .. Players.LocalPlayer.DisplayName
+		codeLabel.Text = string.format(
+			"Join with code %s → +%s bonus",
+			Referral.Code(Players.LocalPlayer.UserId),
+			Format.Money(Config.Referral.Reward, unit)
+		)
+		lnrButton.BackgroundColor3 = if unit == "LNR" then Colors.Accent else Colors.PanelLight
+		usdButton.BackgroundColor3 = if unit == "USD" then Colors.Accent else Colors.PanelLight
+	end
+
+	-- data = { Icon, Ticker, Cost (Einsatz, intern), Value (jetzt/verkauft, intern), Sold = true/false }
+	function self.Show(cardData)
+		data = cardData
+		unit = Format.Unit -- startet mit der Voreinstellung, eigener Schalter auf der Karte
+		render()
+		overlay.Visible = true
+	end
+
+	local function hide()
+		overlay.Visible = false
+	end
+
+	lnrButton.Activated:Connect(function()
+		unit = "LNR"
+		render()
+	end)
+	usdButton.Activated:Connect(function()
+		unit = "USD"
+		render()
+	end)
+	closeButton.Activated:Connect(hide)
+	overlay.Activated:Connect(hide)
+
+	-- Screenshot ohne Knöpfe, dann Robloxs Teilen-Fenster mit Einladungslink (ref=<UserId>)
+	local busy = false
+	shareButton.Activated:Connect(function()
+		if busy then
+			return
+		end
+		busy = true
+		controls.Visible = false
+		task.wait(0.1) -- ein Bild ohne Knöpfe zeichnen lassen
+		local ok = pcall(function()
+			CaptureService:CaptureScreenshot(function(contentId)
+				controls.Visible = true
+				busy = false
+				local okShare = pcall(function()
+					CaptureService:PromptShareCapture(contentId, "ref=" .. Players.LocalPlayer.UserId, function() end, function() end)
+				end)
+				if not okShare then
+					MarketClient.TradeResult:Fire(false, "Sharing isn't available here – take a screenshot instead!")
+				end
+			end)
+		end)
+		if not ok then
+			controls.Visible = true
+			busy = false
+			MarketClient.TradeResult:Fire(false, "Sharing isn't available here – take a screenshot instead!")
+		end
+		task.delay(5, function() -- falls der Screenshot nie fertig wird
+			if busy then
+				controls.Visible = true
+				busy = false
+			end
+		end)
+	end)
+
+	return self
+end
+
+return PnlCardUI
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX39">
 				<Properties>
 					<string name="Name">Portfolio</string>
 					<ProtectedString name="Source"><![CDATA[-- Portfolio (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/Portfolio
@@ -9161,7 +9841,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 	-- POSITIONS
 	------------------------------------------------------------------
 	local summary = statsPanel(170)
-	local cashValue = stat(summary, 5, 1, "Cash")
+	local cashValue = stat(summary, 5, 1, "Balance")
 	local positionsValue = stat(summary, 5, 2, "In coins")
 	local totalValue = stat(summary, 5, 3, "Total")
 	local pnlValue = stat(summary, 5, 4, "Open P/L")
@@ -9213,7 +9893,9 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 			row.Frame.Visible = true
 			return row
 		end
-		local frame = Screen.New("Frame", {
+		local frame = Screen.New("TextButton", {
+			Text = "",
+			AutoButtonColor = true,
 			Size = UDim2.new(1, -10, 0, LOG_ROW),
 			BackgroundColor3 = Colors.Panel,
 			LayoutOrder = index,
@@ -9238,6 +9920,19 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 				Parent = frame,
 			}),
 		}
+		-- Verkauf antippen: PNL-Karte zum Teilen
+		frame.Activated:Connect(function()
+			local entry = row.Entry
+			if entry and entry.P and MarketClient.ShowPnlCard then
+				MarketClient.ShowPnlCard({
+					Icon = entry.I,
+					Ticker = if entry.T ~= "" then entry.T else "STOP-LOSS",
+					Cost = (entry.M or 0) - entry.P,
+					Value = entry.M or 0,
+					Sold = true,
+				})
+			end
+		end)
 		logRows[index] = row
 		return row
 	end
@@ -9286,6 +9981,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 		local today = periodKeys(workspace:GetServerTimeNow())
 		for i, entry in entries do
 			local row = logRow(i)
+			row.Entry = entry
 			local at = entry.At or 0
 			local when = os.date(if periodKeys(at) == today then "%H:%M" else "%d.%m. %H:%M", at)
 			row.Left.Text = string.format(
@@ -9299,7 +9995,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 				local cost = (entry.M or 0) - entry.P
 				local percent = if cost > 0 then entry.P / cost else 0
 				row.Right.Text = string.format(
-					"%s → %s%s (%s)",
+					"📸 %s → %s%s (%s)",
 					Format.Cash(entry.M or 0),
 					if entry.P >= 0 then "+" else "",
 					Format.Cash(entry.P),
@@ -9491,7 +10187,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 				marks ..= " · 🛡"
 			end
 			if coin.CreatorId == MarketClient.MyKey and me.Stats and me.Stats.FeesEarned > 0 then
-				marks ..= " · fees " .. Format.Short(me.Stats.FeesEarned)
+				marks ..= " · fees " .. Format.ShortMoney(me.Stats.FeesEarned)
 			end
 			row.Amount.Text = string.format("%s · cost %s%s", Format.Short(position.Amount), Format.Cash(position.Cost), marks)
 			local pnl = if position.Cost > 0 then entry.Value / position.Cost - 1 else 0
@@ -9523,7 +10219,7 @@ return Portfolio
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX37">
+			<Item class="ModuleScript" referent="RBX40">
 				<Properties>
 					<string name="Name">PulseList</string>
 					<ProtectedString name="Source"><![CDATA[-- PulseList (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/PulseList
@@ -9833,7 +10529,7 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 					coin.Ticker,
 					Format.Duration(MarketClient.Age(coin))
 				)
-				card.Middle.Text = string.format("MC %s · 👥%d", Format.Short(coin.MarketCap), coin.Holders)
+				card.Middle.Text = string.format("MC %s · 👥%d", Format.ShortMoney(coin.MarketCap), coin.Holders)
 				if coin.Rugged then
 					card.Bottom.Text = "RUGGED"
 					card.Bottom.TextColor3 = Colors.Red
@@ -9873,7 +10569,7 @@ return PulseList
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX38">
+			<Item class="ModuleScript" referent="RBX41">
 				<Properties>
 					<string name="Name">Screen</string>
 					<ProtectedString name="Source"><![CDATA[-- Screen (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/Screen
@@ -10085,7 +10781,7 @@ return Screen
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX39">
+			<Item class="ModuleScript" referent="RBX42">
 				<Properties>
 					<string name="Name">ShopUI</string>
 					<ProtectedString name="Source"><![CDATA[-- ShopUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/ShopUI
@@ -10151,7 +10847,7 @@ function ShopUI.new(parent: GuiObject)
 		Parent = panel,
 	})
 	Screen.Label({
-		Text = "Fixed items · Cash never turns into Robux",
+		Text = "Fixed items · LNR never turns into Robux",
 		TextSize = 20,
 		TextColor3 = Colors.Muted,
 		Position = UDim2.fromOffset(0, 38),
@@ -10187,6 +10883,41 @@ function ShopUI.new(parent: GuiObject)
 		ZIndex = 42,
 		Parent = panel,
 	})
+
+	-- Schalter: Geld anzeigen in LNR oder $ (umgerechnet wird immer)
+	local unitRow = Screen.New("Frame", {
+		Size = UDim2.new(1, -10, 0, ROW),
+		BackgroundColor3 = Colors.PanelLight,
+		LayoutOrder = 0,
+		ZIndex = 43,
+		Parent = list,
+	}, {
+		Screen.Corner(10),
+	})
+	Screen.Label({
+		Text = "💱 Show money in",
+		Font = Screen.Fonts.Bold,
+		Position = UDim2.fromOffset(16, 0),
+		Size = UDim2.new(1, -360, 1, 0),
+		ZIndex = 44,
+		Parent = unitRow,
+	})
+	local unitButtons = {}
+	for i, unit in { "LNR", "USD" } do
+		local button = Screen.Button({
+			Text = if unit == "USD" then "$ Dollar" else Config.Currency.Symbol,
+			TextSize = 22,
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -4 - (2 - i) * 164, 0.5, 0),
+			Size = UDim2.fromOffset(156, 72),
+			ZIndex = 44,
+			Parent = unitRow,
+		})
+		button.Activated:Connect(function()
+			MarketClient.SetUnit(unit)
+		end)
+		unitButtons[unit] = button
+	end
 
 	local rows = {}
 	for i, name in SHOP.Order do
@@ -10247,6 +10978,9 @@ function ShopUI.new(parent: GuiObject)
 
 	function self.Refresh()
 		local me = MarketClient.Me
+		local usd = me.Settings ~= nil and me.Settings.Usd == true
+		unitButtons.LNR.BackgroundColor3 = if usd then Colors.PanelLight else Colors.Accent
+		unitButtons.USD.BackgroundColor3 = if usd then Colors.Accent else Colors.PanelLight
 		local muted = me.Settings ~= nil and me.Settings.Mute == true
 		soundButton.Text = if muted then "🔇 SOUND OFF" else "🔊 SOUND ON"
 		local vouchers = me.Vouchers or {}
@@ -10286,7 +11020,7 @@ return ShopUI
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX40">
+			<Item class="ModuleScript" referent="RBX43">
 				<Properties>
 					<string name="Name">SoundFx</string>
 					<ProtectedString name="Source"><![CDATA[-- SoundFx (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/SoundFx
@@ -10335,7 +11069,7 @@ return SoundFx
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX41">
+			<Item class="ModuleScript" referent="RBX44">
 				<Properties>
 					<string name="Name">TerminalUI</string>
 					<ProtectedString name="Source"><![CDATA[-- TerminalUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/TerminalUI
@@ -10361,6 +11095,7 @@ local CreateCoinUI = require(script.Parent.CreateCoinUI)
 local AdminUI = require(script.Parent.AdminUI)
 local ShopUI = require(script.Parent.ShopUI)
 local TutorialUI = require(script.Parent.TutorialUI)
+local PnlCardUI = require(script.Parent.PnlCardUI)
 local SoundFx = require(script.Parent.SoundFx)
 local CreatorStyle = require(ReplicatedStorage.Shared.CreatorStyle)
 local Levels = require(ReplicatedStorage.Shared.Levels)
@@ -10452,6 +11187,18 @@ function TerminalUI.Start()
 		Parent = wallet,
 	})
 	Screen.Corner(10).Parent = wallet
+	-- Antippen: Anzeige LNR <-> $ umschalten (wird gespeichert)
+	local unitButton = Screen.New("TextButton", {
+		Text = "",
+		AutoButtonColor = false,
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = 2,
+		Parent = wallet,
+	})
+	unitButton.Activated:Connect(function()
+		MarketClient.SetUnit(if Format.Unit == "USD" then "LNR" else "USD")
+	end)
 	local cashLabel = Screen.Label({
 		Font = Screen.Fonts.Bold,
 		TextSize = 26,
@@ -10679,6 +11426,8 @@ function TerminalUI.Start()
 	local daily = DailyRewardUI.new(root)
 	createUI = CreateCoinUI.new(root)
 	dailyButton.Activated:Connect(daily.Show)
+	local pnlCard = PnlCardUI.new(root)
+	MarketClient.ShowPnlCard = pnlCard.Show
 	local shop = ShopUI.new(root)
 	shopButton.Activated:Connect(shop.Show)
 	local admin = AdminUI.new(root)
@@ -10750,7 +11499,7 @@ return TerminalUI
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX42">
+			<Item class="ModuleScript" referent="RBX45">
 				<Properties>
 					<string name="Name">TutorialUI</string>
 					<ProtectedString name="Source"><![CDATA[-- TutorialUI (ModuleScript) – StarterPlayer/StarterPlayerScripts/ClientModules/TutorialUI

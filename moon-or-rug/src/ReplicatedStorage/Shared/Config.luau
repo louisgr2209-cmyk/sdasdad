@@ -39,7 +39,7 @@ Config.Trade = {
 Config.Ticker = {
 	BigProfit = 1000, -- Gewinn ab dem ein Verkauf gemeldet wird ("X made 1,234 Cash on $ABC")
 	ShowSeconds = 5, -- so lange bleibt eine Meldung stehen
-	IdleText = "Fictional meme coins – just a game. Cash is not real money.",
+	IdleText = "Fictional meme coins – just a game. LNR and $ here are not real money.",
 }
 
 -- Markt-Takt
@@ -155,7 +155,7 @@ Config.Rug = {
 -- Robux überspringt Level-Pflichten (Entscheidung Phase 8). Cash ist nie gegen Robux zurücktauschbar.
 Config.Shop = {
 	Products = {
-		CreateCoin = { Id = 0, Robux = 99, Grant = "CT", Title = "Create a coin", Info = "No level, no cash needed" },
+		CreateCoin = { Id = 0, Robux = 99, Grant = "CT", Title = "Create a coin", Info = "No level, no LNR needed" },
 		Boost = { Id = 0, Robux = 49, Grant = "FB", Title = "Boost 10 min", Info = "Your coin on top (no level needed)" },
 		Highlight = { Id = 0, Robux = 25, Grant = "HT", Title = "Highlight 30 min", Info = "Glowing frame for your coin" },
 		License = { Id = 0, Robux = 299, Grant = "RL", Title = "Rug pull license", Info = "3 rug pulls, no level needed" },
@@ -171,6 +171,32 @@ Config.Shop = {
 	ReceiptsKept = 30, -- so viele Kauf-Nummern merkt sich die Geldbörse (Schutz gegen doppelte Gutschrift)
 	ProInfoCooldown = 2, -- Top-10-Namen höchstens alle 2 Sek. abfragen
 	VipCacheSeconds = 1800, -- Host merkt sich VIP-Status für die weltweite Rangliste 30 Min.
+}
+
+-- Spielwährung Lunar (LNR) – ersetzt SOL. Fiktiv, nie gegen Robux/Echtgeld tauschbar.
+-- Intern rechnet alles in "Cash"; 1 LNR = CashPerUnit Cash (Start 1.000 Cash = 10 LNR).
+-- Spiel-Dollar-Anzeige: fiktiver Kurs, schwankt langsam um RateBase (ca. 140–180 $), nur Anzeige.
+Config.Currency = {
+	Name = "Lunar",
+	Symbol = "LNR",
+	CashPerUnit = 100,
+	RateBase = 160,
+	RateWaves = { -- Summe von Sinuswellen: langsam (Woche), mittel (6 Std.), schnell (15 Min.)
+		{ Amp = 12, Period = 7 * 86400, Phase = 0 },
+		{ Amp = 6, Period = 6 * 3600, Phase = 1.3 },
+		{ Amp = 2, Period = 900, Phase = 2.1 },
+	},
+}
+
+-- Teil-Link / Teil-Code (PNL-Karte teilen): wer über den Link kommt oder den Code eingibt, und der Teilende
+-- bekommen je Reward (300 Cash = 3 LNR, ca. 500 $). Gleicher Schutz wie beim Creator-Code. Getrennt vom
+-- Creator-Code: jeder Spieler kann EINMAL über einen Freund kommen und EINMAL einen Creator-Code eingeben.
+Config.Referral = {
+	Prefix = "LNR",
+	Reward = 300,
+	MinAccountAgeDays = 7,
+	MinPlaytimeMinutes = 30,
+	CheckInterval = 30, -- so oft prüft der Server, ob eine wartende Belohnung fällig ist
 }
 
 -- Sounds (dezent, im Portfolio abschaltbar). Eingebaute Roblox-Dateien; bei Bedarf durch "rbxassetid://…" ersetzen.

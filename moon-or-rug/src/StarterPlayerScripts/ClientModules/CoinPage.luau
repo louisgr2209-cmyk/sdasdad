@@ -292,18 +292,46 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		}),
 	})
+	-- 3 Knöpfe, Text zweizeilig (passt auch auf schmale Handys)
 	local stopButton = Screen.Button({
 		TextSize = 20,
-		Size = UDim2.new(0.5, -4, 1, 0),
+		Size = UDim2.new(1 / 3, -6, 1, 0),
 		LayoutOrder = 1,
 		Parent = protectRow,
 	})
 	local insureButton = Screen.Button({
 		TextSize = 20,
-		Size = UDim2.new(0.5, -4, 1, 0),
+		Size = UDim2.new(1 / 3, -6, 1, 0),
 		LayoutOrder = 2,
 		Parent = protectRow,
 	})
+	-- PNL-Karte zum Teilen (nur mit Position)
+	local pnlButton = Screen.Button({
+		Text = "📸 PNL\nSHARE",
+		TextSize = 20,
+		BackgroundColor3 = Colors.Accent,
+		TextColor3 = Colors.Background,
+		Size = UDim2.new(1 / 3, -6, 1, 0),
+		LayoutOrder = 3,
+		Parent = protectRow,
+	})
+	pnlButton.Activated:Connect(function()
+		local coin = self.CoinId and MarketClient.Coins[self.CoinId]
+		local position = coin and MarketClient.Me.Positions[coin.Id]
+		if not position then
+			MarketClient.TradeResult:Fire(false, "Buy this coin first – then share your PNL")
+			return
+		end
+		if MarketClient.ShowPnlCard then
+			MarketClient.ShowPnlCard({
+				Icon = coin.Icon,
+				Ticker = coin.Ticker,
+				Cost = position.Cost,
+				Value = MarketClient.PositionValue(coin, position),
+				Sold = false,
+			})
+		end
+	end)
 	local stopLevels = Config.Protection.StopLossLevels
 	stopButton.Activated:Connect(function()
 		local coinId = self.CoinId
@@ -598,7 +626,7 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 			elseif not canBoostWithCash() then
 				boostButton.Text = "🚀 BOOST\nR$ " .. Config.Shop.Products.Boost.Robux -- ohne Level, mit Robux
 			else
-				boostButton.Text = "🚀 BOOST\n" .. Format.Short(Config.Launch.BoostCost)
+				boostButton.Text = "🚀 BOOST\n" .. Format.ShortMoney(Config.Launch.BoostCost)
 			end
 		end
 		local change = MarketClient.ChartChange(coin)
@@ -620,7 +648,7 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 
 		infoLabel.Text = string.format(
 			"MC %s · Migration %d%% · %s · %s · by %s",
-			Format.Short(coin.MarketCap),
+			Format.ShortMoney(coin.MarketCap),
 			math.min(100, math.floor(coin.MarketCap / Config.Curve.MigrationMarketCap * 100)),
 			Format.Duration(MarketClient.Age(coin)),
 			coin.Stage,
@@ -661,19 +689,20 @@ function CoinPage.new(parent: GuiObject, onBack: () -> ())
 		local myLevel = if stats then stats.Level else 1
 		local protection = Config.Protection
 		if myLevel < protection.StopLossMinLevel then
-			stopButton.Text = "🛑 STOP 🔒 Lv " .. protection.StopLossMinLevel
+			stopButton.Text = "🛑 STOP\n🔒 Lv " .. protection.StopLossMinLevel
 			stopButton.BackgroundColor3 = Colors.PanelLight
 		else
 			local sl = position and position.SL
-			stopButton.Text = if sl then string.format("🛑 STOP -%d%%", math.floor(sl * 100 + 0.5)) else "🛑 STOP OFF"
+			stopButton.Text = if sl then string.format("🛑 STOP\n-%d%%", math.floor(sl * 100 + 0.5)) else "🛑 STOP\nOFF"
 			stopButton.BackgroundColor3 = if sl then Colors.Border else Colors.PanelLight
 		end
 		if myLevel < protection.InsuranceMinLevel then
-			insureButton.Text = "🛡 INSURE 🔒 Lv " .. protection.InsuranceMinLevel
+			insureButton.Text = "🛡 INSURE\n🔒 Lv " .. protection.InsuranceMinLevel
 			insureButton.BackgroundColor3 = Colors.PanelLight
 		else
 			local on = (MarketClient.Me.Insured or {})[coin.Id] == true
-			insureButton.Text = if on then "🛡 INSURED +5%" else "🛡 INSURE OFF"
+			local premium = protection.InsurancePremium * (if MarketClient.HasPass("HalfInsurance") then 0.5 else 1)
+			insureButton.Text = if on then string.format("🛡 ON\n+%g%%", math.floor(premium * 1000 + 0.5) / 10) else "🛡 INSURE\nOFF"
 			insureButton.BackgroundColor3 = if on then Colors.Border else Colors.PanelLight
 		end
 

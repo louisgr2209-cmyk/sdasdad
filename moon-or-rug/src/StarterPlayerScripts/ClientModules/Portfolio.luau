@@ -88,7 +88,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 	-- POSITIONS
 	------------------------------------------------------------------
 	local summary = statsPanel(170)
-	local cashValue = stat(summary, 5, 1, "Cash")
+	local cashValue = stat(summary, 5, 1, "Balance")
 	local positionsValue = stat(summary, 5, 2, "In coins")
 	local totalValue = stat(summary, 5, 3, "Total")
 	local pnlValue = stat(summary, 5, 4, "Open P/L")
@@ -140,7 +140,9 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 			row.Frame.Visible = true
 			return row
 		end
-		local frame = Screen.New("Frame", {
+		local frame = Screen.New("TextButton", {
+			Text = "",
+			AutoButtonColor = true,
 			Size = UDim2.new(1, -10, 0, LOG_ROW),
 			BackgroundColor3 = Colors.Panel,
 			LayoutOrder = index,
@@ -165,6 +167,19 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 				Parent = frame,
 			}),
 		}
+		-- Verkauf antippen: PNL-Karte zum Teilen
+		frame.Activated:Connect(function()
+			local entry = row.Entry
+			if entry and entry.P and MarketClient.ShowPnlCard then
+				MarketClient.ShowPnlCard({
+					Icon = entry.I,
+					Ticker = if entry.T ~= "" then entry.T else "STOP-LOSS",
+					Cost = (entry.M or 0) - entry.P,
+					Value = entry.M or 0,
+					Sold = true,
+				})
+			end
+		end)
 		logRows[index] = row
 		return row
 	end
@@ -213,6 +228,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 		local today = periodKeys(workspace:GetServerTimeNow())
 		for i, entry in entries do
 			local row = logRow(i)
+			row.Entry = entry
 			local at = entry.At or 0
 			local when = os.date(if periodKeys(at) == today then "%H:%M" else "%d.%m. %H:%M", at)
 			row.Left.Text = string.format(
@@ -226,7 +242,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 				local cost = (entry.M or 0) - entry.P
 				local percent = if cost > 0 then entry.P / cost else 0
 				row.Right.Text = string.format(
-					"%s → %s%s (%s)",
+					"📸 %s → %s%s (%s)",
 					Format.Cash(entry.M or 0),
 					if entry.P >= 0 then "+" else "",
 					Format.Cash(entry.P),
@@ -418,7 +434,7 @@ function Portfolio.new(parent: GuiObject, onOpenCoin: (string) -> ())
 				marks ..= " · 🛡"
 			end
 			if coin.CreatorId == MarketClient.MyKey and me.Stats and me.Stats.FeesEarned > 0 then
-				marks ..= " · fees " .. Format.Short(me.Stats.FeesEarned)
+				marks ..= " · fees " .. Format.ShortMoney(me.Stats.FeesEarned)
 			end
 			row.Amount.Text = string.format("%s · cost %s%s", Format.Short(position.Amount), Format.Cash(position.Cost), marks)
 			local pnl = if position.Cost > 0 then entry.Value / position.Cost - 1 else 0

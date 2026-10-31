@@ -13,6 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
+local Format = require(ReplicatedStorage.Shared.Format)
 local Remotes = require(ServerScriptService.Util.Remotes)
 local RateLimiter = require(ServerScriptService.Util.RateLimiter)
 local Store = require(ServerScriptService.Util.Store)
@@ -60,7 +61,7 @@ local function onClaimDaily(player: Player)
 		PlayerDataService.Notify(
 			player,
 			true,
-			string.format("🎁 Day %d reward: +%s Cash", result.Streak, tostring(result.Amount))
+			string.format("🎁 Day %d reward: +%s", result.Streak, Format.Cash(result.Amount))
 		)
 	else
 		PlayerDataService.Notify(player, false, (result and result.Error) or "Please try again")
@@ -149,7 +150,7 @@ local function stipendTick()
 				Interval = P.StipendInterval,
 			})
 			if ok and result and result.Ok then
-				PlayerDataService.Notify(player, true, string.format("💸 Starter help: +%d Cash", P.StipendAmount))
+				PlayerDataService.Notify(player, true, "💸 Starter help: +" .. Format.Cash(P.StipendAmount))
 				PlayerDataService.PushState(player)
 			end
 		end

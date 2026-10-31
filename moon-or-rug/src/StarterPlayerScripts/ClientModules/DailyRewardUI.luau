@@ -3,7 +3,8 @@
 -- (einlösen – einmal im ganzen Spiel – oder als Gold-Creator den eigenen Code wählen/sehen).
 -- Der Server entscheidet alles (einmal pro Tag, Lücke = Tag 1, Code-Regeln).
 --
--- Platz: Fenster 80 % breit (bei 1000 Breite ca. 100 pro Tag), 440 hoch (passt in 496)
+-- Darunter der eigene Teil-Code (Freunde, die damit kommen: beide bekommen eine Belohnung).
+-- Platz: Fenster 80 % breit (bei 1000 Breite ca. 100 pro Tag), 470 hoch (passt in 496)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -35,7 +36,7 @@ function DailyRewardUI.new(parent: GuiObject)
 	local panel = Screen.New("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.new(0.8, 0, 0, 440),
+		Size = UDim2.new(0.8, 0, 0, 470),
 		BackgroundColor3 = Colors.Panel,
 		Active = true,
 		ZIndex = 31,
@@ -94,8 +95,8 @@ function DailyRewardUI.new(parent: GuiObject)
 			ZIndex = 33,
 			Parent = box,
 		})
-		Screen.Label({
-			Text = Format.Cash(amount):gsub("%.00$", ""),
+		local amountLabel = Screen.Label({
+			Text = Format.ShortMoney(amount),
 			Font = Screen.Fonts.Bold,
 			TextSize = 26,
 			TextColor3 = Colors.Accent,
@@ -119,7 +120,7 @@ function DailyRewardUI.new(parent: GuiObject)
 			Enabled = false,
 			Parent = box,
 		})
-		boxes[day] = { Mark = mark, Stroke = stroke }
+		boxes[day] = { Mark = mark, Stroke = stroke, Amount = amountLabel, Value = amount }
 	end
 
 	-- Creator-Code
@@ -183,6 +184,16 @@ function DailyRewardUI.new(parent: GuiObject)
 		Parent = panel,
 	})
 	local codeMode = "redeem" -- "redeem" / "choose" / "none"
+	-- eigener Teil-Code
+	local shareLabel = Screen.Label({
+		TextSize = 20,
+		TextColor3 = Colors.Muted,
+		Position = UDim2.fromOffset(0, 338),
+		Size = UDim2.new(1, 0, 0, 24),
+		ZIndex = 32,
+		Parent = panel,
+	})
+	local RF = Config.Referral
 
 	local claim = Screen.Button({
 		Text = "CLAIM",
@@ -214,6 +225,7 @@ function DailyRewardUI.new(parent: GuiObject)
 			then string.format("Day %d is ready! Miss a day and you start again at day 1.", daily.Next)
 			else "Claimed today. Come back tomorrow for day " .. daily.Next .. "."
 		for day, box in boxes do
+			box.Amount.Text = Format.ShortMoney(box.Value) -- LNR oder $ (Voreinstellung)
 			local done = day <= daily.Streak
 			box.Mark.Text = if done then "✅" else ""
 			box.Stroke.Enabled = daily.CanClaim and day == daily.Next
@@ -225,21 +237,41 @@ function DailyRewardUI.new(parent: GuiObject)
 			codeMode = if extra.Code then "none" else "choose"
 			myCodeLabel.Text = if extra.Code then "Your code: " .. extra.Code else ""
 			codeHint.Text = if extra.Code
-				then string.format("Used %d times · you get %d Cash per use (max. %d per day)", extra.Uses or 0, CR.CreatorPerRedeem, CR.CreatorDailyCap)
+				then string.format("Used %d times · you get %s per use (max. %d per day)", extra.Uses or 0, Format.Cash(CR.CreatorPerRedeem), CR.CreatorDailyCap)
 				else string.format("Pick your own code (%d-%d letters/numbers). You can choose it only once!", CR.CodeMin, CR.CodeMax)
-		elseif extra.Redeemed then
-			codeMode = "none"
-			myCodeLabel.Text = "✅ Code " .. extra.Redeemed .. " used"
-			codeHint.Text = "Every player can use one creator code."
 		else
-			codeMode = "redeem"
-			if extra.AccountOk == false then
-				codeHint.Text = string.format("Your Roblox account must be at least %d days old.", CR.MinAccountAgeDays)
-			elseif (extra.PlaytimeLeft or 0) > 0 then
-				codeHint.Text = string.format("Play %d more minutes to use a code.", math.ceil(extra.PlaytimeLeft / 60))
+			-- ein Creator-Code UND ein Freundes-Code möglich (je einmal im ganzen Spiel)
+			local friend = if extra.Referral then extra.Referral.Status else "none"
+			local creatorUsed = extra.Redeemed ~= nil
+			if creatorUsed and friend ~= "none" then
+				codeMode = "none"
+				myCodeLabel.Text = "✅ Code " .. extra.Redeemed .. " used · friend code used"
+				codeHint.Text = "Every player can use one creator code and one friend code."
 			else
-				codeHint.Text = string.format("Enter a creator code: +%s Cash (only once!)", Format.Short(CR.CodeReward))
+				codeMode = "redeem"
+				local parts = {}
+				if not creatorUsed then
+					table.insert(parts, "creator code +" .. Format.Cash(CR.CodeReward))
+				end
+				if friend == "none" then
+					table.insert(parts, "friend's share code +" .. Format.Cash(RF.Reward))
+				end
+				codeHint.Text = "Enter a " .. table.concat(parts, " or ") .. " (once each)"
+				if extra.AccountOk == false then
+					codeHint.Text = string.format("Your Roblox account must be at least %d days old for codes.", CR.MinAccountAgeDays)
+				elseif (extra.PlaytimeLeft or 0) > 0 then
+					codeHint.Text ..= string.format(" · bonus after %d more min", math.ceil(extra.PlaytimeLeft / 60))
+				end
 			end
+		end
+		local referral = extra.Referral
+		if referral then
+			shareLabel.Text = string.format(
+				"🔗 Your share code: %s · a friend joins with it → you both get +%s%s",
+				referral.Code,
+				Format.Cash(RF.Reward),
+				if referral.Status == "pending" then " · your friend bonus is pending" else ""
+			)
 		end
 		codeBox.Visible = codeMode ~= "none"
 		codeButton.Visible = codeMode ~= "none"

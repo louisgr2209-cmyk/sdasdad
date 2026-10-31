@@ -13,6 +13,7 @@ local ServerScriptService = game:GetService("ServerScriptService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Levels = require(ReplicatedStorage.Shared.Levels)
+local Format = require(ReplicatedStorage.Shared.Format)
 local Remotes = require(ServerScriptService.Util.Remotes)
 local RateLimiter = require(ServerScriptService.Util.RateLimiter)
 local Store = require(ServerScriptService.Util.Store)
@@ -113,6 +114,18 @@ function PlayerDataService.SetStopLossLocal(player: Player, coinId: string, leve
 	end
 end
 
+-- Hat dieser Spieler schon einen Spielstand? (Teil-Code nur von echten Spielern) -> true/false, nil = unklar
+function PlayerDataService.HasProfile(userId: number): boolean?
+	if Players:GetPlayerByUserId(userId) then
+		return true
+	end
+	local ok, data = profileStore:Get("u_" .. userId)
+	if not ok then
+		return nil
+	end
+	return type(data) == "table"
+end
+
 -- Hinweis oben im Terminal (gleicher Weg wie Trade-Meldungen)
 function PlayerDataService.Notify(player: Player, ok: boolean, message: string)
 	Remotes.Event("TradeResult"):FireClient(player, { Ok = ok, Message = message })
@@ -196,6 +209,7 @@ function PlayerDataService.BuildState(player: Player)
 		Settings = {
 			Tutorial = st.TU == 1, -- Pflicht-Tutorial erledigt
 			Mute = st.MU == 1, -- Sounds aus
+			Usd = st.CU == 1, -- Anzeige in Spiel-Dollar statt LNR
 		},
 	}
 end
@@ -321,13 +335,16 @@ local function drainInbox(player: Player)
 	end
 	-- Hinweise, woher das Geld kommt
 	if isValidNumber(content.Refund) and content.Refund > 0 then
-		PlayerDataService.Notify(player, true, string.format("🛡 Rug refund: +%.2f Cash", content.Refund))
+		PlayerDataService.Notify(player, true, "🛡 Rug refund: +" .. Format.Cash(content.Refund))
 	end
 	if isValidNumber(content.Code) and content.Code > 0 then
-		PlayerDataService.Notify(player, true, string.format("🎬 Your creator code was used: +%.2f Cash", content.Code))
+		PlayerDataService.Notify(player, true, "🎬 Your creator code was used: +" .. Format.Cash(content.Code))
+	end
+	if isValidNumber(content.Ref) and content.Ref > 0 then
+		PlayerDataService.Notify(player, true, "🔗 A friend joined with your share link: +" .. Format.Cash(content.Ref))
 	end
 	if isValidNumber(content.SL) and content.SL > 0 then
-		PlayerDataService.Notify(player, true, string.format("🛑 Stop-loss sold while you were away: +%.2f Cash", content.SL))
+		PlayerDataService.Notify(player, true, "🛑 Stop-loss sold while you were away: +" .. Format.Cash(content.SL))
 		if PlayerDataService.OnTrade then
 			PlayerDataService.OnTrade(player, { S = "SL", T = "", I = "🛑", M = content.SL, P = profit })
 		end
@@ -471,6 +488,8 @@ local function onSetFlag(player: Player, name: any, on: any)
 		key, value = "TU", 1 -- kann nur erledigt werden, nie zurück
 	elseif name == "Mute" and typeof(on) == "boolean" then
 		key, value = "MU", if on then 1 else 0
+	elseif name == "Usd" and typeof(on) == "boolean" then
+		key, value = "CU", if on then 1 else 0
 	else
 		return
 	end

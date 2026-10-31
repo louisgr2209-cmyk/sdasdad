@@ -305,7 +305,7 @@ function PulseList.new(parent: GuiObject, onOpenCoin: (string) -> (), onCreate: 
 					coin.Ticker,
 					Format.Duration(MarketClient.Age(coin))
 				)
-				card.Middle.Text = string.format("MC %s · 👥%d", Format.Short(coin.MarketCap), coin.Holders)
+				card.Middle.Text = string.format("MC %s · 👥%d", Format.ShortMoney(coin.MarketCap), coin.Holders)
 				if coin.Rugged then
 					card.Bottom.Text = "RUGGED"
 					card.Bottom.TextColor3 = Colors.Red

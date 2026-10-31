@@ -525,7 +525,7 @@ function Ledger.WalletBegin(wallet, a)
 			return nil, { Error = "Amount too small" }
 		end
 		if wallet.Cash < a.Cash + premium then
-			return nil, { Error = "Not enough cash" }
+			return nil, { Error = "Not enough LNR" }
 		end
 		wallet.Cash = floorCents(wallet.Cash - a.Cash - premium)
 		wallet.Coins[a.Coin] = true
@@ -594,7 +594,7 @@ function Ledger.WalletLaunchBegin(wallet, a)
 		return nil, { Error = "Previous trade still processing", Pending = true }
 	end
 	if wallet.Cash < a.Fee + a.Cash then
-		return nil, { Error = "Not enough cash" }
+		return nil, { Error = "Not enough LNR" }
 	end
 	if a.Voucher then
 		local v = wallet.V or {}
@@ -842,6 +842,35 @@ function Ledger.WalletFavorite(wallet, a)
 	return wallet, { Ok = true }
 end
 
+-- Teil-Link/-Code: Werber merken (einmal im ganzen Spiel, getrennt vom Creator-Code). a = { Job, Ref }
+function Ledger.WalletReferPending(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false, Error = "Session lost – please rejoin" }
+	end
+	local st = wallet.St or {}
+	wallet.St = st
+	if st.RB or st.RP then
+		return nil, { Ok = false, Error = "You already joined through a friend" }
+	end
+	st.RP = a.Ref
+	return wallet, { Ok = true }
+end
+
+-- Wartende Teil-Belohnung auszahlen (genau einmal). a = { Job, Cash } -> { Ok, Ref }
+function Ledger.WalletReferPay(wallet, a)
+	if not wallet or wallet.Owner ~= a.Job then
+		return nil, { Ok = false }
+	end
+	local st = wallet.St or {}
+	if not st.RP or st.RB then
+		return nil, { Ok = false }
+	end
+	st.RB = st.RP
+	wallet.St = st
+	wallet.Cash = floorCents(wallet.Cash + a.Cash)
+	return wallet, { Ok = true, Ref = st.RB }
+end
+
 -- Rug-Lizenz kaufen (gilt für LicenseUses Rugpulls). a = { Job, Id, Cost, Uses }. Gleiche Id = nichts doppelt.
 function Ledger.WalletBuyLicense(wallet, a)
 	if not wallet or wallet.Owner ~= a.Job then
@@ -854,7 +883,7 @@ function Ledger.WalletBuyLicense(wallet, a)
 		return nil, { Ok = false, Error = string.format("You still have %d rug pulls left", wallet.RL) }
 	end
 	if wallet.Cash < a.Cost then
-		return nil, { Ok = false, Error = "Not enough cash" }
+		return nil, { Ok = false, Error = "Not enough LNR" }
 	end
 	wallet.Op = a.Id
 	wallet.Cash = floorCents(wallet.Cash - a.Cost)

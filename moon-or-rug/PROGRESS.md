@@ -32,6 +32,7 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `ReplicatedStorage/Shared/Indicators.luau` | ReplicatedStorage › Shared › Indicators | ModuleScript |
 | `ReplicatedStorage/Shared/Levels.luau` | ReplicatedStorage › Shared › Levels | ModuleScript |
 | `ReplicatedStorage/Shared/CreatorStyle.luau` | ReplicatedStorage › Shared › CreatorStyle | ModuleScript |
+| `ReplicatedStorage/Shared/Referral.luau` | ReplicatedStorage › Shared › Referral | ModuleScript |
 | `ServerScriptService/Main.server.luau` | ServerScriptService › Main | Script |
 | `ServerScriptService/Services/MarketService.luau` | ServerScriptService › Services › MarketService | ModuleScript |
 | `ServerScriptService/Services/PlayerDataService.luau` | ServerScriptService › Services › PlayerDataService | ModuleScript |
@@ -43,6 +44,7 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `ServerScriptService/Services/CreatorService.luau` | ServerScriptService › Services › CreatorService | ModuleScript |
 | `ServerScriptService/Services/MonetizationService.luau` | ServerScriptService › Services › MonetizationService | ModuleScript |
 | `ServerScriptService/Services/TradeLogService.luau` | ServerScriptService › Services › TradeLogService | ModuleScript |
+| `ServerScriptService/Services/ReferralService.luau` | ServerScriptService › Services › ReferralService | ModuleScript |
 | `ServerScriptService/Util/TextFilter.luau` | ServerScriptService › Util › TextFilter | ModuleScript |
 | `ServerScriptService/Util/Ledger.luau` | ServerScriptService › Util › Ledger | ModuleScript |
 | `ServerScriptService/Util/Store.luau` | ServerScriptService › Util › Store | ModuleScript |
@@ -63,6 +65,7 @@ Ordner = **Folder** (Rechtsklick → Insert Object → Folder).
 | `StarterPlayerScripts/ClientModules/ShopUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › ShopUI | ModuleScript |
 | `StarterPlayerScripts/ClientModules/TutorialUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › TutorialUI | ModuleScript |
 | `StarterPlayerScripts/ClientModules/SoundFx.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › SoundFx | ModuleScript |
+| `StarterPlayerScripts/ClientModules/PnlCardUI.luau` | StarterPlayer › StarterPlayerScripts › ClientModules › PnlCardUI | ModuleScript |
 
 **Schneller:** `MoonOrRug.rbxmx` enthält alle Skripte mit richtigem Namen/Typ (Studio: Rechtsklick › Insert from File,
 dann die Ordner verschieben – siehe `TESTING.md`). Neu bauen nach Code-Änderungen: `python3 tools/build_rbxmx.py`.
@@ -133,6 +136,28 @@ Neue Datei: `NpcTraderService`. Der Test-Coin `MTD` ist weg (die NPC-Coins erset
 **Simulation (Python-Nachbau, 3 Std. ohne Spieler):** ca. 1,3 Trades/Sek., 25–32 lebende Coins, NPC-Geld stabil,
 Rugs ≈ 10 % der Coins. Fehler gefunden und behoben: Zufall-NPCs verkauften alte Coins nur teilweise → Coins starben nie.
 Jetzt steigen alle NPCs aus alten Coins komplett aus.
+
+## Währung Lunar (LNR), PNL-Karte, Teil-Link
+
+| Frage | Antwort |
+|---|---|
+| Name | **Lunar (LNR)** – „Soilan“ verworfen (zu nah an Solana, Plan-Regel + Sperr-Risiko) |
+| Zahlen | wie bei Solana: Start 10 LNR, Kurse mit vielen Nullen (0.0000100 LNR) |
+| Dollar | fiktiver Kurs, schwankt langsam (ca. 140–180 $ pro LNR), nur Anzeige – LNR-Guthaben ändert sich nicht |
+| Umfang | überall im Spiel; Voreinstellung LNR oder $ (Tipp auf das Guthaben oben oder Schalter im 🛒-Fenster), umgerechnet wird immer |
+| PNL-Karte | wie bei Axiom, eigener LNR/$-Schalter, 📸 SHARE = Roblox-Screenshot teilen (CaptureService) |
+| Wo | Coin-Seite (📸 PNL SHARE bei eigener Position) + jeder Verkauf im Trade-Verlauf (antippen) |
+| Teil-Link | Link der geteilten Karte (LaunchData `ref=<UserId>`) oder Teil-Code `LNR…` im 🎁-Fenster: **beide** bekommen +3 LNR (≈ 500 $) |
+| Schutz | Konto ≥ 7 Tage + 30 Min. gespielt, einmal im ganzen Spiel, getrennt vom Creator-Code, nie der eigene |
+
+- **Intern bleibt alles in „Cash“** (keine Änderung an Kurve, Ledger, Spielständen): 1 LNR = 100 Cash
+  (`Config.Currency`). Nur die Anzeige rechnet um → kein Risiko für Geld/Duplikate.
+- Server-Meldungen enthalten Platzhalter `{$:Betrag}`, die jeder Client in **seiner** Einheit einsetzt.
+- Fiktiver $-Kurs = Summe langsamer Sinuswellen aus der Server-Zeit → auf allen Geräten gleich, ohne Netzwerk.
+- Teil-Code = „LNR“ + UserId in Basis 36 (eindeutig, ohne Speicher). Gilt nur, wenn der Werber wirklich einen
+  Spielstand hat (sonst könnte man sich einen Code ausdenken). Creator-Codes dürfen nicht mit „LNR“ beginnen.
+  Werber-Gutschrift übers Postfach ohne Wiederholung (nie doppelt), neue Spieler über `St.RP`/`St.RB` genau einmal.
+- In Studio ohne API-Zugriff gibt es keine Spielstände anderer Spieler → Teil-Codes werden dort zum Testen angenommen.
 
 ## Zusatz (nach Phase 9, deine Entscheidungen)
 

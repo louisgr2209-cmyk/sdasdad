@@ -9,6 +9,7 @@ local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage.Shared.Config)
 local Curve = require(ReplicatedStorage.Shared.BondingCurve)
+local Format = require(ReplicatedStorage.Shared.Format)
 
 local FEE_TOTAL = Config.Fees.Creator + Config.Fees.Burn
 local MAX_TRADES = Config.Market.RecentTrades
@@ -22,6 +23,7 @@ MarketClient.Boosts = {} -- [coinId] = bis (Server-Zeit)
 MarketClient.MyKey = tostring(Players.LocalPlayer.UserId) -- vergleichbar mit coin.CreatorId
 MarketClient.Creators = {} -- [Spieler-Schlüssel] = Creator-Stufe (1-4), vom Server
 MarketClient.Friends = {} -- [Spieler-Schlüssel] = true: Roblox-Freunde (👥)
+MarketClient.ShowPnlCard = nil :: ((any) -> ())? -- PNL-Karte öffnen (setzt TerminalUI)
 
 -- Signale für die Bildschirme
 MarketClient.Changed = Instance.new("BindableEvent") -- Markt oder eigene Daten geändert
@@ -31,6 +33,7 @@ MarketClient.AdminResult = Instance.new("BindableEvent") -- ({ Ok, Message, Log 
 MarketClient.Purchased = Instance.new("BindableEvent") -- (name, gekauft?) nach einem Robux-Kauf-Fenster
 
 local tradeRequest: RemoteEvent
+local applySettings -- unten definiert
 local remotes: Instance
 
 local function addTrade(coin, trade)
@@ -80,7 +83,7 @@ local function applyUpdate(update)
 			local held = MarketClient.Me.Positions ~= nil and MarketClient.Me.Positions[trade.CoinId] ~= nil
 			local devSold = trade.Side == "Sell" and trade.TraderId ~= MarketClient.MyKey and MarketClient.IsDevTrade(coin, trade)
 			if devSold and held and MarketClient.HasPass("Pro") then
-				local text = string.format("⚠ PRO: Dev sold $%s for %d Cash", coin.Ticker, math.floor(trade.Cash or 0))
+				local text = string.format("⚠ PRO: Dev sold $%s for %s", coin.Ticker, Format.Cash(trade.Cash or 0))
 				MarketClient.TradeResult:Fire(false, text)
 			end
 		end
@@ -89,6 +92,7 @@ local function applyUpdate(update)
 		MarketClient.Boosts = update.Boosts
 	end
 	for _, news in update.News or {} do
+		news.Text = Format.Resolve(news.Text or "") -- Beträge in der eigenen Anzeige (LNR/$)
 		MarketClient.News:Fire(news)
 	end
 end
@@ -249,6 +253,20 @@ function MarketClient.SetFlag(name: string, value: boolean?)
 	remote:FireServer(name, value)
 end
 
+-- Voreinstellung der Anzeige: Lunar (LNR) oder Spiel-Dollar ($). Umgerechnet wird immer.
+applySettings = function()
+	local settings = MarketClient.Me.Settings
+	Format.Unit = if settings and settings.Usd then "USD" else "LNR"
+end
+
+function MarketClient.SetUnit(unit: string)
+	MarketClient.Me.Settings = MarketClient.Me.Settings or {}
+	MarketClient.Me.Settings.Usd = unit == "USD"
+	applySettings()
+	MarketClient.Changed:Fire()
+	MarketClient.SetFlag("Usd", unit == "USD")
+end
+
 -- Favoriten ⭐
 function MarketClient.IsFavorite(coinId: string): boolean
 	return table.find(MarketClient.Me.Favorites or {}, coinId) ~= nil
@@ -355,10 +373,11 @@ function MarketClient.Start()
 	end)
 	playerState.OnClientEvent:Connect(function(state)
 		MarketClient.Me = state
+		applySettings()
 		MarketClient.Changed:Fire()
 	end)
 	tradeResult.OnClientEvent:Connect(function(result)
-		MarketClient.TradeResult:Fire(result.Ok, result.Message)
+		MarketClient.TradeResult:Fire(result.Ok, Format.Resolve(tostring(result.Message)))
 	end)
 	task.spawn(loadFriends)
 	local creators = remotes:WaitForChild("Creators") :: RemoteEvent
@@ -406,6 +425,7 @@ function MarketClient.Start()
 				end
 				if snapshot.Me then
 					MarketClient.Me = snapshot.Me
+					applySettings()
 				end
 				MarketClient.Boosts = snapshot.Boosts or {}
 				MarketClient.Changed:Fire()
